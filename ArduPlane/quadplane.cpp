@@ -149,7 +149,7 @@ const AP_Param::GroupInfo QuadPlane::var_info[] = {
     // @Param: FRAME_CLASS
     // @DisplayName: Frame Class
     // @Description: Controls major frame class for multicopter component
-    // @Values: 0:Undefined, 1:Quad, 2:Hexa, 3:Octa, 4:OctaQuad, 5:Y6, 7:Tri, 10: TailSitter, 12:DodecaHexa, 14:Deca, 15:Scripting Matrix
+    // @Values: 0:Undefined, 1:Quad, 2:Hexa, 3:Octa, 4:OctaQuad, 5:Y6, 7:Tri, 10: TailSitter, 12:DodecaHexa, 14:Deca, 15:Scripting Matrix, 36:Harrier
     // @User: Standard
     AP_GROUPINFO("FRAME_CLASS", 46, QuadPlane, frame_class, 1),
 
@@ -728,6 +728,15 @@ bool QuadPlane::setup(void)
         SRV_Channels::set_default_function(CH_11, SRV_Channel::k_motor7);
         AP_Param::set_frame_type_flags(AP_PARAM_FRAME_TRICOPTER);
         break;
+    case AP_Motors::MOTOR_FRAME_HARRIER:
+        SRV_Channels::set_default_function(CH_5, SRV_Channel::k_motor1);
+        SRV_Channels::set_default_function(CH_6, SRV_Channel::k_motor2);
+        SRV_Channels::set_default_function(CH_7, SRV_Channel::k_motor3);
+        SRV_Channels::set_default_function(CH_8, SRV_Channel::k_motor4);
+        SRV_Channels::set_default_function(CH_9, SRV_Channel::k_motor5);
+        SRV_Channels::set_default_function(CH_11, SRV_Channel::k_motor7);
+        AP_Param::set_frame_type_flags(AP_PARAM_FRAME_TRICOPTER);
+        break;
     case AP_Motors::MOTOR_FRAME_TAILSITTER:
     case AP_Motors::MOTOR_FRAME_SCRIPTING_MATRIX:
         break;
@@ -741,6 +750,10 @@ bool QuadPlane::setup(void)
         case AP_Motors::MOTOR_FRAME_TRI:
             motors = new AP_MotorsTri(plane.scheduler.get_loop_rate_hz(), rc_speed);
             motors_var_info = AP_MotorsTri::var_info;
+            break;
+        case AP_Motors::MOTOR_FRAME_HARRIER:
+            motors = new AP_MotorsHarrier(plane.scheduler.get_loop_rate_hz(), rc_speed);
+            motors_var_info = AP_MotorsHarrier::var_info;
             break;
         case AP_Motors::MOTOR_FRAME_TAILSITTER:
             // this is a duo-motor tailsitter (vectored thrust if tilt.tilt_mask != 0)
