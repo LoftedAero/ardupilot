@@ -88,7 +88,7 @@ const AP_Param::GroupInfo Tiltrotor::var_info[] = {
     // @Range: 0 180
     // @Increment: 0.1
     // @User: Standard
-    AP_GROUPINFO("TILT_ANGLE_MAX", 11, Tiltrotor, tilt_angle_max, 90),
+    AP_GROUPINFO("ANGLE_MAX", 11, Tiltrotor, tilt_angle_max, 90),
 
     AP_GROUPEND
 };
