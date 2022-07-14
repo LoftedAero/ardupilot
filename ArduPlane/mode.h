@@ -52,6 +52,8 @@ public:
         THERMAL       = 24,
 #if HAL_QUADPLANE_ENABLED
         LOITER_ALT_QLAND = 25,
+        QFLOITER         = 26,
+        QFHOVER          = 27,
 #endif
     };
 
@@ -526,6 +528,27 @@ protected:
     bool _enter() override;
 };
 
+class ModeQFHover : public Mode
+{
+public:
+
+    Number mode_number() const override { return Number::QFHOVER; }
+    const char *name() const override { return "QFHOVER"; }
+    const char *name4() const override { return "QFHO"; }
+
+    bool is_vtol_mode() const override { return true; }
+    virtual bool is_vtol_man_mode() const override { return true; }
+
+    // methods that affect movement of the vehicle in this mode
+    void update() override;
+
+    void run() override;
+
+protected:
+
+    bool _enter() override;
+};
+
 class ModeQLoiter : public Mode
 {
 friend class QuadPlane;
@@ -535,6 +558,27 @@ public:
     Number mode_number() const override { return Number::QLOITER; }
     const char *name() const override { return "QLOITER"; }
     const char *name4() const override { return "QLOT"; }
+
+    bool is_vtol_mode() const override { return true; }
+    virtual bool is_vtol_man_mode() const override { return true; }
+
+    // methods that affect movement of the vehicle in this mode
+    void update() override;
+
+    void run() override;
+
+protected:
+
+    bool _enter() override;
+};
+
+class ModeQFLoiter : public Mode
+{
+public:
+
+    Number mode_number() const override { return Number::QFLOITER; }
+    const char *name() const override { return "QFLOITER"; }
+    const char *name4() const override { return "QFLO"; }
 
     bool is_vtol_mode() const override { return true; }
     virtual bool is_vtol_man_mode() const override { return true; }

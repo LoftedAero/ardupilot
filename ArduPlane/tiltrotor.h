@@ -87,6 +87,9 @@ public:
     uint32_t transition_yaw_set_ms;
     bool _is_vectored;
 
+    // tiltrotor thrust vector angle limit
+    AP_Float tilt_angle_max;
+
     // types of tilt mechanisms
     enum {TILT_TYPE_CONTINUOUS    =0,
           TILT_TYPE_BINARY        =1,
