@@ -82,6 +82,15 @@ const AP_Param::GroupInfo Tiltrotor::var_info[] = {
     // @User: Standard
     AP_GROUPINFO("WING_FLAP", 10, Tiltrotor, flap_angle_deg, 0),
 
+    // @Param: ANGLE_MAX
+    // @DisplayName: Tiltrotor maximum thrust vector angle
+    // @Description: This is the maximum achievable thrust vector angle for motor tilt. Useful for setups that can tilt past 90 degrees in order to produce backwards thrust
+    // @Units: deg
+    // @Range: 0 180
+    // @Increment: 0.1
+    // @User: Standard
+    AP_GROUPINFO("ANGLE_MAX", 11, Tiltrotor, tilt_angle_max, 90),
+
     AP_GROUPEND
 };
 
@@ -189,8 +198,8 @@ void Tiltrotor::slew(float newtilt)
 
     angle_achieved = is_equal(newtilt, current_tilt);
 
-    // translate to 0..1000 range and output
-    SRV_Channels::set_output_scaled(SRV_Channel::k_motor_tilt, 1000 * current_tilt);
+    // Compensate for negative nozzle tilt, translate to 0..1000 range and output
+    SRV_Channels::set_output_scaled(SRV_Channel::k_motor_tilt, 1000 * (current_tilt + (tilt_angle_max - 90.0f) / tilt_angle_max));
 }
 
 // return the current tilt value that represens forward flight
@@ -304,13 +313,33 @@ void Tiltrotor::continuous_update(void)
         // we are transitioning to fixed wing - tilt the motors all
         // the way forward
         slew(get_forward_flight_tilt());
+        
+    } else if (plane.control_mode == &plane.mode_qfloiter) {
+        // we are in QFLOITER mode, use the navigation pitch angle demand to control thrust vector
+        float loiter_pitch = plane.quadplane.loiter_nav->get_pitch() / 100;
+        float tilt_rev_max = tilt_angle_max - 90.0f;
+        float tilt_fwd_max = degrees(atanf(tanf(radians(quadplane.aparm.angle_max / 100.0f))*2));
+        float settilt = constrain_float(-1.0f * degrees(atanf(tanf(radians(loiter_pitch))*2)), -tilt_rev_max, tilt_fwd_max);
+        slew(settilt / tilt_angle_max);
+
+    } else if (plane.control_mode == &plane.mode_qfhover) {
+        float tilt_rev_max = tilt_angle_max - 90.0f;
+        float tilt_fwd_max = degrees(atanf(tanf(radians(plane.quadplane.aparm.angle_max / 100.0f))*2));
+        float settilt = constrain_float(quadplane.forward_throttle_pct() / 100.0f, -1, 1);
+        if (settilt >= 0) {
+            slew(settilt * tilt_fwd_max / tilt_angle_max);
+        }
+        else {
+            slew(settilt * tilt_rev_max / tilt_angle_max);
+        }
+
     } else {
         // until we have completed the transition we limit the tilt to
         // Q_TILT_MAX. Anything above 50% throttle gets
         // Q_TILT_MAX. Below 50% throttle we decrease linearly. This
         // relies heavily on Q_VFWD_GAIN being set appropriately.
-       float settilt = constrain_float((SRV_Channels::get_output_scaled(SRV_Channel::k_throttle)-MAX(plane.aparm.throttle_min.get(),0)) * 0.02, 0, 1);
-       slew(MIN(settilt * max_angle_deg * (1/90.0), get_forward_flight_tilt())); 
+       float settilt = constrain_float(SRV_Channels::get_output_scaled(SRV_Channel::k_throttle) * 0.02, 0, 1);
+       slew(settilt * max_angle_deg / tilt_angle_max);
     }
 }
 
@@ -453,7 +482,7 @@ void Tiltrotor::tilt_compensate_angle(float *thrust, uint8_t num_motors, float n
  */
 void Tiltrotor::tilt_compensate(float *thrust, uint8_t num_motors)
 {
-    if (current_tilt <= 0) {
+    if (abs(current_tilt) <= 0.02f) {
         // the motors are not tilted, no compensation needed
         return;
     }

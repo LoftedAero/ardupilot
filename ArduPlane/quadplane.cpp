@@ -154,7 +154,7 @@ const AP_Param::GroupInfo QuadPlane::var_info[] = {
     // @Param: FRAME_CLASS
     // @DisplayName: Frame Class
     // @Description: Controls major frame class for multicopter component
-    // @Values: 0:Undefined, 1:Quad, 2:Hexa, 3:Octa, 4:OctaQuad, 5:Y6, 7:Tri, 10: Single/Dual, 12:DodecaHexa, 14:Deca, 15:Scripting Matrix, 17:Dynamic Scripting Matrix
+    // @Values: 0:Undefined, 1:Quad, 2:Hexa, 3:Octa, 4:OctaQuad, 5:Y6, 7:Tri, 10: Single/Dual, 12:DodecaHexa, 14:Deca, 15:Scripting Matrix, 17:Dynamic Scripting Matrix, 35:F-35B
     // @User: Standard
     AP_GROUPINFO("FRAME_CLASS", 46, QuadPlane, frame_class, 1),
 
@@ -696,6 +696,14 @@ bool QuadPlane::setup(void)
         SRV_Channels::set_default_function(CH_11, SRV_Channel::k_motor7);
         AP_Param::set_frame_type_flags(AP_PARAM_FRAME_TRICOPTER);
         break;
+    case AP_Motors::MOTOR_FRAME_F35B:
+        SRV_Channels::set_default_function(CH_5, SRV_Channel::k_motor1);
+        SRV_Channels::set_default_function(CH_6, SRV_Channel::k_motor2);
+        SRV_Channels::set_default_function(CH_7, SRV_Channel::k_motor3);
+        SRV_Channels::set_default_function(CH_8, SRV_Channel::k_motor4);
+        SRV_Channels::set_default_function(CH_11, SRV_Channel::k_motor7);
+        AP_Param::set_frame_type_flags(AP_PARAM_FRAME_TRICOPTER);
+        break;
     case AP_Motors::MOTOR_FRAME_TAILSITTER:
     case AP_Motors::MOTOR_FRAME_SCRIPTING_MATRIX:
     case AP_Motors::MOTOR_FRAME_DYNAMIC_SCRIPTING_MATRIX:
@@ -713,6 +721,10 @@ bool QuadPlane::setup(void)
     case AP_Motors::MOTOR_FRAME_TRI:
         motors = new AP_MotorsTri(rc_speed);
         motors_var_info = AP_MotorsTri::var_info;
+        break;
+    case AP_Motors::MOTOR_FRAME_F35B:
+        motors = new AP_MotorsF35B(rc_speed);
+        motors_var_info = AP_MotorsF35B::var_info;
         break;
     case AP_Motors::MOTOR_FRAME_TAILSITTER:
         // this is a duo-motor tailsitter
@@ -2164,6 +2176,7 @@ bool QuadPlane::in_vtol_posvel_mode(void) const
         return false;
     }
     return (plane.control_mode == &plane.mode_qloiter ||
+            plane.control_mode == &plane.mode_qfloiter ||
             plane.control_mode == &plane.mode_qland ||
             plane.control_mode == &plane.mode_qrtl ||
 #if QAUTOTUNE_ENABLED
@@ -3559,9 +3572,9 @@ float QuadPlane::forward_throttle_pct()
     }
 
     /*
-      in qautotune mode or modes without a velocity controller
+      in qautotune mode
     */
-    bool use_forward_gain = (vel_forward.gain > 0);
+    bool use_forward_gain = true;
 #if QAUTOTUNE_ENABLED
     if (plane.control_mode == &plane.mode_qautotune) {
         use_forward_gain = false;
@@ -3569,6 +3582,21 @@ float QuadPlane::forward_throttle_pct()
 #endif
     if (!use_forward_gain) {
         return 0;
+    }
+
+    /*
+      in modes without a velocity controller
+    */
+    if  (vel_forward.gain <= 0 && plane.control_mode != &plane.mode_qfhover) {
+            return 0;
+        }
+
+    /*
+      in QFHOVER mode, translate pilot pitch commands to control forward thrust instead
+    */
+    if (plane.control_mode == &plane.mode_qfhover) {
+        float pitch_input = -100 * plane.channel_pitch->norm_input();
+        return constrain_int16(pitch_input, -100, 100);
     }
 
     /*
@@ -3669,6 +3697,7 @@ float QuadPlane::get_weathervane_yaw_rate_cds(void)
         plane.control_mode == &plane.mode_qautotune ||
 #endif
         plane.control_mode == &plane.mode_qhover ||
+        plane.control_mode == &plane.mode_qfhover ||
         should_relax()
         ) {
         // Ensure the weathervane controller is reset to prevent weathervaning from happening outside of the timer
@@ -3796,7 +3825,7 @@ bool QuadPlane::do_user_takeoff(float takeoff_altitude)
 // return true if the wp_nav controller is being updated
 bool QuadPlane::using_wp_nav(void) const
 {
-    if (plane.control_mode == &plane.mode_qloiter || plane.control_mode == &plane.mode_qland) {
+    if (plane.control_mode == &plane.mode_qloiter || plane.control_mode == &plane.mode_qfloiter || plane.control_mode == &plane.mode_qland) {
         return true;
     }
     return false;

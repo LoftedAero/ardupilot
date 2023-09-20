@@ -151,7 +151,9 @@ public:
     friend class ModeManual;
     friend class ModeQStabilize;
     friend class ModeQHover;
+    friend class ModeQFHover;
     friend class ModeQLoiter;
+    friend class ModeQFLoiter;
     friend class ModeQLand;
     friend class ModeQRTL;
     friend class ModeQAcro;
@@ -271,7 +273,9 @@ private:
 #if HAL_QUADPLANE_ENABLED
     ModeQStabilize mode_qstabilize;
     ModeQHover mode_qhover;
+    ModeQFHover mode_qfhover;
     ModeQLoiter mode_qloiter;
+    ModeQFLoiter mode_qfloiter;
     ModeQLand mode_qland;
     ModeQRTL mode_qrtl;
     ModeQAcro mode_qacro;
@@ -606,6 +610,9 @@ private:
     // The instantaneous desired pitch angle.  Hundredths of a degree
     int32_t nav_pitch_cd;
 
+    // The excess desired pitch angle after thrust vectoring saturates.  Hundredths of a degree
+    int32_t pitch_excess_cd;
+
     // the aerodymamic load factor. This is calculated from the demanded
     // roll before the roll is clipped, using 1/sqrt(cos(nav_roll))
     float aerodynamic_load_factor = 1.0f;
@@ -808,6 +815,7 @@ private:
         QRTL            = 1U << 9,
         QLAND           = 1U << 10,
         QLOITER         = 1U << 11,
+        QFLOITER        = 1U << 12,
     };
     struct TerrainLookupTable{
        Mode::Number mode_num;
