@@ -504,6 +504,16 @@ const AP_Param::GroupInfo QuadPlane::var_info2[] = {
     // @User: Standard
     AP_GROUPINFO("RTL_ALT_MIN", 34, QuadPlane, qrtl_alt_min, 10),
 
+    // @Param: TRIM_STOL
+    // @DisplayName: Quadplane AHRS trim for STOL mode
+    // @Description: This sets a pitch offset for flight in STOL mode. It is intended to allow choosing of a small positive angle of attack for efficient thrust-assisted forward flight.
+    // @Units: deg
+    // @Range: -10 +10
+    // @Increment: 0.1
+    // @User: Advanced
+    // @RebootRequired: True
+    AP_GROUPINFO("TRIM_STOL", 35, QuadPlane, trim_stol, 0),
+
     AP_GROUPEND
 };
 
@@ -3585,18 +3595,25 @@ float QuadPlane::forward_throttle_pct()
     }
 
     /*
-      in modes without a velocity controller
-    */
-    if  (vel_forward.gain <= 0 && plane.control_mode != &plane.mode_qfhover) {
-            return 0;
-        }
-
-    /*
       in QFHOVER mode, translate pilot pitch commands to control forward thrust instead
     */
     if (plane.control_mode == &plane.mode_qfhover) {
         float pitch_input = -100 * plane.channel_pitch->norm_input();
         return constrain_int16(pitch_input, -100, 100);
+    }
+
+    /*
+      in QSTOL mode, use a fixed forward thrust demand
+    */
+    if (plane.control_mode == &plane.mode_qstol) {
+        return 100;
+    }
+
+    /*
+      in modes without a velocity controller
+    */
+    if  (vel_forward.gain <= 0 && plane.control_mode) {
+            return 0;
     }
 
     /*

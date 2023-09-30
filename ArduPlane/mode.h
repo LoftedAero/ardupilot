@@ -46,6 +46,7 @@ public:
         QRTL          = 21,
         QFLOITER      = 26,
         QFHOVER       = 27,
+        QSTOL        = 28,
 #if QAUTOTUNE_ENABLED
         QAUTOTUNE     = 22,
 #endif
@@ -564,6 +565,29 @@ private:
     void set_tailsitter_roll_pitch(const float roll_input, const float pitch_input);
     void set_limited_roll_pitch(const float roll_input, const float pitch_input);
 
+};
+
+class ModeQStol : public Mode
+{
+public:
+
+    Number mode_number() const override { return Number::QSTOL; }
+    const char *name() const override { return "QSTOL"; }
+    const char *name4() const override { return "QSTO"; }
+
+    bool is_vtol_mode() const override { return true; }
+    bool is_vtol_man_throttle() const override { return true; }
+    virtual bool is_vtol_man_mode() const override { return true; }
+    bool allows_throttle_nudging() const override { return true; }
+
+    // methods that affect movement of the vehicle in this mode
+    void update() override;
+
+    void run() override;
+
+protected:
+
+    bool _enter() override;
 };
 
 class ModeQHover : public Mode

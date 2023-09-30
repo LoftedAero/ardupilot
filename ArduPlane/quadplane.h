@@ -58,6 +58,7 @@ public:
     friend class ModeQFLoiter;
     friend class ModeQRTL;
     friend class ModeQStabilize;
+    friend class ModeQStol;
     friend class ModeQAutotune;
     friend class ModeQAcro;
     friend class ModeLoiterAltQLand;
@@ -329,6 +330,9 @@ private:
     // Quadplane trim, degrees
     AP_Float ahrs_trim_pitch;
     float _last_ahrs_trim_pitch;
+
+    // STOL mode trim, degrees
+    AP_Float trim_stol;
 
     // fw landing approach radius
     AP_Float fw_land_approach_radius;

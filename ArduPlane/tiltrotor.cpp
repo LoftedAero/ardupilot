@@ -322,7 +322,7 @@ void Tiltrotor::continuous_update(void)
         float settilt = constrain_float(-1.0f * degrees(atanf(tanf(radians(loiter_pitch))*2)), -tilt_rev_max, tilt_fwd_max);
         slew(settilt / tilt_angle_max);
 
-    } else if (plane.control_mode == &plane.mode_qfhover) {
+    } else if (plane.control_mode == &plane.mode_qfhover || plane.control_mode == &plane.mode_qstol) {
         float tilt_rev_max = tilt_angle_max - 90.0f;
         float tilt_fwd_max = degrees(atanf(tanf(radians(plane.quadplane.aparm.angle_max / 100.0f))*2));
         float settilt = constrain_float(quadplane.forward_throttle_pct() / 100.0f, -1, 1);

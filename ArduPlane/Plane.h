@@ -150,6 +150,7 @@ public:
     friend class ModeInitializing;
     friend class ModeManual;
     friend class ModeQStabilize;
+    friend class ModeQStol;
     friend class ModeQHover;
     friend class ModeQFHover;
     friend class ModeQLoiter;
@@ -272,6 +273,7 @@ private:
     ModeManual mode_manual;
 #if HAL_QUADPLANE_ENABLED
     ModeQStabilize mode_qstabilize;
+    ModeQStol mode_qstol;
     ModeQHover mode_qhover;
     ModeQFHover mode_qfhover;
     ModeQLoiter mode_qloiter;

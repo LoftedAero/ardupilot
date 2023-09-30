@@ -59,6 +59,9 @@ Mode *Plane::mode_from_mode_num(const enum Mode::Number num)
     case Mode::Number::QSTABILIZE:
         ret = &mode_qstabilize;
         break;
+    case Mode::Number::QSTOL:
+        ret = &mode_qstol;
+        break;
     case Mode::Number::QHOVER:
         ret = &mode_qhover;
         break;

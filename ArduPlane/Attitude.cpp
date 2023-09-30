@@ -242,6 +242,7 @@ void Plane::stabilize_stick_mixing_fbw()
         control_mode == &mode_cruise ||
 #if HAL_QUADPLANE_ENABLED
         control_mode == &mode_qstabilize ||
+        control_mode == &mode_qstol ||
         control_mode == &mode_qhover ||
         control_mode == &mode_qfhover ||
         control_mode == &mode_qloiter ||
@@ -409,6 +410,11 @@ void Plane::stabilize()
         } else {
             stabilize_roll();
             stabilize_pitch();
+        }
+
+        // stabilize yaw (and provide ground steering) in QSTOL mode
+        if (plane.control_mode->mode_number() == Mode::Number::QSTOL) {
+            stabilize_yaw();
         }
 #endif
     } else {
