@@ -91,6 +91,15 @@ const AP_Param::GroupInfo Tiltrotor::var_info[] = {
     // @User: Standard
     AP_GROUPINFO("ANGLE_MAX", 11, Tiltrotor, tilt_angle_max, 90),
 
+    // @Param: STOL
+    // @DisplayName: Tiltrotor STOL thrust vector angle
+    // @Description: This is the value to which tilting motors will deflect in the QSTOL flight mode
+    // @Units: deg
+    // @Range: 0 90
+    // @Increment: 0.1
+    // @User: Standard
+    AP_GROUPINFO("STOL", 12, Tiltrotor, tilt_stol, 45),
+
     AP_GROUPEND
 };
 
@@ -322,7 +331,8 @@ void Tiltrotor::continuous_update(void)
         float settilt = constrain_float(-1.0f * degrees(atanf(tanf(radians(loiter_pitch))*2)), -tilt_rev_max, tilt_fwd_max);
         slew(settilt / tilt_angle_max);
 
-    } else if (plane.control_mode == &plane.mode_qfhover || plane.control_mode == &plane.mode_qstol) {
+    } else if (plane.control_mode == &plane.mode_qfhover) {
+        // we are in QFHOVER mode, use the forward thrust demand to control thrust vector
         float tilt_rev_max = tilt_angle_max - 90.0f;
         float tilt_fwd_max = degrees(atanf(tanf(radians(plane.quadplane.aparm.angle_max / 100.0f))*2));
         float settilt = constrain_float(quadplane.forward_throttle_pct() / 100.0f, -1, 1);
@@ -332,6 +342,11 @@ void Tiltrotor::continuous_update(void)
         else {
             slew(settilt * tilt_rev_max / tilt_angle_max);
         }
+    
+    } else if (plane.control_mode == &plane.mode_qstol) {
+        // we are in QSTOL mode, use the dedicated parameter to set a fixed thrust vector
+        float settilt = constrain_float((tilt_stol / tilt_angle_max), 0, 1);
+        slew(settilt); 
 
     } else {
         // until we have completed the transition we limit the tilt to
