@@ -126,7 +126,6 @@ void AP_MotorsF35B::output_to_motors()
         case SpoolState::THROTTLE_UNLIMITED:
         case SpoolState::SPOOLING_DOWN:
             // set motor output based on thrust requests
-            //GCS_SEND_TEXT(MAV_SEVERITY_WARNING, "_thrust_right: %f", _thrust_right);
             set_actuator_with_slew(_actuator[1], thrust_to_actuator(_thrust_right));
             set_actuator_with_slew(_actuator[2], thrust_to_actuator(_thrust_left));
             set_actuator_with_slew(_actuator[3], thrust_to_actuator(_thrust_front));
@@ -174,8 +173,8 @@ void AP_MotorsF35B::output_armed_stabilizing()
     float   throttle_thrust_best_rll;   // throttle providing maximum roll range without climbing
     float   rll_scale = 1.0f;           // this is used to scale the roll to fit within the motor limits
     float   rll_low = 0.0f;             // lowest roll motor value
-    //float   rll_high = 0.0f;            // highest roll motor value
-    //float   thr_adj_rll;                // the difference between the pilot's desired throttle and throttle_thrust_best_rll
+    float   rll_high = 0.0f;            // highest roll motor value
+    float   thr_adj_rll;                // the difference between the pilot's desired throttle and throttle_thrust_best_rll
 
     SRV_Channels::set_angle(SRV_Channels::get_motor_function(AP_MOTORS_CH_TRI_YAW), _yaw_servo_angle_max_deg*100);
 
@@ -224,18 +223,18 @@ void AP_MotorsF35B::output_armed_stabilizing()
 
     // calculate roll and pitch for each motor
     // set py_low and py_high to the lowest and highest values of the main motors
-    // set rll_low and rll_high to the lowest and highest values of the roll motors
+    // set rll_low to the lowest value of the roll motors
 
     // record lowest and highest pitch and roll commands
     py_low = MIN(_thrust_front, _thrust_rear);
-    py_high = _thrust_front;
     rll_low = MIN(_thrust_left, _thrust_right);
-    //rll_high = MAX(_thrust_left, _thrust_right);
     
     // check to see if the rear motor will reach maximum thrust before the front motor
-    if ((1.0f - py_high) > (pivot_thrust_max - _thrust_rear)) {
+    if ((1.0f - _thrust_front) > (pivot_thrust_max - _thrust_rear)) {
         thrust_max = pivot_thrust_max;
         py_high = _thrust_rear;
+    } else {
+        py_high = _thrust_front;
     }
 
     // calculate throttle that gives most possible room for yaw (range 1000 ~ 2000) which is the lower of:
@@ -287,32 +286,38 @@ void AP_MotorsF35B::output_armed_stabilizing()
     //      We will choose #2 (a mix of pilot and hover throttle) only when the throttle is quite low.  We favor reducing throttle instead of better yaw control because the pilot has commanded it
 
     // check everything fits in roll
-    throttle_thrust_best_rll = MIN(0.5f, throttle_avg_max);
+    throttle_thrust_best_rll = 0.5f * thrust_max;
     if (is_zero(rll_low)) {
         rll_scale = 1.0f;
     } else {
         rll_scale = constrain_float(-throttle_thrust_best_rll / rll_low, 0.0f, 1.0f);
-        // Check if roll is saturated. If so, force throttle to 50%. This will boost authority if we are saturated and throttle is low.
-        if (rll_scale < 1.0f) {
-            throttle_thrust_best_rll = 0.5f;
-            GCS_SEND_TEXT(MAV_SEVERITY_WARNING, "boosting roll throttle by: %f", 0.5f - throttle_avg_max);
-        }
-        // Recalculate remaining saturation and scale accordingly
-        rll_scale = constrain_float(-0.5f / rll_low, 0.0f, 1.0f);
     }
+
+    // calculate how close the roll motors can come to the desired throttle
+    thr_adj_rll = throttle_thrust - throttle_thrust_best_rll;
     if (rll_scale < 1.0f) {
         // Full range is being used by roll.
         limit.roll = true;
+        thr_adj_rll = 0.0f;
+    } else {
+        if (thr_adj_rll < -(throttle_thrust_best_rll + rll_low)) {
+            // Throttle can't be reduced to desired value
+            thr_adj_rll = -(throttle_thrust_best_rll + rll_low);
+        } else if (thr_adj_rll > thrust_max - (throttle_thrust_best_rll + rll_high)) {
+            // Throttle can't be increased to desired value
+            thr_adj_rll = thrust_max - (throttle_thrust_best_rll + rll_high);
+        }
     }
 
     // determine throttle thrust for harmonic notch
     const float throttle_thrust_best_plus_adj = throttle_thrust_best_py + thr_adj_py;
+    const float throttle_thrust_best_rll_plus_adj = throttle_thrust_best_rll + thr_adj_rll;
     // compensation_gain can never be zero
     _throttle_out = throttle_thrust_best_plus_adj / compensation_gain;
 
     // add scaled roll, pitch, constrained yaw and throttle for each motor
-    _thrust_right = throttle_thrust_best_rll + rll_scale * _thrust_right;
-    _thrust_left = throttle_thrust_best_rll + rll_scale * _thrust_left;
+    _thrust_right = throttle_thrust_best_rll_plus_adj + rll_scale * _thrust_right;
+    _thrust_left = throttle_thrust_best_rll_plus_adj + rll_scale * _thrust_left;
     _thrust_rear = throttle_thrust_best_plus_adj + py_scale * _thrust_rear;
     _thrust_front = throttle_thrust_best_plus_adj + py_scale * _thrust_front;
 

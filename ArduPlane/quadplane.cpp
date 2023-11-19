@@ -22,7 +22,7 @@ const AP_Param::GroupInfo QuadPlane::var_info[] = {
 
     // @Param: ANGLE_MAX
     // @DisplayName: Angle Max
-    // @Description: Maximum lean angle in all VTOL flight modes
+    // @Description: Maximum lean angle in all VTOL flight modes except QSTOL
     // @Units: cdeg
     // @Increment: 10
     // @Range: 1000 8000
@@ -511,8 +511,25 @@ const AP_Param::GroupInfo QuadPlane::var_info2[] = {
     // @Range: -10 +10
     // @Increment: 0.1
     // @User: Advanced
-    // @RebootRequired: True
     AP_GROUPINFO("TRIM_STOL", 35, QuadPlane, trim_stol, 0),
+
+    // @Param: ROLL_STOL
+    // @DisplayName: Quadplane roll limit for STOL mode
+    // @Description: Maximum roll angle in QSTOL mode
+    // @Units: cdeg
+    // @Increment: 10
+    // @Range: 1000 8000
+    // @User: Advanced
+    AP_GROUPINFO("ROLL_STOL", 36, QuadPlane, roll_stol, 4500),
+
+    // @Param: PITCH_STOL
+    // @DisplayName: Quadplane pitch limit for STOL mode
+    // @Description: Maximum pitch angle in QSTOL mode
+    // @Units: cdeg
+    // @Increment: 10
+    // @Range: 1000 8000
+    // @User: Advanced
+    AP_GROUPINFO("PITCH_STOL", 37, QuadPlane, pitch_stol, 2000),
 
     AP_GROUPEND
 };

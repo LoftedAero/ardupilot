@@ -98,7 +98,7 @@ const AP_Param::GroupInfo Tiltrotor::var_info[] = {
     // @Range: 0 90
     // @Increment: 0.1
     // @User: Standard
-    AP_GROUPINFO("STOL", 12, Tiltrotor, tilt_stol, 45),
+    AP_GROUPINFO("STOL", 12, Tiltrotor, tilt_stol, 35),
 
     AP_GROUPEND
 };

@@ -20,9 +20,9 @@ void ModeQStol::update()
     const float roll_input = (float)plane.channel_roll->get_control_in() / plane.channel_roll->get_range();
     const float pitch_input = (float)plane.channel_pitch->get_control_in() / plane.channel_pitch->get_range();
 
-    // use fixed wing roll limit with multirotor pitch limit
-    plane.nav_roll_cd = roll_input * plane.roll_limit_cd;
-    plane.nav_pitch_cd = pitch_input * plane.quadplane.aparm.angle_max + plane.quadplane.trim_stol * 100.0f;
+    // use dedicated parameters for pitch and roll limits
+    plane.nav_roll_cd = roll_input * plane.quadplane.roll_stol;
+    plane.nav_pitch_cd = pitch_input * plane.quadplane.pitch_stol + plane.quadplane.trim_stol * 100.0f;
 }
 
 // quadplane stabilize mode

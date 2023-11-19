@@ -331,8 +331,10 @@ private:
     AP_Float ahrs_trim_pitch;
     float _last_ahrs_trim_pitch;
 
-    // STOL mode trim, degrees
+    // STOL mode trim (degrees) and angle limits (centidegrees)
     AP_Float trim_stol;
+    AP_Int16 roll_stol;
+    AP_Int16 pitch_stol;
 
     // fw landing approach radius
     AP_Float fw_land_approach_radius;
