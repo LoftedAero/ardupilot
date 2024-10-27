@@ -406,8 +406,14 @@ void Plane::stabilize()
         // scripting is in control of roll and pitch rates and throttle
         const float speed_scaler = get_speed_scaler();
         const float aileron = rollController.get_rate_out(nav_scripting.roll_rate_dps, speed_scaler);
-        const float elevator = pitchController.get_rate_out(nav_scripting.pitch_rate_dps, speed_scaler);
         SRV_Channels::set_output_scaled(SRV_Channel::k_aileron, aileron);
+        float elevator = 0;
+        elevator = nav_scripting.elevator_offset_pct * 45;
+        if (nav_scripting.run_pitch_rate_controller) {
+            elevator += pitchController.get_rate_out(nav_scripting.pitch_rate_dps, speed_scaler);
+        } else {
+            pitchController.reset_I();
+        }
         SRV_Channels::set_output_scaled(SRV_Channel::k_elevator, elevator);
         float rudder = 0;
         if (yawController.rate_control_enabled()) {

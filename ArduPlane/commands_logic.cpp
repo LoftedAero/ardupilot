@@ -1215,6 +1215,8 @@ bool Plane::verify_nav_script_time(const AP_Mission::Mission_Command& cmd)
             nav_scripting.enabled = false;
             nav_scripting.rudder_offset_pct = 0;
             nav_scripting.run_yaw_rate_controller = true;
+            nav_scripting.elevator_offset_pct = 0;
+            nav_scripting.run_pitch_rate_controller = true;
         }
     }
     return !nav_scripting.enabled;
@@ -1229,6 +1231,8 @@ bool Plane::nav_scripting_active(void)
         nav_scripting.current_ms = 0;
         nav_scripting.rudder_offset_pct = 0;
         nav_scripting.run_yaw_rate_controller = true;
+        nav_scripting.elevator_offset_pct = 0;
+        nav_scripting.run_pitch_rate_controller = true;
         gcs().send_text(MAV_SEVERITY_INFO, "NavScript time out");
     }
     if (control_mode == &mode_auto &&
@@ -1278,6 +1282,13 @@ void Plane::set_rudder_offset(float rudder_pct, bool run_yaw_rate_controller)
 {
     nav_scripting.rudder_offset_pct = rudder_pct;
     nav_scripting.run_yaw_rate_controller = run_yaw_rate_controller;
+}
+
+// support for elevator offset override in aerobatic scripting
+void Plane::set_elevator_offset(float elevator_pct, bool run_pitch_rate_controller)
+{
+    nav_scripting.elevator_offset_pct = elevator_pct;
+    nav_scripting.run_pitch_rate_controller = run_pitch_rate_controller;
 }
 
 // enable NAV_SCRIPTING takeover in modes other than AUTO using script time mission commands

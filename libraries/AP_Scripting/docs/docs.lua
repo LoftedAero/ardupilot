@@ -2600,6 +2600,11 @@ function vehicle:set_land_descent_rate(rate) end
 function vehicle:set_rudder_offset(rudder_pct, run_yaw_rate_control) end
 
 -- desc
+---@param elevator_pct number
+---@param run_pitch_rate_control boolean
+function vehicle:set_elevator_offset(elevator_pct, run_pitch_rate_control) end
+
+-- desc
 ---@return boolean
 function vehicle:has_ekf_failsafed() end
 
