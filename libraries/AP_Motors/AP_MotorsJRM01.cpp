@@ -38,8 +38,9 @@ void AP_MotorsJRM01::init(motor_frame_class frame_class, motor_frame_type frame_
     add_motor_num(AP_MOTORS_MOT_2);
     add_motor_num(AP_MOTORS_MOT_3);
     add_motor_num(AP_MOTORS_MOT_4);
+    add_motor_num(AP_MOTORS_MOT_5);
 
-    // set update rate for the 4 motors (but not the servo on channel 7)
+    // set update rate for the 5 motors (but not the servo on channel 7)
     set_update_rate(_speed_hz);
 
     // set the motor_enabled flag so that the ESCs can be calibrated like other frame types
@@ -47,6 +48,7 @@ void AP_MotorsJRM01::init(motor_frame_class frame_class, motor_frame_type frame_
     motor_enabled[AP_MOTORS_MOT_2] = true;
     motor_enabled[AP_MOTORS_MOT_3] = true;
     motor_enabled[AP_MOTORS_MOT_4] = true;
+    motor_enabled[AP_MOTORS_MOT_5] = true;
 
     // allow mapping of motor7
     add_motor_num(AP_MOTORS_CH_TRI_YAW);
@@ -82,12 +84,13 @@ void AP_MotorsJRM01::set_update_rate(uint16_t speed_hz)
     // record requested speed
     _speed_hz = speed_hz;
 
-    // set update rate for the 4 motors (but not the servo on channel 7)
+    // set update rate for the 5 motors (but not the servo on channel 7)
     uint32_t mask = 
 	    1U << AP_MOTORS_MOT_1 |
 	    1U << AP_MOTORS_MOT_2 |
         1U << AP_MOTORS_MOT_3 |
-	    1U << AP_MOTORS_MOT_4;
+	    1U << AP_MOTORS_MOT_4 |
+        1U << AP_MOTORS_MOT_5;
     rc_set_freq(mask, _speed_hz);
 }
 
@@ -109,6 +112,7 @@ void AP_MotorsJRM01::output_to_motors()
             set_actuator_with_slew(_actuator[AP_MOTORS_MOT_2], actuator_spin_up_to_ground_idle());
             set_actuator_with_slew(_actuator[AP_MOTORS_MOT_3], actuator_spin_up_to_ground_idle());
             set_actuator_with_slew(_actuator[AP_MOTORS_MOT_4], actuator_spin_up_to_ground_idle());
+            set_actuator_with_slew(_actuator[AP_MOTORS_MOT_5], actuator_spin_up_to_ground_idle());
             rc_write_angle(AP_MOTORS_CH_TRI_YAW, 0);
             break;
         case SpoolState::SPOOLING_UP:
@@ -119,6 +123,7 @@ void AP_MotorsJRM01::output_to_motors()
             set_actuator_with_slew(_actuator[AP_MOTORS_MOT_2], thr_lin.thrust_to_actuator(_thrust_left));
             set_actuator_with_slew(_actuator[AP_MOTORS_MOT_3], thr_lin.thrust_to_actuator(_thrust_front));
             set_actuator_with_slew(_actuator[AP_MOTORS_MOT_4], thr_lin.thrust_to_actuator(_thrust_rear));
+            set_actuator_with_slew(_actuator[AP_MOTORS_MOT_5], thr_lin.thrust_to_actuator(_thrust_main));
             rc_write_angle(AP_MOTORS_CH_TRI_YAW, degrees(_pivot_angle)*100);
             break;
     }
@@ -127,6 +132,7 @@ void AP_MotorsJRM01::output_to_motors()
     rc_write(AP_MOTORS_MOT_2, output_to_pwm(_actuator[AP_MOTORS_MOT_2]));
     rc_write(AP_MOTORS_MOT_3, output_to_pwm(_actuator[AP_MOTORS_MOT_3]));
     rc_write(AP_MOTORS_MOT_4, output_to_pwm(_actuator[AP_MOTORS_MOT_4]));
+    rc_write(AP_MOTORS_MOT_5, output_to_pwm(_actuator[AP_MOTORS_MOT_5]));
 }
 
 // get_motor_mask - returns a bitmask of which outputs are being used for motors or servos (1 means being used)
@@ -137,7 +143,8 @@ uint32_t AP_MotorsJRM01::get_motor_mask()
     uint32_t motor_mask = (1U << AP_MOTORS_MOT_1) |
                           (1U << AP_MOTORS_MOT_2) |
                           (1U << AP_MOTORS_MOT_3) |
-                          (1U << AP_MOTORS_MOT_4);
+                          (1U << AP_MOTORS_MOT_4) |
+                          (1U << AP_MOTORS_MOT_5);
     uint32_t mask = motor_mask_to_srv_channel_mask(motor_mask);
 
     // add parent's mask
@@ -210,6 +217,7 @@ void AP_MotorsJRM01::output_armed_stabilizing()
     _thrust_left = roll_thrust * 1.0f;
     _thrust_rear = pitch_thrust * -1.0f;
     _thrust_front = pitch_thrust * 1.0f;
+    _thrust_main = throttle_thrust;
 
     // calculate roll and pitch for each motor
     // set py_low and py_high to the lowest and highest values of the main motors
@@ -220,11 +228,11 @@ void AP_MotorsJRM01::output_armed_stabilizing()
     rll_low = MIN(_thrust_left, _thrust_right);
     
     // check to see if the rear motor will reach maximum thrust before the front motor
-    if ((1.0f - _thrust_front) > (pivot_thrust_max - _thrust_rear)) {
+    if ((1.0f - _thrust_rear) > (pivot_thrust_max - _thrust_front)) {
         thrust_max = pivot_thrust_max;
-        py_high = _thrust_rear;
-    } else {
         py_high = _thrust_front;
+    } else {
+        py_high = _thrust_rear;
     }
 
     // calculate throttle that gives most possible room for yaw (range 1000 ~ 2000) which is the lower of:
@@ -238,14 +246,14 @@ void AP_MotorsJRM01::output_armed_stabilizing()
     //      We will choose #2 (a mix of pilot and hover throttle) only when the throttle is quite low.  We favor reducing throttle instead of better yaw control because the pilot has commanded it
 
     // check everything fits in pitch
-    throttle_thrust_best_py = MIN(0.5f * thrust_max, throttle_avg_max);
+    throttle_thrust_best_py = 0.5f * thrust_max;
     if (is_zero(py_low)) {
         py_scale = 1.0f;
     } else {
         py_scale = constrain_float(-throttle_thrust_best_py / py_low, 0.0f, 1.0f);
     }
 
-    // calculate how close the main motors can come to the desired throttle
+    // calculate how close the pitch motors can come to the desired throttle
     thr_adj_py = throttle_thrust - throttle_thrust_best_py;
     if (py_scale < 1.0f) {
         // Full range is being used by pitch and yaw.
@@ -300,20 +308,20 @@ void AP_MotorsJRM01::output_armed_stabilizing()
     }
 
     // determine throttle thrust for harmonic notch
-    const float throttle_thrust_best_plus_adj = throttle_thrust_best_py + thr_adj_py;
+    const float throttle_thrust_best_py_plus_adj = throttle_thrust_best_py + thr_adj_py;
     const float throttle_thrust_best_rll_plus_adj = throttle_thrust_best_rll + thr_adj_rll;
     // compensation_gain can never be zero
-    _throttle_out = throttle_thrust_best_plus_adj / compensation_gain;
+    _throttle_out = throttle_thrust / compensation_gain;
 
-    // add scaled roll, pitch, constrained yaw and throttle for each motor
+    // add scaled roll, pitch, constrained yaw and throttle for each control motor
     _thrust_right = throttle_thrust_best_rll_plus_adj + rll_scale * _thrust_right;
     _thrust_left = throttle_thrust_best_rll_plus_adj + rll_scale * _thrust_left;
-    _thrust_rear = throttle_thrust_best_plus_adj + py_scale * _thrust_rear;
-    _thrust_front = throttle_thrust_best_plus_adj + py_scale * _thrust_front;
+    _thrust_rear = throttle_thrust_best_py_plus_adj + py_scale * _thrust_rear;
+    _thrust_front = throttle_thrust_best_py_plus_adj + py_scale * _thrust_front;
 
     // scale pivot thrust to account for pivot angle
     // we should not need to check for divide by zero as _pivot_angle is constrained to the 5deg ~ 80 deg range
-    _thrust_rear = _thrust_rear / cosf(_pivot_angle);
+    _thrust_front = _thrust_front / cosf(_pivot_angle);
 
     // constrain all outputs to 0.0f to 1.0f
     // test code should be run with these lines commented out as they should not do anything
@@ -321,6 +329,7 @@ void AP_MotorsJRM01::output_armed_stabilizing()
     _thrust_left = constrain_float(_thrust_left, 0.0f, 1.0f);
     _thrust_rear = constrain_float(_thrust_rear, 0.0f, 1.0f);
     _thrust_front = constrain_float(_thrust_front, 0.0f, 1.0f);
+    _thrust_main = constrain_float(_thrust_main, 0.0f, 1.0f);
 }
 
 // output_test_seq - spin a motor at the pwm value specified
@@ -332,23 +341,27 @@ void AP_MotorsJRM01::_output_test_seq(uint8_t motor_seq, int16_t pwm)
     if (!_pitch_reversed) {
         switch (motor_seq) {
         case 1:
+            // main motor
+            rc_write(AP_MOTORS_MOT_5, pwm);
+            break;
+        case 2:
             // front motor
             rc_write(AP_MOTORS_MOT_3, pwm);
             break;
-        case 2:
+        case 3:
+            // front servo
+            rc_write(AP_MOTORS_CH_TRI_YAW, pwm);
+            break;
+        case 4:
             // right motor
             rc_write(AP_MOTORS_MOT_1, pwm);
             break;
-        case 3:
+        case 5:
             // back motor
             rc_write(AP_MOTORS_MOT_4, pwm);
             break;
-        case 4:
-            // back servo
-            rc_write(AP_MOTORS_CH_TRI_YAW, pwm);
-            break;
-        case 5:
-            // front left motor
+        case 6:
+            // left motor
             rc_write(AP_MOTORS_MOT_2, pwm);
             break;
         default:
@@ -358,12 +371,12 @@ void AP_MotorsJRM01::_output_test_seq(uint8_t motor_seq, int16_t pwm)
     } else {
         switch (motor_seq) {
         case 1:
-            // front motor
-            rc_write(AP_MOTORS_MOT_4, pwm);
+            // main motor
+            rc_write(AP_MOTORS_MOT_5, pwm);
             break;
         case 2:
-            // front servo
-            rc_write(AP_MOTORS_CH_TRI_YAW, pwm);
+            // front motor
+            rc_write(AP_MOTORS_MOT_4, pwm);
             break;
         case 3:
             // right motor
@@ -374,6 +387,10 @@ void AP_MotorsJRM01::_output_test_seq(uint8_t motor_seq, int16_t pwm)
             rc_write(AP_MOTORS_MOT_3, pwm);
             break;
         case 5:
+            // rear servo
+            rc_write(AP_MOTORS_CH_TRI_YAW, pwm);
+            break;
+        case 6:
             // left motor
             rc_write(AP_MOTORS_MOT_2, pwm);
             break;
@@ -392,16 +409,15 @@ void AP_MotorsJRM01::_output_test_seq(uint8_t motor_seq, int16_t pwm)
 void AP_MotorsJRM01::thrust_compensation(void)
 {
     if (_thrust_compensation_callback) {
-        // convert 4 thrust values into an array indexed by motor number
-        float thrust[4] { _thrust_right, _thrust_left, _thrust_front, _thrust_rear };
+        // convert 5 thrust values into an array indexed by motor number
+        float thrust[5] { _thrust_right, _thrust_left, _thrust_front, _thrust_rear, _thrust_main };
 
         // apply vehicle supplied compensation function
-        _thrust_compensation_callback(thrust, 4);
+        _thrust_compensation_callback(thrust, 5);
 
         // extract compensated thrust values
-        // don't apply compensation to roll motors to preserve authority
-        _thrust_front = thrust[2];
-        _thrust_rear = thrust[3];
+        // don't apply compensation to control motors to preserve authority
+        _thrust_main = thrust[4];
     }
 }
 
@@ -444,6 +460,7 @@ float AP_MotorsJRM01::get_pitch_factor_json(uint8_t i)
     switch (i) {
     case AP_MOTORS_MOT_1:
     case AP_MOTORS_MOT_2:
+    case AP_MOTORS_MOT_5:
         ret = 0.0f;
         break;
     case AP_MOTORS_MOT_3: // front motor
@@ -482,31 +499,35 @@ uint8_t AP_MotorsJRM01::get_motor_test_order(uint8_t i)
 {
     if (!_pitch_reversed) {
         switch (i) {
-        case AP_MOTORS_MOT_3: // front motor
+        case AP_MOTORS_MOT_5: // main motor
             return 1;
-        case AP_MOTORS_MOT_1: // right motor
+        case AP_MOTORS_MOT_3: // front motor
             return 2;
-        case AP_MOTORS_MOT_4: // back motor
+        case AP_MOTORS_MOT_1: // right motor
             return 3;
-        case AP_MOTORS_CH_TRI_YAW: // back servo
+        case AP_MOTORS_MOT_4: // back motor
             return 4;
-        case AP_MOTORS_MOT_2: // left motor
+        case AP_MOTORS_CH_TRI_YAW: // back servo
             return 5;
+        case AP_MOTORS_MOT_2: // left motor
+            return 6;
         default:
             return 0;
         }
     } else {
         switch (i) {
-        case AP_MOTORS_MOT_4: // front motor
+        case AP_MOTORS_MOT_5: // main motor
             return 1;
-        case AP_MOTORS_CH_TRI_YAW: // front servo
+        case AP_MOTORS_MOT_4: // front motor
             return 2;
-        case AP_MOTORS_MOT_1: // right motor
+        case AP_MOTORS_CH_TRI_YAW: // front servo
             return 3;
-        case AP_MOTORS_MOT_3: // back motor
+        case AP_MOTORS_MOT_1: // right motor
             return 4;
-        case AP_MOTORS_MOT_2: // left motor
+        case AP_MOTORS_MOT_3: // back motor
             return 5;
+        case AP_MOTORS_MOT_2: // left motor
+            return 6;
         default:
             return 0;
         }

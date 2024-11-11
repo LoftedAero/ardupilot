@@ -64,7 +64,7 @@ protected:
     // call vehicle supplied thrust compensation if set
     void                thrust_compensation(void) override;
 
-    const char* _get_frame_string() const override { return "F-35B"; }
+    const char* _get_frame_string() const override { return "JRM-01"; }
     const char*  get_type_string() const override { return _pitch_reversed ? "pitch-reversed" : ""; }
     
     // output_test_seq - spin a motor at the pwm value specified
@@ -79,6 +79,7 @@ protected:
     float           _thrust_rear;
     float           _thrust_left;
     float           _thrust_front;
+    float           _thrust_main;
 
     // reverse pitch
     bool _pitch_reversed;
