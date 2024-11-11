@@ -14,9 +14,9 @@
  */
 
  /*
- *       AP_MotorsF35B.cpp - ArduCopter motors library
+ *       AP_MotorsJRM01.cpp - ArduCopter motors library
  *       Original AP_MotorsTri Code by RandyMackay. DIYDrones.com
- *       Modified into F-35B frame class by Eric Maglio
+ *       Modified into JRM-01 frame class by Eric Maglio
  *
  */
 
@@ -27,12 +27,12 @@
 #include <GCS_MAVLink/GCS.h>
 #include <SRV_Channel/SRV_Channel.h>
 
-#include "AP_MotorsF35B.h"
+#include "AP_MotorsJRM01.h"
 
 extern const AP_HAL::HAL& hal;
 
 // init
-void AP_MotorsF35B::init(motor_frame_class frame_class, motor_frame_type frame_type)
+void AP_MotorsJRM01::init(motor_frame_class frame_class, motor_frame_type frame_type)
 {
     add_motor_num(AP_MOTORS_MOT_1);
     add_motor_num(AP_MOTORS_MOT_2);
@@ -64,20 +64,20 @@ void AP_MotorsF35B::init(motor_frame_class frame_class, motor_frame_type frame_t
     _mav_type = MAV_TYPE_QUADROTOR;
 
     // record successful initialisation if what we setup was the desired frame_class
-    set_initialised_ok(frame_class == MOTOR_FRAME_F35B);
+    set_initialised_ok(frame_class == MOTOR_FRAME_JRM01);
 }
 
 // set frame class (i.e. quad, hexa, heli) and type (i.e. x, plus)
-void AP_MotorsF35B::set_frame_class_and_type(motor_frame_class frame_class, motor_frame_type frame_type)
+void AP_MotorsJRM01::set_frame_class_and_type(motor_frame_class frame_class, motor_frame_type frame_type)
 {
     // check for reverse frame
     _pitch_reversed = frame_type == MOTOR_FRAME_TYPE_PLUSREV;
 
-    set_initialised_ok((frame_class == MOTOR_FRAME_F35B) && SRV_Channels::function_assigned(SRV_Channel::k_motor7));
+    set_initialised_ok((frame_class == MOTOR_FRAME_JRM01) && SRV_Channels::function_assigned(SRV_Channel::k_motor7));
 }
 
 // set update rate to motors - a value in hertz
-void AP_MotorsF35B::set_update_rate(uint16_t speed_hz)
+void AP_MotorsJRM01::set_update_rate(uint16_t speed_hz)
 {
     // record requested speed
     _speed_hz = speed_hz;
@@ -91,7 +91,7 @@ void AP_MotorsF35B::set_update_rate(uint16_t speed_hz)
     rc_set_freq(mask, _speed_hz);
 }
 
-void AP_MotorsF35B::output_to_motors()
+void AP_MotorsJRM01::output_to_motors()
 {
     switch (_spool_state) {
         case SpoolState::SHUT_DOWN:
@@ -131,7 +131,7 @@ void AP_MotorsF35B::output_to_motors()
 
 // get_motor_mask - returns a bitmask of which outputs are being used for motors or servos (1 means being used)
 //  this can be used to ensure other pwm outputs (i.e. for servos) do not conflict
-uint32_t AP_MotorsF35B::get_motor_mask()
+uint32_t AP_MotorsJRM01::get_motor_mask()
 {
     // F-35B uses channels 1,2,3,4 and 7
     uint32_t motor_mask = (1U << AP_MOTORS_MOT_1) |
@@ -148,7 +148,7 @@ uint32_t AP_MotorsF35B::get_motor_mask()
 
 // output_armed - sends commands to the motors
 // includes new scaling stability patch
-void AP_MotorsF35B::output_armed_stabilizing()
+void AP_MotorsJRM01::output_armed_stabilizing()
 {
     float   roll_thrust;                // roll thrust input value, +/- 1.0
     float   pitch_thrust;               // pitch thrust input value, +/- 1.0
@@ -326,7 +326,7 @@ void AP_MotorsF35B::output_armed_stabilizing()
 // output_test_seq - spin a motor at the pwm value specified
 //  motor_seq is the motor's sequence number from 1 to the number of motors on the frame
 //  pwm value is an actual pwm value that will be output, normally in the range of 1000 ~ 2000
-void AP_MotorsF35B::_output_test_seq(uint8_t motor_seq, int16_t pwm)
+void AP_MotorsJRM01::_output_test_seq(uint8_t motor_seq, int16_t pwm)
 {
     // output to motors and servos
     if (!_pitch_reversed) {
@@ -389,7 +389,7 @@ void AP_MotorsF35B::_output_test_seq(uint8_t motor_seq, int16_t pwm)
   vehicle specific thrust compensation for motor arrangements such as
   the forward motors tilting
 */
-void AP_MotorsF35B::thrust_compensation(void)
+void AP_MotorsJRM01::thrust_compensation(void)
 {
     if (_thrust_compensation_callback) {
         // convert 4 thrust values into an array indexed by motor number
@@ -408,7 +408,7 @@ void AP_MotorsF35B::thrust_compensation(void)
 /*
   override tricopter tail servo output in output_motor_mask
  */
-void AP_MotorsF35B::output_motor_mask(float thrust, uint16_t mask, float rudder_dt)
+void AP_MotorsJRM01::output_motor_mask(float thrust, uint16_t mask, float rudder_dt)
 {
     // normal multicopter output
     AP_MotorsMulticopter::output_motor_mask(thrust, mask, rudder_dt);
@@ -417,7 +417,7 @@ void AP_MotorsF35B::output_motor_mask(float thrust, uint16_t mask, float rudder_
     rc_write_angle(AP_MOTORS_CH_TRI_YAW, 0);
 }
 
-float AP_MotorsF35B::get_roll_factor(uint8_t i)
+float AP_MotorsJRM01::get_roll_factor(uint8_t i)
 {
     float ret = 0.0f;
 
@@ -437,7 +437,7 @@ float AP_MotorsF35B::get_roll_factor(uint8_t i)
 
 // This function is currently only used by AP_Motors_test
 #if APM_BUILD_TYPE(APM_BUILD_UNKNOWN)
-float AP_MotorsF35B::get_pitch_factor_json(uint8_t i)
+float AP_MotorsJRM01::get_pitch_factor_json(uint8_t i)
 {
     float ret = 0.0f;
 
@@ -463,7 +463,7 @@ float AP_MotorsF35B::get_pitch_factor_json(uint8_t i)
 #endif // APM_BUILD_TYPE(APM_BUILD_UNKNOWN)
 
 // Run arming checks
-bool AP_MotorsF35B::arming_checks(size_t buflen, char *buffer) const
+bool AP_MotorsJRM01::arming_checks(size_t buflen, char *buffer) const
 {
     // Check for yaw servo
     if (!_have_tail_servo) {
@@ -478,7 +478,7 @@ bool AP_MotorsF35B::arming_checks(size_t buflen, char *buffer) const
 // This function is currently only used by AP_Motors_test
 #if APM_BUILD_TYPE(APM_BUILD_UNKNOWN)
 // Get the testing order for the motors
-uint8_t AP_MotorsF35B::get_motor_test_order(uint8_t i)
+uint8_t AP_MotorsJRM01::get_motor_test_order(uint8_t i)
 {
     if (!_pitch_reversed) {
         switch (i) {

@@ -1,5 +1,5 @@
-/// @file	AP_MotorsF35B.h
-/// @brief	Motor control class for F-35B STOVL
+/// @file	AP_MotorsJRM01.h
+/// @brief	Motor control class for JRM-01 VTOL
 #pragma once
 
 #include <AP_Common/AP_Common.h>
@@ -12,12 +12,12 @@
 #define AP_MOTORS_TRI_SERVO_RANGE_DEG_MIN   5   // minimum angle movement of tail servo in degrees
 #define AP_MOTORS_TRI_SERVO_RANGE_DEG_MAX   80  // maximum angle movement of tail servo in degrees
 
-/// @class      AP_MotorsF35B
-class AP_MotorsF35B : public AP_MotorsMulticopter {
+/// @class      AP_MotorsJRM01
+class AP_MotorsJRM01 : public AP_MotorsMulticopter {
 public:
 
     /// Constructor
-    AP_MotorsF35B(uint16_t speed_hz = AP_MOTORS_SPEED_DEFAULT) :
+    AP_MotorsJRM01(uint16_t speed_hz = AP_MOTORS_SPEED_DEFAULT) :
         AP_MotorsMulticopter(speed_hz)
     {
     };
