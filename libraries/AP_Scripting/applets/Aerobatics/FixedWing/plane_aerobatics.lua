@@ -3066,7 +3066,7 @@ command_table[27]= PathFunction(straight_flight, "Straight Hold")
 command_table[28]= PathFunction(partial_circle, "Partial Circle")
 command_table[31]= PathFunction(multi_point_roll, "Multi Point Roll")
 command_table[32]= PathFunction(side_step, "Side Step")
-command_table[33]= PathFunction(stall_turn, "Stall Backflip")
+command_table[33]= PathFunction(stall_backflip, "Stall Backflip")
 
 --[[
    a table of function available in loadable tricks
