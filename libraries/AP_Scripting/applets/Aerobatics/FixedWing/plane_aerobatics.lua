@@ -282,6 +282,7 @@ if AEROM_ANG_TC:get() > 1.0 then
 end
 
 ACRO_ROLL_RATE = Parameter("ACRO_ROLL_RATE")
+ACRO_PITCH_RATE = Parameter('ACRO_PITCH_RATE')
 ACRO_YAW_RATE = Parameter('ACRO_YAW_RATE')
 AIRSPEED_MIN = Parameter("AIRSPEED_MIN")
 SCALING_SPEED = Parameter("SCALING_SPEED")
@@ -2023,6 +2024,7 @@ function takeoff_controller(_distance, _thr_slew)
       local targ_yaw_rate = -yaw_err_deg / yaw_correction_tconst
 
       vehicle:set_target_throttle_rate_rpy(throttle, 0, 0, targ_yaw_rate)
+      vehicle:set_elevator_offset(0, true)
       vehicle:set_rudder_offset(0, true)
       local dist_moved = (ahrs_pos - start_pos):length()
       if dist_moved > distance then
@@ -2195,6 +2197,51 @@ function stall_backflip(radius, height, direction, min_speed)
          { path_reverse(h/4),                      roll_angle(0), rate_override=pitch_over(direction,min_speed), set_orient=qorient(0,-90,0) },
          { path_straight(h),                       roll_angle(180), pos_corr=0.5, shift_xy=true },
          { path_vertical_arc(-radius, 90),         roll_angle(0), set_orient=qorient(0,0,180) },
+   })
+end
+
+--[[
+   A maneuver flown by F-22 demonstration team consisting of:
+     - A 270 degree roll with a brief hesistation at knife edge, ending with the belly facing the flightline
+     - A 90-degree turn to point away from the flightline
+     - A 180-degree roll in the same direction as the initial roll
+     - A 90-degree turn to realign with the wind axis in the initial direction of travel
+     - A 90-degree roll to return to level flight
+   This maneuver does not contain a reversal, but results in an offset from the flightline of the magnitude of 2*radius
+--]]
+function hoover_pitch(radius, bank_angle, hold_frac, direction)
+   --[[
+      calculate intermediate variables
+   --]]
+   if direction >= 0 then
+      direction = 1
+   else
+      direction = -1
+      radius = -radius
+   end
+   len = math.abs(radius)
+   local bank_target = 270 - math.min(90, math.abs(bank_angle))
+   local bank_exit = 90 - math.abs(bank_angle)
+   local bank_transition = direction * (180 + 2 * bank_exit)
+   local scale_frac = bank_target / 90
+   --[[
+      construct the initial hesitation roll sequence
+   --]]
+   if hold_frac <= 0 then
+      hold_frac = 0.2
+   end
+   local seq = {}
+   local roll_frac = 1.0 - hold_frac
+   seq[1] = { roll_frac, -direction * 90 }
+   seq[2] = { hold_frac, 0 }
+   seq[3] = { scale_frac * roll_frac, -direction * bank_target }
+   
+   return make_paths("hoover_pitch", {
+         { path_straight(len),                     roll_sequence(seq) },
+         { path_horizontal_arc(radius,  90),       roll_angle_entry(0) },
+         { path_straight(len / 2),                 roll_angle(bank_transition) },
+         { path_horizontal_arc(-radius,  90),      roll_angle_entry(0) },
+         { path_straight(len / 2),                 roll_angle_exit(0) },
    })
 end
 
@@ -3010,6 +3057,7 @@ function do_path()
    end
 
    vehicle:set_target_throttle_rate_rpy(throttle, tot_ang_vel_bf_dps:x(), tot_ang_vel_bf_dps:y(), tot_ang_vel_bf_dps:z())
+   vehicle:set_elevator_offset(0, true)
    vehicle:set_rudder_offset(rudder_offset_pct, true)
 
    if now - last_named_float_t > 1.0 / NAME_FLOAT_RATE then
@@ -3067,6 +3115,7 @@ command_table[28]= PathFunction(partial_circle, "Partial Circle")
 command_table[31]= PathFunction(multi_point_roll, "Multi Point Roll")
 command_table[32]= PathFunction(side_step, "Side Step")
 command_table[33]= PathFunction(stall_backflip, "Stall Backflip")
+command_table[34]= PathFunction(hoover_pitch, "Hoover Pitch")
 
 --[[
    a table of function available in loadable tricks
@@ -3106,6 +3155,7 @@ load_table["side_step"] = side_step
 load_table["align_box"] = align_box
 load_table["align_center"] = align_center
 load_table["stall_backflip"] = stall_backflip
+load_table["hoover_pitch"] = hoover_pitch
 
 --[[
    interpret an attribute value, coping with special cases
