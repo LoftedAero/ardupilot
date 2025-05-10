@@ -5,10 +5,10 @@ AP_FLAKE8_CLEAN
 
 '''
 
-from __future__ import print_function
 import os
 import numpy
 import math
+import copy
 
 from pymavlink import mavutil
 from pymavlink.rotmat import Vector3
@@ -363,6 +363,20 @@ class AutoTestQuadPlane(vehicle_test_suite.TestSuite):
     def QAUTOTUNE(self):
         '''test Plane QAutoTune mode'''
 
+        # adjust tune so QAUTOTUNE can cope
+        self.set_parameters({
+            "Q_A_RAT_RLL_P" : 0.15,
+            "Q_A_RAT_RLL_I" : 0.25,
+            "Q_A_RAT_RLL_D" : 0.002,
+            "Q_A_RAT_PIT_P" : 0.15,
+            "Q_A_RAT_PIT_I" : 0.25,
+            "Q_A_RAT_PIT_D" : 0.002,
+            "Q_A_RAT_YAW_P" : 0.18,
+            "Q_A_RAT_YAW_I" : 0.018,
+            "Q_A_ANG_RLL_P" : 4.5,
+            "Q_A_ANG_PIT_P" : 4.5,
+            })
+
         # this is a list of all parameters modified by QAUTOTUNE.  Set
         # them so that when the context is popped we get the original
         # values back:
@@ -489,7 +503,7 @@ class AutoTestQuadPlane(vehicle_test_suite.TestSuite):
         self.set_rc(2, 1500)
         self.set_rc(4, 1500)
         while self.get_sim_time_cached() < tstart + timeout:
-            m = self.mav.recv_match(type='ATTITUDE', blocking=True)
+            m = self.assert_receive_message('ATTITUDE')
             roll = math.degrees(m.roll)
             pitch = math.degrees(m.pitch)
             self.progress("Roll=%.1f Pitch=%.1f" % (roll, pitch))
@@ -532,8 +546,8 @@ class AutoTestQuadPlane(vehicle_test_suite.TestSuite):
         tstart = self.get_sim_time()
         self.progress("Hovering for %u seconds" % hover_time)
         while self.get_sim_time_cached() < tstart + hover_time:
-            self.mav.recv_match(type='ATTITUDE', blocking=True)
-        vfr_hud = self.mav.recv_match(type='VFR_HUD', blocking=True)
+            self.assert_receive_message('ATTITUDE')
+        vfr_hud = self.assert_receive_message('VFR_HUD')
         tend = self.get_sim_time()
 
         self.do_RTL()
@@ -646,7 +660,7 @@ class AutoTestQuadPlane(vehicle_test_suite.TestSuite):
             self.progress("Hovering for %u seconds" % hover_time)
             tstart = self.get_sim_time()
             while self.get_sim_time_cached() < tstart + hover_time:
-                self.mav.recv_match(type='ATTITUDE', blocking=True)
+                self.assert_receive_message('ATTITUDE')
             tend = self.get_sim_time()
 
             self.do_RTL()
@@ -753,8 +767,7 @@ class AutoTestQuadPlane(vehicle_test_suite.TestSuite):
                              "Q_WVANE_ENABLE": 1,
                              "Q_WVANE_GAIN": 1,
                              "STICK_MIXING": 0,
-                             "Q_FWD_THR_USE": 2,
-                             "SIM_ENGINE_FAIL": 2}) # we want to fail the forward thrust motor only
+                             "Q_FWD_THR_USE": 2})
 
         self.takeoff(10, mode="QLOITER")
         self.set_rc(2, 1000)
@@ -764,14 +777,14 @@ class AutoTestQuadPlane(vehicle_test_suite.TestSuite):
         if fwd_thr_pwm < 1150 :
             raise NotAchievedException("fwd motor pwm command low, want >= 1150 got %f" % (fwd_thr_pwm))
         # check that pitch is on limit
-        m = self.mav.recv_match(type='ATTITUDE', blocking=True)
+        m = self.assert_receive_message('ATTITUDE')
         pitch = math.degrees(m.pitch)
         if abs(pitch + 3.0) > 0.5 :
             raise NotAchievedException("pitch should be -3.0 +- 0.5 deg, got %f" % (pitch))
         self.set_rc(2, 1500)
         self.delay_sim_time(5)
         loc1 = self.mav.location()
-        self.set_parameter("SIM_ENGINE_MUL", 0) # simulate a complete loss of forward motor thrust
+        self.set_parameter("SIM_ENGINE_FAIL", 1 << 2) # simulate a complete loss of forward motor thrust
         self.delay_sim_time(20)
         self.change_mode('QLAND')
         self.wait_disarmed(timeout=60)
@@ -1064,7 +1077,7 @@ class AutoTestQuadPlane(vehicle_test_suite.TestSuite):
         self.context_collect("STATUSTEXT")
         self.progress("Starting QLAND")
         self.change_mode("QLAND")
-        self.wait_statustext("Rangefinder engaged")
+        self.wait_statustext("Rangefinder engaged", check_context=True)
         self.wait_disarmed(timeout=100)
 
     def setup_ICEngine_vehicle(self):
@@ -1220,6 +1233,7 @@ class AutoTestQuadPlane(vehicle_test_suite.TestSuite):
             self.start_subtest("Check start chan control disable")
             old_start_channel_value = self.get_rc_channel_value(rc_engine_start_chan)
             self.set_rc(rc_engine_start_chan, 1000)
+            self.delay_sim_time(1) # Make sure the RC change has registered
             self.context_collect('STATUSTEXT')
             method(mavutil.mavlink.MAV_CMD_DO_ENGINE_CONTROL, p1=1, want_result=mavutil.mavlink.MAV_RESULT_FAILED)
             self.wait_statustext("start control disabled", check_context=True)
@@ -1411,6 +1425,84 @@ class AutoTestQuadPlane(vehicle_test_suite.TestSuite):
 
         self.wait_disarmed(timeout=120)
 
+    def VTOLQuicktune_CPP(self):
+        '''VTOL Quicktune in C++'''
+        self.set_parameters({
+            "RC7_OPTION": 181,
+            "QWIK_ENABLE" : 1,
+            "QWIK_DOUBLE_TIME" : 5, # run faster for autotest
+        })
+
+        self.context_push()
+        self.context_collect('STATUSTEXT')
+
+        # reduce roll/pitch gains by 2
+        gain_mul = 0.5
+        soften_params = ['Q_A_RAT_RLL_P', 'Q_A_RAT_RLL_I', 'Q_A_RAT_RLL_D',
+                         'Q_A_RAT_PIT_P', 'Q_A_RAT_PIT_I', 'Q_A_RAT_PIT_D',
+                         'Q_A_RAT_YAW_P', 'Q_A_RAT_YAW_I']
+
+        original_values = self.get_parameters(soften_params)
+
+        softened_values = {}
+        for p in original_values.keys():
+            softened_values[p] = original_values[p] * gain_mul
+        self.set_parameters(softened_values)
+
+        self.wait_ready_to_arm()
+        self.change_mode("QLOITER")
+        self.set_rc(7, 1000)
+        self.arm_vehicle()
+        self.takeoff(20, 'QLOITER')
+
+        # use rc switch to start tune
+        self.set_rc(7, 1500)
+
+        self.wait_text("Quicktune: starting tune", check_context=True)
+        for axis in ['Roll', 'Pitch', 'Yaw']:
+            self.wait_text("Starting %s tune" % axis, check_context=True)
+            self.wait_text("Quicktune: %s D done" % axis, check_context=True, timeout=120)
+            self.wait_text("Quicktune: %s P done" % axis, check_context=True, timeout=120)
+            self.wait_text("Quicktune: %s done" % axis, check_context=True, timeout=120)
+
+        new_values = self.get_parameters(soften_params)
+        for p in original_values.keys():
+            threshold = 0.8 * original_values[p]
+            self.progress("tuned param %s %.4f need %.4f" % (p, new_values[p], threshold))
+            if new_values[p] < threshold:
+                raise NotAchievedException(
+                    "parameter %s %.4f not increased over %.4f" %
+                    (p, new_values[p], threshold))
+
+        self.progress("ensure we are not overtuned")
+        self.set_parameters({
+            'SIM_ENGINE_MUL': 0.9,
+            'SIM_ENGINE_FAIL': 1 << 0,
+        })
+
+        self.delay_sim_time(5)
+
+        # and restore it
+        self.set_parameter('SIM_ENGINE_MUL', 1)
+
+        for i in range(5):
+            self.wait_heartbeat()
+
+        if self.statustext_in_collections("ABORTING"):
+            raise NotAchievedException("tune has aborted, overtuned")
+
+        self.progress("using aux fn for save tune")
+
+        # to test aux function method, use aux fn for save
+        self.run_auxfunc(181, 2)
+        self.wait_text("Quicktune: saved", check_context=True)
+        self.change_mode("QLAND")
+
+        self.wait_disarmed(timeout=120)
+        self.set_parameter("QWIK_ENABLE", 0)
+        self.context_pop()
+        self.reboot_sitl()
+
     def PrecisionLanding(self):
         '''VTOL precision landing'''
 
@@ -1432,7 +1524,7 @@ class AutoTestQuadPlane(vehicle_test_suite.TestSuite):
             "RNGFND1_TYPE": 100,
             "RNGFND1_PIN" : 0,
             "RNGFND1_SCALING" : 12.2,
-            "RNGFND1_MAX_CM" : 5000,
+            "RNGFND1_MAX" : 50.00,
             "RNGFND_LANDING" : 1,
         })
 
@@ -1512,6 +1604,24 @@ class AutoTestQuadPlane(vehicle_test_suite.TestSuite):
         # deck is just 10m in size, so we must be within 10m if we are moving
         # with the deck
         self.wait_groundspeed(4.8, 5.2)
+
+        tstart = self.get_sim_time_cached()
+        ship_gpi = None
+        vehicle_gpi = None
+        while ship_gpi is None or vehicle_gpi is None:
+            if self.get_sim_time_cached() - tstart > 5:
+                raise NotAchievedException("Did not get GPI for ship")
+            gpi = self.assert_receive_message('GLOBAL_POSITION_INT')
+            if gpi.get_srcSystem() == 17:
+                ship_gpi = gpi
+            elif gpi.get_srcSystem() == 1:
+                vehicle_gpi = gpi
+
+        distance = self.get_distance_int(vehicle_gpi, ship_gpi)
+        self.progress(f"{distance=}")
+        max_distance = 1
+        if distance > max_distance:
+            raise NotAchievedException(f"Did not land within {max_distance}m of ship {distance=}")
 
     def RCDisableAirspeedUse(self):
         '''check disabling airspeed using RC switch'''
@@ -1764,8 +1874,8 @@ class AutoTestQuadPlane(vehicle_test_suite.TestSuite):
 
         # Kill any GPSs
         self.set_parameters({
-            'SIM_GPS_DISABLE': 1,
-            'SIM_GPS2_DISABLE': 1,
+            'SIM_GPS1_ENABLE': 0,
+            'SIM_GPS2_ENABLE': 0,
         })
         self.delay_sim_time(5)
 
@@ -2072,6 +2182,456 @@ class AutoTestQuadPlane(vehicle_test_suite.TestSuite):
                 self.progress("Wind estimates correlated")
                 break
 
+    def QLoiterRecovery(self):
+        '''test QLOITER recovery from bad attitude'''
+        self.context_push()
+        self.install_example_script_context("sim_arming_pos.lua")
+        self.install_terrain_handlers_context()
+
+        self.set_parameters({
+            "SCR_ENABLE": 1,
+            "AHRS_EKF_TYPE": 10,
+            "EK3_ENABLE": 0,
+            "LOG_DISARMED": 1,
+            "Q_LAND_FINAL_SPD" : 2,
+            "HOME_RESET_ALT" : -1,
+        })
+
+        self.reboot_sitl(check_position=True)
+
+        self.context_collect('STATUSTEXT')
+        self.set_parameters({
+            "SIM_APOS_ENABLE" : 1,
+            "SIM_APOS_PIT" : -70,
+            "SIM_APOS_POS_D" : -200,
+            "SIM_APOS_POS_E" : 400,
+            "SIM_APOS_POS_N" : 200,
+            "SIM_APOS_RLL" : 150,
+            "SIM_APOS_VEL_X" : 40.0,
+            "SIM_APOS_VEL_Y" : 0.0,
+            "SIM_APOS_VEL_Z" : 0.0,
+            "SIM_APOS_YAW" : 250,
+            "SIM_APOS_GX" : 0,
+            "SIM_APOS_GY" : 0,
+            "SIM_APOS_GZ" : 0,
+            "SIM_APOS_MODE" : 19, # QLOITER
+            })
+
+        self.scripting_restart()
+        self.wait_text("Loaded arm pose", check_context=True)
+        self.wait_ready_to_arm()
+
+        # try to climb once in QLOITER
+        self.set_rc(3, 2000)
+
+        # don't start QAssist, let QLOITER do the recovery
+        self.set_parameter("Q_ASSIST_SPEED", 0)
+
+        NTESTS = 20
+        for t in range(NTESTS):
+            self.change_mode("FBWA")
+            self.delay_sim_time(3)
+            self.progress("Fast Recovery test %u" % t)
+            self.arm_vehicle(force=True)
+            self.wait_groundspeed(0, 2, timeout=15)
+            final_alt = self.assert_receive_message('TERRAIN_REPORT').current_height
+            if final_alt < 100:
+                raise NotAchievedException(f"Final alt {final_alt:.1f}")
+
+            self.disarm_vehicle(force=True)
+
+        self.progress("Setup for inverted slow recovery")
+        self.set_parameters({
+            "SIM_APOS_ENABLE" : 1,
+            "SIM_APOS_PIT" : 0,
+            "SIM_APOS_POS_D" : -200,
+            "SIM_APOS_POS_E" : 400,
+            "SIM_APOS_POS_N" : 200,
+            "SIM_APOS_RLL" : 180,
+            "SIM_APOS_VEL_X" : 0.0,
+            "SIM_APOS_VEL_Y" : 0.0,
+            "SIM_APOS_VEL_Z" : 0.0,
+            "SIM_APOS_GX" : 0,
+            "SIM_APOS_GY" : 0,
+            "SIM_APOS_GZ" : 0,
+            "SIM_APOS_MODE" : 19, # QLOITER
+            })
+
+        for t in range(NTESTS):
+            self.change_mode("FBWA")
+            self.delay_sim_time(3)
+            self.progress("Slow Recovery test %u" % t)
+            self.arm_vehicle(force=True)
+            self.wait_attitude(desroll=0, despitch=0, timeout=10, tolerance=5)
+            self.wait_groundspeed(0, 2, timeout=10)
+            final_alt = self.assert_receive_message('TERRAIN_REPORT').current_height
+            if final_alt < 100:
+                raise NotAchievedException(f"Final alt {final_alt:.1f}")
+            self.disarm_vehicle(force=True)
+
+        self.set_parameter("SIM_APOS_ENABLE", 0)
+        self.arm_vehicle(force=True)
+        self.change_mode("QLAND")
+        self.wait_disarmed(timeout=300) # give quadplane a long time to land
+        self.context_pop()
+
+    def CruiseRecovery(self):
+        '''test QAssist recovery in CRUISE mode from bad attitude'''
+        self.context_push()
+        self.install_example_script_context("sim_arming_pos.lua")
+        self.install_terrain_handlers_context()
+
+        self.set_parameters({
+            "SCR_ENABLE": 1,
+            "AHRS_EKF_TYPE": 10,
+            "EK3_ENABLE": 0,
+            "LOG_DISARMED": 1,
+            "Q_LAND_FINAL_SPD" : 2,
+            "HOME_RESET_ALT" : -1,
+        })
+
+        self.reboot_sitl(check_position=True)
+
+        self.context_collect('STATUSTEXT')
+        self.set_parameters({
+            "SIM_APOS_ENABLE" : 1,
+            "SIM_APOS_PIT" : -70,
+            "SIM_APOS_POS_D" : -200,
+            "SIM_APOS_POS_E" : 400,
+            "SIM_APOS_POS_N" : 200,
+            "SIM_APOS_RLL" : 150,
+            "SIM_APOS_VEL_X" : 40.0,
+            "SIM_APOS_VEL_Y" : 0.0,
+            "SIM_APOS_VEL_Z" : 0.0,
+            "SIM_APOS_YAW" : 250,
+            "SIM_APOS_GX" : 0,
+            "SIM_APOS_GY" : 0,
+            "SIM_APOS_GZ" : 0,
+            "SIM_APOS_MODE" : 7, # CRUISE
+            })
+
+        self.scripting_restart()
+        self.wait_text("Loaded arm pose", check_context=True)
+        self.wait_ready_to_arm()
+
+        # set cruise target airspeed
+        self.set_rc(3, 1500)
+
+        target_airspeed = self.get_parameter("AIRSPEED_CRUISE")
+
+        NTESTS = 20
+        for t in range(NTESTS):
+            self.change_mode("FBWA")
+            self.delay_sim_time(3)
+            self.progress("Fast CRUISE Recovery test %u" % t)
+            self.arm_vehicle(force=True)
+            self.delay_sim_time(3)
+            # reset target alt and heading using stick inputs
+            self.set_rc(2, 1600)
+            self.set_rc(2, 1500)
+            self.set_rc(1, 1600)
+            self.set_rc(1, 1500)
+            self.wait_attitude(desroll=0, despitch=0, timeout=10, tolerance=10)
+            self.wait_airspeed(target_airspeed-1, target_airspeed+1)
+            final_alt = self.assert_receive_message('TERRAIN_REPORT').current_height
+            if final_alt < 100:
+                raise NotAchievedException(f"Final alt {final_alt:.1f}")
+
+            self.disarm_vehicle(force=True)
+
+        self.progress("Setup for inverted slow recovery")
+        self.set_parameters({
+            "SIM_APOS_ENABLE" : 1,
+            "SIM_APOS_PIT" : 0,
+            "SIM_APOS_POS_D" : -200,
+            "SIM_APOS_POS_E" : 400,
+            "SIM_APOS_POS_N" : 200,
+            "SIM_APOS_RLL" : 180,
+            "SIM_APOS_VEL_X" : 0.0,
+            "SIM_APOS_VEL_Y" : 0.0,
+            "SIM_APOS_VEL_Z" : 0.0,
+            "SIM_APOS_GX" : 0,
+            "SIM_APOS_GY" : 0,
+            "SIM_APOS_GZ" : 0,
+            "SIM_APOS_MODE" : 7, # CRUISE
+            })
+
+        for t in range(NTESTS):
+            self.change_mode("FBWA")
+            self.delay_sim_time(3)
+            self.progress("Slow CRUISE Recovery test %u" % t)
+            self.arm_vehicle(force=True)
+            self.delay_sim_time(3)
+            # reset target alt and heading using stick inputs
+            self.set_rc(2, 1600)
+            self.set_rc(2, 1500)
+            self.set_rc(1, 1600)
+            self.set_rc(1, 1500)
+            self.wait_attitude(desroll=0, despitch=0, timeout=10, tolerance=10)
+            self.wait_airspeed(target_airspeed-1, target_airspeed+1)
+            final_alt = self.assert_receive_message('TERRAIN_REPORT').current_height
+            if final_alt < 100:
+                raise NotAchievedException(f"Final alt {final_alt:.1f}")
+            self.disarm_vehicle(force=True)
+
+        self.set_parameter("SIM_APOS_ENABLE", 0)
+        self.arm_vehicle(force=True)
+        self.change_mode("QLAND")
+        self.wait_disarmed(timeout=300) # give quadplane a long time to land
+        self.context_pop()
+
+    def FastInvertedRecovery(self):
+        '''test recovery from inverted flight is fast'''
+
+        self.set_parameters({
+            "Q_A_ACCEL_R_MAX": 20000,
+            "Q_A_ACCEL_P_MAX": 20000,
+            "Q_A_ACCEL_Y_MAX": 20000,
+            "Q_A_RATE_R_MAX": 50,
+            "Q_A_RATE_P_MAX": 50,
+            "Q_A_RATE_Y_MAX": 50,
+        })
+
+        self.wait_ready_to_arm()
+        self.takeoff(60, mode='GUIDED', timeout=100)
+
+        self.context_collect('STATUSTEXT')
+        self.set_rc(3, 1500)
+        self.change_mode('CRUISE')
+        self.wait_statustext("Transition done", check_context=True)
+
+        self.progress("Go to inverted flight")
+        self.run_auxfunc(43, 2)
+        self.wait_roll(180, 3, absolute_value=True)
+        self.delay_sim_time(10)
+
+        initial_altitude = self.get_altitude(relative=True, timeout=2)
+        self.change_mode('QHOVER')
+
+        self.wait_roll(0, 3, absolute_value=True)
+
+        recovery_altitude = self.get_altitude(relative=True, timeout=2)
+        alt_change = initial_altitude - recovery_altitude
+
+        self.progress("Recovery AltChange %.1fm" % alt_change)
+
+        max_alt_change = 3
+        if alt_change > max_alt_change:
+            raise NotAchievedException("Recovery AltChange too high %.1f > %.1f" % (alt_change, max_alt_change))
+        self.fly_home_land_and_disarm()
+
+    def DoRepositionTerrain(self):
+        '''test handling of DO_REPOSITION with terrain alt'''
+        self.install_terrain_handlers_context()
+        self.start_subtest("test reposition with terrain alt")
+        self.wait_ready_to_arm()
+
+        dest = copy.copy(SITL_START_LOCATION)
+        dest.alt = 45
+
+        self.set_parameters({
+            'Q_GUIDED_MODE': 1,
+        })
+
+        self.takeoff(30, mode='GUIDED')
+
+        # fly to higher ground
+        self.send_do_reposition(dest, frame=mavutil.mavlink.MAV_FRAME_GLOBAL_TERRAIN_ALT)
+        self.wait_location(
+            dest,
+            accuracy=200,
+            timeout=600,
+            height_accuracy=10,
+        )
+        self.delay_sim_time(20)
+
+        self.wait_altitude(
+            dest.alt-10,  # NOTE: reuse of alt from abovE
+            dest.alt+10,  # use a 10m buffer as the plane needs to go up and down a bit to maintain terrain distance
+            minimum_duration=10,
+            timeout=30,
+            relative=False,
+            altitude_source="TERRAIN_REPORT.current_height"
+        )
+
+        # remember the range of heights we go through in the tests
+        start_alt = self.assert_receive_message('TERRAIN_REPORT').current_height
+        terrain_height_min = start_alt
+        terrain_height_max = start_alt
+
+        def terrain_height_range(mav, m):
+            if m.get_type() == 'TERRAIN_REPORT':
+                nonlocal terrain_height_min, terrain_height_max
+                terrain_height_min = min(terrain_height_min, m.current_height)
+                terrain_height_max = max(terrain_height_max, m.current_height)
+
+        self.install_message_hook_context(terrain_height_range)
+
+        # two locations 500m apart
+        loc1 = copy.copy(dest)
+        self.location_offset_ne(loc1, -250, 0)
+        loc1.alt = 100
+
+        loc2 = copy.copy(dest)
+        self.location_offset_ne(loc2, 250, 0)
+        loc2.alt = 150
+
+        loc3 = copy.copy(loc2)
+        loc3.alt = 100
+
+        positions = [
+            ("Loc1", loc1),
+            ("Loc2", loc2),
+            ("Loc1", loc1),
+            ("Loc3", loc3),
+            ("Loc1", loc1),
+            ("Loc3", loc3),
+            ("Loc1", loc1),
+            ("Loc3", loc3),
+            ("Loc2", loc2),
+            ("Loc3", loc3),
+            ("Loc2", loc2),
+        ]
+        for (name, loc) in positions:
+            start_alt = self.assert_receive_message('TERRAIN_REPORT').current_height
+            terrain_height_min = start_alt
+            terrain_height_max = start_alt
+
+            self.progress(f"Flying to {name} at {loc.alt:.1f} from {start_alt:.1f}")
+            self.send_do_reposition(loc, frame=mavutil.mavlink.MAV_FRAME_GLOBAL_TERRAIN_ALT)
+
+            self.wait_location(
+                loc,
+                accuracy=10,
+                timeout=600,
+                height_accuracy=10,
+            )
+            self.delay_sim_time(10)
+            self.wait_altitude(
+                loc.alt-5,
+                loc.alt+5,
+                minimum_duration=10,
+                timeout=30,
+                relative=False,
+                altitude_source="TERRAIN_REPORT.current_height"
+            )
+            self.wait_groundspeed(0, 2)
+            self.wait_altitude(
+                loc.alt-5,
+                loc.alt+5,
+                minimum_duration=10,
+                timeout=30,
+                relative=False,
+                altitude_source="TERRAIN_REPORT.current_height"
+            )
+            min_alt_ok = min(start_alt, loc.alt) - 10
+            max_alt_ok = max(start_alt, loc.alt) + 10
+            self.progress(f"theight {terrain_height_min:.0f} to {terrain_height_max:.0f} accept {min_alt_ok:.0f}:{max_alt_ok:.0f}") # noqa:E501
+            if terrain_height_min < min_alt_ok or terrain_height_max > max_alt_ok:
+                raise NotAchievedException(f"terrain range breach {start_alt:.1f} {terrain_height_min:.1f} {terrain_height_max:.1f}")  # noqa:E501
+
+        self.change_mode("QLAND")
+        self.mav.motors_disarmed_wait()
+
+    def DoRepositionTerrain2(self):
+        '''test handling of DO_REPOSITION terrain alt2'''
+        self.install_terrain_handlers_context()
+        self.start_subtest("test reposition terrain alt2")
+
+        takeoff_loc = mavutil.location(-35.28243788, 149.00502473, 583.7)
+        self.customise_SITL_commandline(
+            ["--home", f"{takeoff_loc.lat},{takeoff_loc.lng},{takeoff_loc.alt},0"]
+        )
+        self.reboot_sitl(check_position=False)
+        self.wait_ready_to_arm()
+
+        dest = copy.copy(takeoff_loc)
+        dest.alt = 45
+
+        self.set_parameters({
+            'Q_GUIDED_MODE': 1,
+        })
+
+        self.takeoff(75, mode='GUIDED', timeout=60)
+
+        # remember the range of heights we go through in the tests
+        start_alt = self.assert_receive_message('TERRAIN_REPORT').current_height
+        terrain_height_min = start_alt
+        terrain_height_max = start_alt
+
+        def terrain_height_range(mav, m):
+            if m.get_type() == 'TERRAIN_REPORT':
+                nonlocal terrain_height_min, terrain_height_max
+                terrain_height_min = min(terrain_height_min, m.current_height)
+                terrain_height_max = max(terrain_height_max, m.current_height)
+
+        self.install_message_hook_context(terrain_height_range)
+
+        loc1 = mavutil.location(-35.27502040, 148.98635977, 75)
+        loc2 = mavutil.location(-35.28505202, 148.98604378, 75)
+
+        loc3 = mavutil.location(-35.27502040, 148.98635977, 120)
+        loc4 = mavutil.location(-35.28505202, 148.98604378, 120)
+
+        loc5 = mavutil.location(-35.28505202, 148.98604378, 100)
+
+        positions = [
+            ("Loc1", loc1),
+            ("Loc2", loc2),
+            ("Loc1", loc1),
+            ("Loc2", loc2),
+            ("Loc1", loc1),
+            ("Loc4", loc4),
+            ("Loc3", loc3),
+            ("Loc2", loc2),
+            ("Loc5", loc5),
+            ("Loc1", loc1),
+            ("Loc5", loc5),
+            ("Loc1", loc1),
+        ]
+        for (name, loc) in positions:
+            start_alt = self.assert_receive_message('TERRAIN_REPORT').current_height
+            terrain_height_min = start_alt
+            terrain_height_max = start_alt
+
+            self.progress(f"Flying to {name} at {loc.alt:.1f} from {start_alt:.1f}")
+            self.send_do_reposition(loc, frame=mavutil.mavlink.MAV_FRAME_GLOBAL_TERRAIN_ALT)
+
+            self.wait_location(
+                loc,
+                accuracy=10,
+                timeout=600,
+                height_accuracy=10,
+            )
+            self.delay_sim_time(10)
+            self.wait_altitude(
+                loc.alt-5,
+                loc.alt+5,
+                minimum_duration=10,
+                timeout=30,
+                relative=False,
+                altitude_source="TERRAIN_REPORT.current_height"
+            )
+
+            self.wait_groundspeed(0, 2)
+            self.wait_altitude(
+                loc.alt-5,
+                loc.alt+5,
+                minimum_duration=10,
+                timeout=30,
+                relative=False,
+                altitude_source="TERRAIN_REPORT.current_height"
+            )
+            min_alt_ok = min(start_alt, loc.alt) - 10
+            max_alt_ok = max(start_alt, loc.alt) + 25
+            self.progress(f"theight {terrain_height_min:.0f} to {terrain_height_max:.0f} accept {min_alt_ok:.0f}:{max_alt_ok:.0f}") # noqa:E501
+            if terrain_height_min < min_alt_ok or terrain_height_max > max_alt_ok:
+                raise NotAchievedException(f"terrain range breach {start_alt:.1f} {terrain_height_min:.1f} {terrain_height_max:.1f}") # noqa:E501
+
+        self.change_mode("QLAND")
+        self.mav.motors_disarmed_wait()
+        self.reset_SITL_commandline()
+
     def tests(self):
         '''return list of all tests'''
 
@@ -2104,6 +2664,7 @@ class AutoTestQuadPlane(vehicle_test_suite.TestSuite):
             self.LoiterAltQLand,
             self.VTOLLandSpiral,
             self.VTOLQuicktune,
+            self.VTOLQuicktune_CPP,
             self.PrecisionLanding,
             self.ShipLanding,
             Test(self.MotorTest, kwargs={  # tests motors 4 and 2
@@ -2123,5 +2684,10 @@ class AutoTestQuadPlane(vehicle_test_suite.TestSuite):
             self.RTL_AUTOLAND_1,  # as in fly-home then go to landing sequence
             self.RTL_AUTOLAND_1_FROM_GUIDED,  # as in fly-home then go to landing sequence
             self.AHRSFlyForwardFlag,
+            self.DoRepositionTerrain,
+            self.DoRepositionTerrain2,
+            self.QLoiterRecovery,
+            self.FastInvertedRecovery,
+            self.CruiseRecovery,
         ])
         return ret

@@ -1,6 +1,9 @@
-#include "AP_Mount_Siyi.h"
+#include "AP_Mount_config.h"
 
 #if HAL_MOUNT_SIYI_ENABLED
+
+#include "AP_Mount_Siyi.h"
+
 #include <AP_HAL/AP_HAL.h>
 #include <AP_AHRS/AP_AHRS.h>
 #include <GCS_MAVLink/GCS.h>
@@ -121,20 +124,9 @@ void AP_Mount_Siyi::update()
             break;
         }
 
-        case MAV_MOUNT_MODE_RC_TARGETING: {
-            // update targets using pilot's RC inputs
-            MountTarget rc_target;
-            get_rc_target(mnt_target.target_type, rc_target);
-            switch (mnt_target.target_type) {
-            case MountTargetType::ANGLE:
-                mnt_target.angle_rad = rc_target;
-                break;
-            case MountTargetType::RATE:
-                mnt_target.rate_rads = rc_target;
-                break;
-            }
+        case MAV_MOUNT_MODE_RC_TARGETING:
+            update_mnt_target_from_rc_target();
             break;
-        }
 
         // point mount to a GPS point given by the mission planner
         case MAV_MOUNT_MODE_GPS_POINT:
@@ -1212,10 +1204,13 @@ void AP_Mount_Siyi::check_firmware_version() const
             minimum_ver.camera.patch = 1;
             break;
 
+        case HardwareModel::ZT6:
+            minimum_ver.camera = {.major = 0, .minor = 1, .patch = 9};
+            break;
+
         case HardwareModel::A2:
         case HardwareModel::ZR10:
         case HardwareModel::ZR30:
-        case HardwareModel::ZT6:
         case HardwareModel::ZT30:
             // TBD
             break;

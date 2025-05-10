@@ -279,7 +279,7 @@ void AC_AutoTune_Heli::test_run(AxisType test_axis, const float dir_sign)
         get_poshold_attitude(roll_cd, pitch_cd, desired_yaw_cd);
 
         // hold level attitude
-        attitude_control->input_euler_angle_roll_pitch_yaw(roll_cd, pitch_cd, desired_yaw_cd, true);
+        attitude_control->input_euler_angle_roll_pitch_yaw_cd(roll_cd, pitch_cd, desired_yaw_cd, true);
 
         if ((tune_type == RP_UP || tune_type == RD_UP) && (max_rate_p.max_allowed <= 0.0f || max_rate_d.max_allowed <= 0.0f)) {
             GCS_SEND_TEXT(MAV_SEVERITY_INFO, "AutoTune: Max Gain Determination Failed");
@@ -528,9 +528,9 @@ void AC_AutoTune_Heli::load_test_gains()
             rate_test_max = orig_roll_rate;
             accel_test_max = tune_roll_accel;
         } else {
-            // have attitude controller use accel and rate limit parameter
-            rate_test_max = rate_max;
-            accel_test_max = accel_max;
+            // have attitude controller not perform rate limiting and angle P scaling based on accel max
+            rate_test_max = 0.0;
+            accel_test_max = 0.0;
         }
         if (tune_type == SP_UP || tune_type == TUNE_CHECK) {
             rate_i = tune_roll_rff*AUTOTUNE_FFI_RATIO_FINAL;
@@ -552,9 +552,9 @@ void AC_AutoTune_Heli::load_test_gains()
             rate_test_max = orig_pitch_rate;
             accel_test_max = tune_pitch_accel;
         } else {
-            // have attitude controller use accel and rate limit parameter
-            rate_test_max = rate_max;
-            accel_test_max = accel_max;
+            // have attitude controller not perform rate limiting and angle P scaling based on accel max
+            rate_test_max = 0.0;
+            accel_test_max = 0.0;
         }
         if (tune_type == SP_UP || tune_type == TUNE_CHECK) {
             rate_i = tune_pitch_rff*AUTOTUNE_FFI_RATIO_FINAL;
@@ -577,9 +577,9 @@ void AC_AutoTune_Heli::load_test_gains()
             rate_test_max = orig_yaw_rate;
             accel_test_max = tune_yaw_accel;
         } else {
-            // have attitude controller use accel and rate limit parameter
-            rate_test_max = rate_max;
-            accel_test_max = accel_max;
+            // have attitude controller not perform rate limiting and angle P scaling based on accel max
+            rate_test_max = 0.0;
+            accel_test_max = 0.0;
         }
         if (tune_type == SP_UP || tune_type == TUNE_CHECK) {
             rate_i = tune_yaw_rp*AUTOTUNE_YAW_PI_RATIO_FINAL;
@@ -811,7 +811,22 @@ void AC_AutoTune_Heli::dwell_test_run(sweep_info &test_data)
     }
 
     if (settle_time == 0) {
-        target_angle_cd = -chirp_input.update((now - dwell_start_time_ms) * 0.001, degrees(tgt_attitude) * 100.0f);
+        dwell_freq = chirp_input.get_frequency_rads();
+        float tgt_att_limited = tgt_attitude;
+        if (is_positive(dwell_freq)) {
+            float tgt_att_temp = tgt_attitude;
+            if (is_positive(rate_max)) {
+                float ang_limit_rate = radians(rate_max) / dwell_freq;
+                tgt_att_temp = MIN(ang_limit_rate, tgt_attitude);
+            }
+            if (is_positive(accel_max)) {
+                float ang_limit_accel = radians(accel_max) / sq(dwell_freq);
+                tgt_att_limited = MIN(ang_limit_accel, tgt_att_temp);
+            } else {
+                tgt_att_limited = tgt_att_temp;
+            }
+        }
+        target_angle_cd = -chirp_input.update((now - dwell_start_time_ms) * 0.001, degrees(tgt_att_limited) * 100.0f);
         dwell_freq = chirp_input.get_frequency_rads();
         const Vector2f att_fdbk {
             -5730.0f * vel_hold_gain * velocity_bf.y,
@@ -834,7 +849,7 @@ void AC_AutoTune_Heli::dwell_test_run(sweep_info &test_data)
 
     switch (axis) {
     case AxisType::ROLL:
-        attitude_control->input_euler_angle_roll_pitch_euler_rate_yaw(target_angle_cd + trim_angle_cd.x, trim_angle_cd.y, 0.0f);
+        attitude_control->input_euler_angle_roll_pitch_euler_rate_yaw_cd(target_angle_cd + trim_angle_cd.x, trim_angle_cd.y, 0.0f);
         command_reading = motors->get_roll();
         if (test_calc_type == DRB) {
             tgt_rate_reading = radians(target_angle_cd * 0.01f);
@@ -848,7 +863,7 @@ void AC_AutoTune_Heli::dwell_test_run(sweep_info &test_data)
         }
         break;
     case AxisType::PITCH:
-        attitude_control->input_euler_angle_roll_pitch_euler_rate_yaw(trim_angle_cd.x, target_angle_cd + trim_angle_cd.y, 0.0f);
+        attitude_control->input_euler_angle_roll_pitch_euler_rate_yaw_cd(trim_angle_cd.x, target_angle_cd + trim_angle_cd.y, 0.0f);
         command_reading = motors->get_pitch();
         if (test_calc_type == DRB) {
             tgt_rate_reading = radians(target_angle_cd * 0.01f);
@@ -863,7 +878,7 @@ void AC_AutoTune_Heli::dwell_test_run(sweep_info &test_data)
         break;
     case AxisType::YAW:
     case AxisType::YAW_D:
-        attitude_control->input_euler_angle_roll_pitch_yaw(trim_angle_cd.x, trim_angle_cd.y, wrap_180_cd(trim_yaw_tgt_reading_cd + target_angle_cd), false);
+        attitude_control->input_euler_angle_roll_pitch_yaw_cd(trim_angle_cd.x, trim_angle_cd.y, wrap_180_cd(trim_yaw_tgt_reading_cd + target_angle_cd), false);
         command_reading = motors->get_yaw();
         if (test_calc_type == DRB) {
             tgt_rate_reading = radians(target_angle_cd * 0.01f);

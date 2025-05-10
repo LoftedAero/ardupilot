@@ -644,7 +644,7 @@ void AC_AutoTune_Multi::twitching_test_angle(float angle, float rate, float angl
 }
 
 // twitching_measure_acceleration - measure rate of change of measurement
-void AC_AutoTune_Multi::twitching_measure_acceleration(float &accel_average, float rate, float rate_max) const
+void AC_AutoTune_Multi::twitching_measure_acceleration(float &accel_average, float rate, float &rate_max) const
 {
     if (rate_max < rate) {
         rate_max = rate;
@@ -1238,20 +1238,20 @@ void AC_AutoTune_Multi::twitch_test_run(AxisType test_axis, const float dir_sign
             switch (test_axis) {
             case AxisType::ROLL:
                 // request roll to 20deg
-                attitude_control->input_angle_step_bf_roll_pitch_yaw(dir_sign * target_angle, 0.0, 0.0);
+                attitude_control->input_angle_step_bf_roll_pitch_yaw_cd(dir_sign * target_angle, 0.0, 0.0);
                 break;
             case AxisType::PITCH:
                 // request pitch to 20deg
-                attitude_control->input_angle_step_bf_roll_pitch_yaw(0.0, dir_sign * target_angle, 0.0);
+                attitude_control->input_angle_step_bf_roll_pitch_yaw_cd(0.0, dir_sign * target_angle, 0.0);
                 break;
             case AxisType::YAW:
             case AxisType::YAW_D:
                 // request yaw to 20deg
-                attitude_control->input_angle_step_bf_roll_pitch_yaw(0.0, 0.0, dir_sign * target_angle);
+                attitude_control->input_angle_step_bf_roll_pitch_yaw_cd(0.0, 0.0, dir_sign * target_angle);
                 break;
             } 
         } else {
-            attitude_control->input_rate_bf_roll_pitch_yaw(0.0, 0.0, 0.0);
+            attitude_control->input_rate_bf_roll_pitch_yaw_cds(0.0, 0.0, 0.0);
         }
     } else {
         // Testing rate P and D gains so will set body-frame rate targets.
@@ -1260,16 +1260,16 @@ void AC_AutoTune_Multi::twitch_test_run(AxisType test_axis, const float dir_sign
         switch (test_axis) {
         case AxisType::ROLL:
             // override body-frame roll rate
-            attitude_control->input_rate_step_bf_roll_pitch_yaw(dir_sign * target_rate + start_rate, 0.0f, 0.0f);
+            attitude_control->input_rate_step_bf_roll_pitch_yaw_cd(dir_sign * target_rate + start_rate, 0.0f, 0.0f);
             break;
         case AxisType::PITCH:
             // override body-frame pitch rate
-            attitude_control->input_rate_step_bf_roll_pitch_yaw(0.0f, dir_sign * target_rate + start_rate, 0.0f);
+            attitude_control->input_rate_step_bf_roll_pitch_yaw_cd(0.0f, dir_sign * target_rate + start_rate, 0.0f);
             break;
         case AxisType::YAW:
         case AxisType::YAW_D:
             // override body-frame yaw rate
-            attitude_control->input_rate_step_bf_roll_pitch_yaw(0.0f, 0.0f, dir_sign * target_rate + start_rate);
+            attitude_control->input_rate_step_bf_roll_pitch_yaw_cd(0.0f, 0.0f, dir_sign * target_rate + start_rate);
             break;
         }
     }

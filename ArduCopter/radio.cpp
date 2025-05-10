@@ -20,7 +20,7 @@ void Copter::default_dead_zones()
 
 void Copter::init_rc_in()
 {
-    // the library gaurantees that these are non-nullptr:
+    // the library guarantees that these are non-nullptr:
     channel_roll     = &rc().get_roll_channel();
     channel_pitch    = &rc().get_pitch_channel();
     channel_throttle = &rc().get_throttle_channel();
@@ -45,7 +45,7 @@ void Copter::init_rc_out()
     motors->init((AP_Motors::motor_frame_class)g2.frame_class.get(), (AP_Motors::motor_frame_type)g.frame_type.get());
 
     // enable aux servos to cope with multiple output channels per motor
-    SRV_Channels::enable_aux_servos();
+    AP::srv().enable_aux_servos();
 
     // update rate must be set after motors->init() to allow for motor mapping
     motors->set_update_rate(g.rc_speed);
@@ -128,6 +128,7 @@ void Copter::set_throttle_and_failsafe(uint16_t throttle_pwm)
 {
     // if failsafe not enabled pass through throttle and exit
     if(g.failsafe_throttle == FS_THR_DISABLED) {
+        set_failsafe_radio(false);
         return;
     }
 

@@ -4,7 +4,7 @@
 #include <AP_Math/chirp.h>
 #include <AP_ExternalControl/AP_ExternalControl_config.h> // TODO why is this needed if Copter.h includes this
 
-#if ADVANCED_FAILSAFE
+#if AP_COPTER_ADVANCED_FAILSAFE_ENABLED
 #include "afs_copter.h"
 #endif
 
@@ -101,6 +101,8 @@ public:
         AUTO_RTL =     27,  // Auto RTL, this is not a true mode, AUTO will report as this mode if entered to perform a DO_LAND_START Landing sequence
         TURTLE =       28,  // Flip over after crash
 
+        // Mode number 30 reserved for "offboard" for external/lua control.
+
         // Mode number 127 reserved for the "drone show mode" in the Skybrush
         // fork at https://github.com/skybrush-io/ardupilot
     };
@@ -130,11 +132,12 @@ public:
     virtual bool in_guided_mode() const { return false; }
     virtual bool logs_attitude() const { return false; }
     virtual bool allows_save_trim() const { return false; }
+    virtual bool allows_auto_trim() const { return false; }
     virtual bool allows_autotune() const { return false; }
     virtual bool allows_flip() const { return false; }
     virtual bool crash_check_enabled() const { return true; }
 
-#if ADVANCED_FAILSAFE
+#if AP_COPTER_ADVANCED_FAILSAFE_ENABLED
     // Return the type of this mode for use by advanced failsafe
     virtual AP_AdvancedFailsafe_Copter::control_mode afs_mode() const { return AP_AdvancedFailsafe_Copter::control_mode::AFS_STABILIZED; }
 #endif
@@ -387,7 +390,7 @@ public:
     // pass-through functions to reduce code churn on conversion;
     // these are candidates for moving into the Mode base
     // class.
-    float get_pilot_desired_climb_rate(float throttle_control);
+    float get_pilot_desired_climb_rate();
     float get_non_takeoff_throttle(void);
     void update_simple_mode(void);
     bool set_mode(Mode::Number mode, ModeReason reason);
@@ -483,6 +486,8 @@ public:
     }
     bool allows_autotune() const override { return true; }
     bool allows_flip() const override { return true; }
+    bool allows_auto_trim() const override { return true; }
+    bool allows_save_trim() const override { return true; }
 #if FRAME_CONFIG == HELI_FRAME
     bool allows_inverted() const override { return true; };
 #endif
@@ -517,7 +522,7 @@ public:
     bool allows_inverted() const override { return true; };
 #endif
 
-#if ADVANCED_FAILSAFE
+#if AP_COPTER_ADVANCED_FAILSAFE_ENABLED
     // Return the type of this mode for use by advanced failsafe
     AP_AdvancedFailsafe_Copter::control_mode afs_mode() const override { return AP_AdvancedFailsafe_Copter::control_mode::AFS_AUTO; }
 #endif
@@ -949,7 +954,7 @@ private:
         Abandon
     };
     FlipState _state;               // current state of flip
-    Mode::Number   orig_control_mode;   // flight mode when flip was initated
+    Mode::Number   orig_control_mode;   // flight mode when flip was initiated
     uint32_t  start_time_ms;          // time since flip began
     int8_t    roll_dir;            // roll direction (-1 = roll left, 1 = roll right)
     int8_t    pitch_dir;           // pitch direction (-1 = pitch forward, 1 = pitch back)
@@ -1068,7 +1073,7 @@ public:
 
     bool requires_terrain_failsafe() const override { return true; }
 
-#if ADVANCED_FAILSAFE
+#if AP_COPTER_ADVANCED_FAILSAFE_ENABLED
     // Return the type of this mode for use by advanced failsafe
     AP_AdvancedFailsafe_Copter::control_mode afs_mode() const override { return AP_AdvancedFailsafe_Copter::control_mode::AFS_AUTO; }
 #endif
@@ -1193,14 +1198,37 @@ private:
     void set_yaw_state(bool use_yaw, float yaw_cd, bool use_yaw_rate, float yaw_rate_cds, bool relative_angle);
 
     // controls which controller is run (pos or vel):
-    SubMode guided_mode = SubMode::TakeOff;
-    bool send_notification;     // used to send one time notification to ground station
-    bool takeoff_complete;      // true once takeoff has completed (used to trigger retracting of landing gear)
+    static SubMode guided_mode;
+    static bool send_notification;     // used to send one time notification to ground station
+    static bool takeoff_complete;      // true once takeoff has completed (used to trigger retracting of landing gear)
 
     // guided mode is paused or not
-    bool _paused;
+    static bool _paused;
 };
 
+#if AP_SCRIPTING_ENABLED
+// Mode which behaves as guided with custom mode number and name
+class ModeGuidedCustom : public ModeGuided {
+public:
+    // constructor registers custom number and names
+    ModeGuidedCustom(const Number _number, const char* _full_name, const char* _short_name);
+
+    bool init(bool ignore_checks) override;
+
+    Number mode_number() const override { return number; }
+
+    const char *name() const override { return full_name; }
+    const char *name4() const override { return short_name; }
+
+    // State object which can be edited by scripting
+    AP_Vehicle::custom_mode_state state;
+
+private:
+    const Number number;
+    const char* full_name;
+    const char* short_name;
+};
+#endif
 
 class ModeGuidedNoGPS : public ModeGuided {
 
@@ -1243,7 +1271,7 @@ public:
 
     bool is_landing() const override { return true; };
 
-#if ADVANCED_FAILSAFE
+#if AP_COPTER_ADVANCED_FAILSAFE_ENABLED
     // Return the type of this mode for use by advanced failsafe
     AP_AdvancedFailsafe_Copter::control_mode afs_mode() const override { return AP_AdvancedFailsafe_Copter::control_mode::AFS_AUTO; }
 #endif
@@ -1288,6 +1316,7 @@ public:
     bool is_autopilot() const override { return false; }
     bool has_user_takeoff(bool must_navigate) const override { return true; }
     bool allows_autotune() const override { return true; }
+    bool allows_auto_trim() const override { return true; }
 
 #if FRAME_CONFIG == HELI_FRAME
     bool allows_inverted() const override { return true; };
@@ -1337,6 +1366,7 @@ public:
     bool is_autopilot() const override { return false; }
     bool has_user_takeoff(bool must_navigate) const override { return true; }
     bool allows_autotune() const override { return true; }
+    bool allows_auto_trim() const override { return true;}
 
 protected:
 
@@ -1425,7 +1455,7 @@ public:
 
     bool requires_terrain_failsafe() const override { return true; }
 
-#if ADVANCED_FAILSAFE
+#if AP_COPTER_ADVANCED_FAILSAFE_ENABLED
     // Return the type of this mode for use by advanced failsafe
     AP_AdvancedFailsafe_Copter::control_mode afs_mode() const override { return AP_AdvancedFailsafe_Copter::control_mode::AFS_AUTO; }
 #endif
@@ -1626,6 +1656,7 @@ public:
     bool allows_arming(AP_Arming::Method method) const override { return true; };
     bool is_autopilot() const override { return false; }
     bool allows_save_trim() const override { return true; }
+    bool allows_auto_trim() const override { return true; }
     bool allows_autotune() const override { return true; }
     bool allows_flip() const override { return true; }
 
@@ -1727,7 +1758,7 @@ private:
     float time_const_freq;      // Time at constant frequency before chirp starts
     int8_t log_subsample;       // Subsample multiple for logging.
     Vector2f target_vel;        // target velocity for position controller modes
-    Vector2f target_pos;       // target positon
+    Vector2f target_pos;       // target position
     Vector2f input_vel_last;    // last cycle input velocity
     // System ID states
     enum class SystemIDModeState {
@@ -2008,46 +2039,21 @@ protected:
 
 private:
 
-    // --- Internal variables ---
-    float _initial_rpm;             // Head speed recorded at initiation of flight mode (RPM)
-    float _target_head_speed;       // The terget head main rotor head speed.  Normalised by main rotor set point
-    float _desired_v_z;             // Desired vertical
-    int32_t _pitch_target;          // Target pitch attitude to pass to attitude controller
-    uint32_t _entry_time_start_ms;  // Time remaining until entry phase moves on to glide phase
-    float _hs_decay;                // The head accerleration during the entry phase
+    uint32_t _entry_time_start_ms;  // time remaining until entry phase moves on to glide phase
+    uint32_t _last_logged_ms;       // used for timing slow rate autorotation log
 
-    enum class Autorotation_Phase {
+    enum class Phase {
+        ENTRY_INIT,
         ENTRY,
-        SS_GLIDE,
+        GLIDE_INIT,
+        GLIDE,
+        FLARE_INIT,
         FLARE,
+        TOUCH_DOWN_INIT,
         TOUCH_DOWN,
-        LANDED } phase_switch;
-
-    enum class Navigation_Decision {
-        USER_CONTROL_STABILISED,
-        STRAIGHT_AHEAD,
-        INTO_WIND,
-        NEAREST_RALLY} nav_pos_switch;
-
-    // --- Internal flags ---
-    struct controller_flags {
-            bool entry_initial             : 1;
-            bool ss_glide_initial          : 1;
-            bool flare_initial             : 1;
-            bool touch_down_initial        : 1;
-            bool landed_initial            : 1;
-            bool straight_ahead_initial    : 1;
-            bool level_initial             : 1;
-            bool break_initial             : 1;
-            bool bad_rpm                   : 1;
-    } _flags;
-
-    struct message_flags {
-            bool bad_rpm                   : 1;
-    } _msg_flags;
-
-    //--- Internal functions ---
-    void warning_message(uint8_t message_n);    //Handles output messages to the terminal
+        LANDED_INIT,
+        LANDED,
+    } current_phase;
 
 };
 #endif

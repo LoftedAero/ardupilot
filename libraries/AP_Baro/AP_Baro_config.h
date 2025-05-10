@@ -69,9 +69,26 @@
 #define AP_BARO_LPS2XH_ENABLED AP_BARO_BACKEND_DEFAULT_ENABLED
 #endif
 
-#ifndef AP_BARO_MS56XX_ENABLED
-#define AP_BARO_MS56XX_ENABLED AP_BARO_BACKEND_DEFAULT_ENABLED
-#endif
+#ifndef AP_BARO_MS5611_ENABLED
+#define AP_BARO_MS5611_ENABLED AP_BARO_BACKEND_DEFAULT_ENABLED
+#endif  // AP_BARO_MS5611_ENABLED
+
+// we have an option to treat a 5611 configuration as if it were a
+// 5607 configuration as the parts are used interchangeably by some
+// vendors.  hwdefs may get awkward if we don't default 5607 this way:
+#ifndef AP_BARO_MS5607_ENABLED
+#define AP_BARO_MS5607_ENABLED AP_BARO_MS5611_ENABLED
+#endif  // AP_BARO_MS5607_ENABLED
+
+#ifndef AP_BARO_MS5637_ENABLED
+#define AP_BARO_MS5637_ENABLED AP_BARO_BACKEND_DEFAULT_ENABLED
+#endif  // AP_BARO_MS5637_ENABLED
+
+#ifndef AP_BARO_MS5837_ENABLED
+#define AP_BARO_MS5837_ENABLED AP_BARO_BACKEND_DEFAULT_ENABLED
+#endif  // AP_BARO_MS5837_ENABLED
+
+#define AP_BARO_MS56XX_ENABLED (AP_BARO_MS5607_ENABLED || AP_BARO_MS5611_ENABLED || AP_BARO_MS5637_ENABLED || AP_BARO_MS5837_ENABLED)
 
 #ifndef AP_BARO_MSP_ENABLED
 #define AP_BARO_MSP_ENABLED HAL_MSP_SENSORS_ENABLED
@@ -102,4 +119,8 @@
 // default to using the extended functions when doing double precision EKF (which implies more flash space and faster MCU)
 // this allows for using the simple model with the --ekf-single configure option
 #define AP_BARO_1976_STANDARD_ATMOSPHERE_ENABLED HAL_WITH_EKF_DOUBLE || AP_SIM_ENABLED
+#endif
+
+#ifndef AP_BARO_THST_COMP_ENABLED
+#define AP_BARO_THST_COMP_ENABLED 0
 #endif

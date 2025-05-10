@@ -3,7 +3,7 @@
 #define AP_PARAM_VEHICLE_NAME copter
 
 #include <AP_Common/AP_Common.h>
-#include "RC_Channel.h"
+#include "RC_Channel_Copter.h"
 #include <AP_Proximity/AP_Proximity.h>
 
 #if MODE_FOLLOW_ENABLED
@@ -205,13 +205,13 @@ public:
 
         // 110: Telemetry control
         //
-        k_param_gcs0 = 110,
-        k_param_gcs1,
-        k_param_sysid_this_mav,
-        k_param_sysid_my_gcs,
+        k_param_gcs0_unused = 110,   // unused in ArduPilot-4.7
+        k_param_gcs1_unused,         // unused in ArduPilot-4.7
+        k_param_sysid_this_mav_old,
+        k_param_sysid_my_gcs_old,
         k_param_serial1_baud_old, // deprecated
-        k_param_telem_delay,
-        k_param_gcs2,
+        k_param_telem_delay_old,     // used for conversion in ArduPilot-4.7
+        k_param_gcs2_unused,         // unused in ArduPilot-4.7
         k_param_serial2_baud_old, // deprecated
         k_param_serial2_protocol, // deprecated
         k_param_serial_manager_old,
@@ -220,11 +220,11 @@ public:
         k_param_ch11_option_old,
         k_param_ch12_option_old,
         k_param_takeoff_trigger_dz_old,
-        k_param_gcs3,
+        k_param_gcs3_unused,         // unused in ArduPilot-4.7
         k_param_gcs_pid_mask,    // 126
-        k_param_gcs4,
-        k_param_gcs5,
-        k_param_gcs6,
+        k_param_gcs4_unused,         // unused in ArduPilot-4.7
+        k_param_gcs5_unused,         // unused in ArduPilot-4.7
+        k_param_gcs6_unused,         // unused in ArduPilot-4.7
 
         //
         // 135 : reserved for Solo until features merged with master
@@ -381,18 +381,15 @@ public:
         k_param_vehicle = 257, // vehicle common block of parameters
         k_param_throw_altitude_min,
         k_param_throw_altitude_max,
+        k_param__gcs,
+        k_param_throw_altitude_descend,
+        k_param_throw_altitude_ascend,
 
         // the k_param_* space is 9-bits in size
         // 511: reserved
     };
 
     AP_Int16        format_version;
-
-    // Telemetry control
-    //
-    AP_Int16        sysid_this_mav;
-    AP_Int16        sysid_my_gcs;
-    AP_Int8         telem_delay;
 
     AP_Float        throttle_filt;
     AP_Int16        throttle_behavior;
@@ -463,6 +460,9 @@ public:
     AP_Enum<ModeThrow::PreThrowMotorState>         throw_motor_start;
     AP_Int16         throw_altitude_min; // minimum altitude in m above which a throw can be detected
     AP_Int16         throw_altitude_max; // maximum altitude in m below which a throw can be detected
+
+    AP_Float         throw_altitude_descend;    // target altitude (meters) to descend during a drop, (must be positive)
+    AP_Float         throw_altitude_ascend;     // target altitude (meters) to ascend during a throw upwards, (must be positive)
 #endif
 
     AP_Int16                rc_speed; // speed of fast RC Channels in Hz
@@ -499,6 +499,11 @@ public:
     // altitude at which nav control can start in takeoff
     AP_Float wp_navalt_min;
 
+    // unused_integer simply exists so that the constructor for
+    // ParametersG2 can be created with a relatively easy syntax in
+    // the face of many #ifs:
+    uint8_t unused_integer;
+
     // button checking
 #if HAL_BUTTON_ENABLED
     AP_Button *button_ptr;
@@ -528,10 +533,7 @@ public:
     AP_Proximity proximity;
 #endif
 
-    // whether to enforce acceptance of packets only from sysid_my_gcs
-    AP_Int8 sysid_enforce;
-    
-#if ADVANCED_FAILSAFE
+#if AP_COPTER_ADVANCED_FAILSAFE_ENABLED
     // advanced failsafe library
     AP_AdvancedFailsafe_Copter afs;
 #endif
@@ -685,6 +687,9 @@ public:
     AP_Float pldp_range_finder_maximum_m;
     AP_Float pldp_delay_s;
     AP_Float pldp_descent_speed_ms;
+
+    AP_Int8 att_enable;
+    AP_Int8 att_decimation;
 };
 
 extern const AP_Param::Info        var_info[];
