@@ -96,6 +96,7 @@ mission.stg
 /defaults.parm
 /ArduCopter/defaults.parm
 /ArduPlane/defaults.parm
+/ArduPlane/mav_0_1.parm
 /AntennaTracker/defaults.parm
 /ArduSub/defaults.parm
 /Blimp/defaults.parm
