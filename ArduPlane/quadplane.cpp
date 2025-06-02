@@ -154,7 +154,7 @@ const AP_Param::GroupInfo QuadPlane::var_info[] = {
     // @Param: FRAME_CLASS
     // @DisplayName: Frame Class
     // @Description: Controls major frame class for multicopter component
-    // @Values: 0:Undefined, 1:Quad, 2:Hexa, 3:Octa, 4:OctaQuad, 5:Y6, 7:Tri, 10: Single/Dual, 12:DodecaHexa, 14:Deca, 15:Scripting Matrix, 17:Dynamic Scripting Matrix
+    // @Values: 0:Undefined, 1:Quad, 2:Hexa, 3:Octa, 4:OctaQuad, 5:Y6, 7:Tri, 10: Single/Dual, 12:DodecaHexa, 14:Deca, 15:Scripting Matrix, 17:Dynamic Scripting Matrix, 35:F-35B
     // @User: Standard
     AP_GROUPINFO("FRAME_CLASS", 46, QuadPlane, frame_class, 1),
 
@@ -2128,6 +2128,7 @@ bool QuadPlane::in_vtol_posvel_mode(void) const
         return false;
     }
     return (plane.control_mode == &plane.mode_qloiter ||
+            plane.control_mode == &plane.mode_qfloiter ||
             plane.control_mode == &plane.mode_qland ||
             plane.control_mode == &plane.mode_qrtl ||
 #if QAUTOTUNE_ENABLED
@@ -3741,6 +3742,21 @@ float QuadPlane::forward_throttle_pct()
     }
 
     /*
+      in modes without a velocity controller
+    */
+    if  (vel_forward.gain <= 0 && plane.control_mode != &plane.mode_qfhover) {
+            return 0;
+        }
+
+    /*
+      in QFHOVER mode, translate pilot pitch commands to control forward thrust instead
+    */
+    if (plane.control_mode == &plane.mode_qfhover) {
+        float pitch_input = -100 * plane.channel_pitch->norm_input();
+        return constrain_int16(pitch_input, -100, 100);
+    }
+
+    /*
       in modes with a velocity controller
     */
     float deltat = (AP_HAL::millis() - vel_forward.last_ms) * 0.001f;
@@ -3842,6 +3858,7 @@ float QuadPlane::get_weathervane_yaw_rate_cds(void)
         plane.control_mode == &plane.mode_qautotune ||
 #endif
         plane.control_mode == &plane.mode_qhover ||
+        plane.control_mode == &plane.mode_qfhover ||
         should_relax()
         ) {
         // Ensure the weathervane controller is reset to prevent weathervaning from happening outside of the timer
@@ -3969,7 +3986,7 @@ bool QuadPlane::do_user_takeoff(float takeoff_altitude)
 // return true if the wp_nav controller is being updated
 bool QuadPlane::using_wp_nav(void) const
 {
-    if (plane.control_mode == &plane.mode_qloiter || plane.control_mode == &plane.mode_qland) {
+    if (plane.control_mode == &plane.mode_qloiter || plane.control_mode == &plane.mode_qfloiter || plane.control_mode == &plane.mode_qland) {
         return true;
     }
     return false;

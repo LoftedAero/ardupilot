@@ -914,6 +914,7 @@ bool Plane::get_target_location(Location& target_loc)
     case Mode::Number::TAKEOFF:
 #if HAL_QUADPLANE_ENABLED
     case Mode::Number::QLOITER:
+    case Mode::Number::QFLOITER:
     case Mode::Number::QLAND:
     case Mode::Number::QRTL:
 #endif
@@ -947,6 +948,9 @@ bool Plane::update_target_location(const Location &old_loc, const Location &new_
 #if HAL_QUADPLANE_ENABLED
     if (control_mode == &mode_qland || control_mode == &mode_qloiter) {
         mode_qloiter.last_target_loc_set_ms = AP_HAL::millis();
+    }
+    else if (control_mode == &mode_qloiter) {
+        mode_qfloiter.last_target_loc_set_ms = AP_HAL::millis();
     }
 #endif
 

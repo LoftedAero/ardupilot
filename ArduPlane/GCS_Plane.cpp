@@ -44,8 +44,10 @@ void GCS_Plane::update_vehicle_sensor_status_flags(void)
 #if HAL_QUADPLANE_ENABLED
     case Mode::Number::QSTABILIZE:
     case Mode::Number::QHOVER:
+    case Mode::Number::QFHOVER:
     case Mode::Number::QLAND:
     case Mode::Number::QLOITER:
+    case Mode::Number::QFLOITER:
 #if QAUTOTUNE_ENABLED
     case Mode::Number::QAUTOTUNE:
 #endif
