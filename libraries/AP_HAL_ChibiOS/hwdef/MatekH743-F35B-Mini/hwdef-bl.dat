@@ -1,0 +1,4 @@
+# hw definition file for processing by chibios_pins.py
+# for Matek H743-WING with defaults for Lofted Aero 70mm F-35B
+
+include ../MatekH743/hwdef-bl.dat
