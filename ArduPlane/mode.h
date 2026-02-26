@@ -10,6 +10,7 @@
 #include <AP_AHRS/AP_AHRS.h>
 #include <AP_Mission/AP_Mission.h>
 #include "pullup.h"
+#include "systemid.h"
 
 #ifndef AP_QUICKTUNE_ENABLED
 #define AP_QUICKTUNE_ENABLED HAL_QUADPLANE_ENABLED
@@ -155,6 +156,11 @@ public:
     virtual bool supports_quicktune() const { return false; }
 #endif
 
+#if AP_PLANE_SYSTEMID_ENABLED
+    // does this mode support systemid?
+    virtual bool supports_systemid() const { return false; }
+#endif
+    
 protected:
 
     // subclasses override this to perform checks before entering the mode
@@ -648,6 +654,11 @@ public:
 
     void run() override;
 
+#if AP_PLANE_SYSTEMID_ENABLED
+    // does this mode support systemid?
+    bool supports_systemid() const override { return true; }
+#endif
+    
 protected:
 private:
 
@@ -672,6 +683,11 @@ public:
 
     void run() override;
 
+#if AP_PLANE_SYSTEMID_ENABLED
+    // does this mode support systemid?
+    bool supports_systemid() const override { return true; }
+#endif
+    
 protected:
 
     bool _enter() override;
@@ -721,6 +737,11 @@ public:
 
     void run() override;
 
+#if AP_PLANE_SYSTEMID_ENABLED
+    // does this mode support systemid?
+    bool supports_systemid() const override { return true; }
+#endif
+    
 protected:
 
     bool _enter() override;

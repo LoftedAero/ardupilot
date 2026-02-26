@@ -603,7 +603,7 @@ void AP_TECS::_update_height_demand(void)
 
         if (!_flare_initialised) {
             _flare_hgt_dem_adj = _hgt_dem;
-            _flare_hgt_dem_ideal = _hgt_afe;
+            _flare_hgt_dem_ideal = _height;
             _hgt_at_start_of_flare = _hgt_afe;
             _hgt_rate_at_flare_entry = _climb_rate;
             _flare_initialised = true;
@@ -626,9 +626,6 @@ void AP_TECS::_update_height_demand(void)
 
         // fade across to the ideal height profile
         _hgt_dem = _flare_hgt_dem_adj * (1.0f - p) + _flare_hgt_dem_ideal * p;
-
-        // correct for offset between height above ground and height above datum used by control loops
-        _hgt_dem += (_hgt_afe - _height);
     }
 }
 
@@ -913,20 +910,23 @@ void AP_TECS::_update_throttle_without_airspeed(int16_t throttle_nudge, float pi
 
 void AP_TECS::_detect_bad_descent(void)
 {
+    // Don't detect bad descents when gliding, transitioning, or when underspeed.
+    if (_flags.is_gliding || _flight_stage == AP_FixedWing::FlightStage::VTOL || _flags.underspeed) {
+        _flags.badDescent = false;
+        return;
+    }
+
     // Detect a demanded airspeed too high for the aircraft to achieve. This will be
     // evident by the following conditions:
-    // 1) Underspeed protection not active
-    // 2) Specific total energy error > 200 (greater than ~20m height error)
-    // 3) Specific total energy reducing
-    // 4) throttle demand > 90%
-    // If these four conditions exist simultaneously, then the protection
-    // mode will be activated.
-    // Once active, the following condition are required to stay in the mode
-    // 1) Underspeed protection not active
-    // 2) Specific total energy error > 0
-    // This mode will produce an undulating speed and height response as it cuts in and out but will prevent the aircraft from descending into the ground if an unachievable speed demand is set
+    // 1) Specific total energy error > 200 (greater than ~20m height error)
+    // 2) Specific total energy reducing
+    // 3) throttle demand > 90%
+    // If these conditions exist simultaneously, then the protection mode will be activated.
+    // Once active, it will remain active until the specific total energy error drops below 0.
+    // This mode will produce an undulating speed and height response as it cuts in and out, but it
+    // will prevent the aircraft from descending into the ground if an unachievable speed demand is set.
     float STEdot = _SPEdot + _SKEdot;
-    if (((!_flags.underspeed && (_STE_error > 200.0f) && (STEdot < 0.0f) && (_throttle_dem >= _THRmaxf * 0.9f)) || (_flags.badDescent && !_flags.underspeed && (_STE_error > 0.0f))) && !_flags.is_gliding) {
+    if (((_STE_error > 200.0f) && (STEdot < 0.0f) && (_throttle_dem >= _THRmaxf * 0.9f)) || (_flags.badDescent && (_STE_error > 0.0f))) {
         _flags.badDescent = true;
     } else {
         _flags.badDescent = false;
