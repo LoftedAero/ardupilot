@@ -1,0 +1,4 @@
+# hw definition file for processing by chibios_pins.py
+# for TBS H7 Wing with defaults for Lofted Aero 70mm F-35B
+
+include ../TBS_LUCID_H7_WING/hwdef.dat
