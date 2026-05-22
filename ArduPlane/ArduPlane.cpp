@@ -949,7 +949,7 @@ bool Plane::update_target_location(const Location &old_loc, const Location &new_
     if (control_mode == &mode_qland || control_mode == &mode_qloiter) {
         mode_qloiter.last_target_loc_set_ms = AP_HAL::millis();
     }
-    else if (control_mode == &mode_qloiter) {
+    else if (control_mode == &mode_qfloiter) {
         mode_qfloiter.last_target_loc_set_ms = AP_HAL::millis();
     }
 #endif
