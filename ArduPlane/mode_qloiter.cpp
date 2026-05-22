@@ -113,7 +113,7 @@ void ModeQLoiter::run()
     float target_roll_cd, target_pitch_cd;
     quadplane.get_pilot_desired_lean_angles(target_roll_cd, target_pitch_cd, loiter_nav->get_angle_max_cd(), attitude_control->get_althold_lean_angle_max_cd());
     loiter_nav->set_pilot_desired_acceleration(target_roll_cd, target_pitch_cd);
-    
+
     // run loiter controller
     if (!pos_control->is_active_xy()) {
         pos_control->init_xy_controller();
@@ -133,18 +133,23 @@ void ModeQLoiter::run()
     // Pilot input, use yaw rate time constant
     quadplane.set_pilot_yaw_rate_time_constant();
 
-    Vector3f target { plane.nav_roll_cd*0.01, plane.nav_pitch_cd*0.01, quadplane.get_desired_yaw_rate_cds() * 0.01 };
+    // Calculate pitch demand at which reverse nozzle tilt saturates
+    float pitch_threshold = 100.0f * degrees(atanf(tanf(radians((plane.quadplane.tiltrotor.tilt_angle_max - 90.0f)))/2));
 
-#if AP_PLANE_SYSTEMID_ENABLED
-    auto &systemid = plane.g2.systemid;
-    systemid.update();
-    target += systemid.get_attitude_offset_deg();
-#endif
+    // Determine body pitch required to meet demand in excess of nozzle tilt
+    if (plane.nav_pitch_cd > pitch_threshold) {
+        plane.pitch_excess_cd = plane.nav_pitch_cd - constrain_int32(pitch_threshold, 0, plane.nav_pitch_cd);
+
+    // Lock pitch level in all other cases
+    } else {
+        plane.nav_pitch_cd = 0;
+        plane.pitch_excess_cd = 0;
+    }
 
     // call attitude controller with conservative smoothing gain of 4.0f
-    attitude_control->input_euler_angle_roll_pitch_euler_rate_yaw(target.x*100,
-                                                                  target.y*100,
-                                                                  target.z*100);
+    attitude_control->input_euler_angle_roll_pitch_euler_rate_yaw(plane.nav_roll_cd,
+                                                                  plane.pitch_excess_cd,
+                                                                  quadplane.get_desired_yaw_rate_cds());
 
     if (plane.control_mode == &plane.mode_qland) {
         if (poscontrol.get_state() < QuadPlane::QPOS_LAND_FINAL && quadplane.check_land_final()) {

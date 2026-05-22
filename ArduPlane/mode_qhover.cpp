@@ -17,6 +17,9 @@ bool ModeQHover::_enter()
 void ModeQHover::update()
 {
     plane.mode_qstabilize.update();
+
+    // Force level attitude
+    plane.nav_pitch_cd = 0;
 }
 
 /*

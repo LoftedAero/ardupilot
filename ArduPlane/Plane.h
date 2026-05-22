@@ -165,9 +165,7 @@ public:
     friend class ModeManual;
     friend class ModeQStabilize;
     friend class ModeQHover;
-    friend class ModeQFHover;
     friend class ModeQLoiter;
-    friend class ModeQFLoiter;
     friend class ModeQLand;
     friend class ModeQRTL;
     friend class ModeQAcro;
@@ -323,9 +321,7 @@ private:
 #if HAL_QUADPLANE_ENABLED
     ModeQStabilize mode_qstabilize;
     ModeQHover mode_qhover;
-    ModeQFHover mode_qfhover;
     ModeQLoiter mode_qloiter;
-    ModeQFLoiter mode_qfloiter;
     ModeQLand mode_qland;
     ModeQRTL mode_qrtl;
     ModeQAcro mode_qacro;
@@ -887,7 +883,6 @@ private:
         QRTL            = 1U << 9,
         QLAND           = 1U << 10,
         QLOITER         = 1U << 11,
-        QFLOITER        = 1U << 12,
     };
     struct TerrainLookupTable{
        Mode::Number mode_num;

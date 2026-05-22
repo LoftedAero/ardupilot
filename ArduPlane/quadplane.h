@@ -55,10 +55,8 @@ public:
     friend class ModeAvoidADSB;
     friend class ModeGuided;
     friend class ModeQHover;
-    friend class ModeQFHover;
     friend class ModeQLand;
     friend class ModeQLoiter;
-    friend class ModeQFLoiter;
     friend class ModeQRTL;
     friend class ModeQStabilize;
     friend class ModeQAutotune;

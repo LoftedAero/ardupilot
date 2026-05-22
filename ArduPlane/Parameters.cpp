@@ -1610,4 +1610,30 @@ void Plane::load_parameters(void)
     };
 
     AP_Param::convert_toplevel_objects(toplevel_conversions, ARRAY_SIZE(toplevel_conversions));
+
+#if HAL_QUADPLANE_ENABLED
+    // PARAMETER_CONVERSION - F35B custom flight mode numbers to standard ArduPlane modes.
+    // QFHOVER (27) -> QHOVER (18), QFLOITER (26) -> QLOITER (19).
+    {
+        AP_Int8 *fltmodes[] = {
+            &g.flight_mode1, &g.flight_mode2, &g.flight_mode3,
+            &g.flight_mode4, &g.flight_mode5, &g.flight_mode6,
+        };
+        for (auto *param : fltmodes) {
+            if (!param->configured()) {
+                continue;
+            }
+            const int8_t val = param->get();
+            int8_t new_val = -1;
+            if (val == 26) {
+                new_val = (int8_t)Mode::Number::QLOITER;  // 19
+            } else if (val == 27) {
+                new_val = (int8_t)Mode::Number::QHOVER;   // 18
+            }
+            if (new_val >= 0) {
+                param->set_and_save(new_val);
+            }
+        }
+    }
+#endif
 }

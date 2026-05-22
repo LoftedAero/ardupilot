@@ -332,15 +332,15 @@ void Tiltrotor::continuous_update(void)
         // the way forward
         slew(get_forward_flight_tilt());
             
-    } else if (plane.control_mode == &plane.mode_qfloiter) {
-        // we are in QFLOITER mode, use the navigation pitch angle demand to control thrust vector
+    } else if (plane.control_mode == &plane.mode_qloiter) {
+        // we are in QLOITER mode, use the navigation pitch angle demand to control thrust vector
         float loiter_pitch = plane.quadplane.loiter_nav->get_pitch() / 100;
         float tilt_rev_max = tilt_angle_max - 90.0f;
         float tilt_fwd_max = degrees(atanf(tanf(radians(quadplane.aparm.angle_max / 100.0f))*2));
         float settilt = constrain_float(-1.0f * degrees(atanf(tanf(radians(loiter_pitch))*2)), -tilt_rev_max, tilt_fwd_max);
         slew(settilt / tilt_angle_max);
 
-    } else if (plane.control_mode == &plane.mode_qfhover) {
+    } else if (plane.control_mode == &plane.mode_qhover) {
         float tilt_rev_max = tilt_angle_max - 90.0f;
         float tilt_fwd_max = degrees(atanf(tanf(radians(plane.quadplane.aparm.angle_max / 100.0f))*2));
         float settilt = constrain_float(quadplane.forward_throttle_pct() / 100.0f, -1, 1);
