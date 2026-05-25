@@ -3724,6 +3724,14 @@ void QuadPlane::Log_Write_QControl_Tuning()
  */
 float QuadPlane::forward_throttle_pct()
 {
+    // F35B: QHOVER always maps pilot pitch stick to nozzle tilt regardless of Q_FWD_THR_USE.
+    // This must come before the NEW method check below, which would otherwise return
+    // q_fwd_throttle=0 (computed from nav_pitch_cd which is forced to 0 in QHOVER).
+    if (plane.control_mode == &plane.mode_qhover) {
+        float pitch_input = -100 * plane.channel_pitch->norm_input();
+        return constrain_int16(pitch_input, -100, 100);
+    }
+
     // handle special case where forward thrust motor is used instead of forward pitch.
     if (get_vfwd_method() == ActiveFwdThr::NEW) {
         return 100.0f * q_fwd_throttle;
@@ -3731,13 +3739,12 @@ float QuadPlane::forward_throttle_pct()
 
     /*
       Unless an RC channel is assigned for manual forward throttle control,
-      we don't use forward throttle in QHOVER or QSTABILIZE as they are the primary
+      we don't use forward throttle in QACRO or QSTABILIZE as they are the primary
       recovery modes for a quadplane and need to be as simple as
       possible. They will drift with the wind.
     */
     if (plane.control_mode == &plane.mode_qacro ||
-        plane.control_mode == &plane.mode_qstabilize ||
-        plane.control_mode == &plane.mode_qhover) {
+        plane.control_mode == &plane.mode_qstabilize) {
 
         if (rc_fwd_thr_ch == nullptr) {
             return 0;
@@ -3761,16 +3768,8 @@ float QuadPlane::forward_throttle_pct()
     /*
       in modes without a velocity controller
     */
-    if  (vel_forward.gain <= 0 && plane.control_mode != &plane.mode_qhover) {
-            return 0;
-        }
-
-    /*
-      in QHOVER mode, translate pilot pitch commands to control forward thrust instead
-    */
-    if (plane.control_mode == &plane.mode_qhover) {
-        float pitch_input = -100 * plane.channel_pitch->norm_input();
-        return constrain_int16(pitch_input, -100, 100);
+    if (vel_forward.gain <= 0) {
+        return 0;
     }
 
     /*

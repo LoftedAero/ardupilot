@@ -298,6 +298,31 @@ void Tiltrotor::continuous_update(void)
     }
 #endif
 
+    // F35B: QLOITER and QHOVER nozzle tilt must run before the upstream NEW forward throttle
+    // method block, which would otherwise intercept these modes when Q_FWD_THR_USE is set.
+    // Preserve the same priority as the original if-else chain: FW transition takes precedence.
+    if (!(quadplane.assisted_flight &&
+          transition->transition_state >= Tiltrotor_Transition::TRANSITION_TIMER)) {
+        if (plane.control_mode == &plane.mode_qloiter) {
+            float loiter_pitch = plane.quadplane.loiter_nav->get_pitch() / 100;
+            float tilt_rev_max = tilt_angle_max - 90.0f;
+            float tilt_fwd_max = degrees(atanf(tanf(radians(quadplane.aparm.angle_max / 100.0f))*2));
+            float settilt = constrain_float(-1.0f * degrees(atanf(tanf(radians(loiter_pitch))*2)), -tilt_rev_max, tilt_fwd_max);
+            slew(settilt / tilt_angle_max);
+            return;
+        } else if (plane.control_mode == &plane.mode_qhover) {
+            float tilt_rev_max = tilt_angle_max - 90.0f;
+            float tilt_fwd_max = degrees(atanf(tanf(radians(plane.quadplane.aparm.angle_max / 100.0f))*2));
+            float settilt = constrain_float(quadplane.forward_throttle_pct() / 100.0f, -1, 1);
+            if (settilt >= 0) {
+                slew(settilt * tilt_fwd_max / tilt_angle_max);
+            } else {
+                slew(settilt * tilt_rev_max / tilt_angle_max);
+            }
+            return;
+        }
+    }
+
     if (!quadplane.assisted_flight &&
         quadplane.get_vfwd_method() == QuadPlane::ActiveFwdThr::NEW &&
         quadplane.is_flying_vtol())
@@ -312,8 +337,7 @@ void Tiltrotor::continuous_update(void)
         return;
     } else if (!quadplane.assisted_flight &&
                (plane.control_mode == &plane.mode_qacro ||
-               plane.control_mode == &plane.mode_qstabilize ||
-               plane.control_mode == &plane.mode_qhover))
+               plane.control_mode == &plane.mode_qstabilize))
     {
         if (quadplane.rc_fwd_thr_ch == nullptr) {
             // no manual throttle control, set angle to zero
@@ -321,7 +345,7 @@ void Tiltrotor::continuous_update(void)
         } else {
             // manual control of forward throttle up to max VTOL angle
             float settilt = .01f * quadplane.forward_throttle_pct();
-            slew(MIN(settilt * max_angle_deg * (1/90.0), get_forward_flight_tilt())); 
+            slew(MIN(settilt * max_angle_deg * (1/90.0), get_forward_flight_tilt()));
         }
         return;
     }
@@ -331,33 +355,13 @@ void Tiltrotor::continuous_update(void)
         // we are transitioning to fixed wing - tilt the motors all
         // the way forward
         slew(get_forward_flight_tilt());
-            
-    } else if (plane.control_mode == &plane.mode_qloiter) {
-        // we are in QLOITER mode, use the navigation pitch angle demand to control thrust vector
-        float loiter_pitch = plane.quadplane.loiter_nav->get_pitch() / 100;
-        float tilt_rev_max = tilt_angle_max - 90.0f;
-        float tilt_fwd_max = degrees(atanf(tanf(radians(quadplane.aparm.angle_max / 100.0f))*2));
-        float settilt = constrain_float(-1.0f * degrees(atanf(tanf(radians(loiter_pitch))*2)), -tilt_rev_max, tilt_fwd_max);
-        slew(settilt / tilt_angle_max);
-
-    } else if (plane.control_mode == &plane.mode_qhover) {
-        float tilt_rev_max = tilt_angle_max - 90.0f;
-        float tilt_fwd_max = degrees(atanf(tanf(radians(plane.quadplane.aparm.angle_max / 100.0f))*2));
-        float settilt = constrain_float(quadplane.forward_throttle_pct() / 100.0f, -1, 1);
-        if (settilt >= 0) {
-            slew(settilt * tilt_fwd_max / tilt_angle_max);
-        }
-        else {
-            slew(settilt * tilt_rev_max / tilt_angle_max);
-        }
-
     } else {
         // until we have completed the transition we limit the tilt to
         // Q_TILT_MAX. Anything above 50% throttle gets
         // Q_TILT_MAX. Below 50% throttle we decrease linearly. This
         // relies heavily on Q_VFWD_GAIN being set appropriately.
-       float settilt = constrain_float(SRV_Channels::get_output_scaled(SRV_Channel::k_throttle) * 0.02, 0, 1);
-       slew(settilt * max_angle_deg / tilt_angle_max);
+        float settilt = constrain_float(SRV_Channels::get_output_scaled(SRV_Channel::k_throttle) * 0.02, 0, 1);
+        slew(settilt * max_angle_deg / tilt_angle_max);
     }
 }
 
