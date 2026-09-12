@@ -1,0 +1,239 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>F35B.lua — SITL Test Plan</title>
+<style>
+  :root { --bg:#0f1720; --card:#17212b; --line:#26333f; --fg:#e6edf3; --mut:#9fb0c0;
+          --ok:#3fb950; --star:#e3b341; --code:#1d2731; --accent:#2f81f7; }
+  * { box-sizing:border-box; }
+  body { margin:0; font:15px/1.5 -apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;
+         background:var(--bg); color:var(--fg); }
+  header { position:sticky; top:0; z-index:5; background:var(--bg);
+           border-bottom:1px solid var(--line); padding:14px 20px; }
+  h1 { margin:0 0 8px; font-size:19px; }
+  .bar { height:12px; background:var(--code); border-radius:6px; overflow:hidden; }
+  .bar > div { height:100%; width:0; background:var(--ok); transition:width .2s; }
+  .meta { display:flex; justify-content:space-between; align-items:center; gap:12px;
+          margin-top:6px; color:var(--mut); font-size:13px; }
+  button { background:var(--card); color:var(--fg); border:1px solid var(--line);
+           border-radius:6px; padding:5px 10px; cursor:pointer; font-size:13px; }
+  button:hover { border-color:var(--accent); }
+  main { max-width:960px; margin:0 auto; padding:18px 20px 80px; }
+  section { margin:22px 0; }
+  h2 { font-size:16px; border-bottom:1px solid var(--line); padding-bottom:6px; }
+  .intro { background:var(--card); border:1px solid var(--line); border-radius:8px;
+           padding:12px 16px; }
+  .intro h2 { border:0; margin-top:0; }
+  code { background:var(--code); padding:1px 5px; border-radius:4px; font-size:13px;
+         font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace; }
+  .test { display:flex; gap:12px; background:var(--card); border:1px solid var(--line);
+          border-radius:8px; padding:12px 14px; margin:10px 0; }
+  .test.done { border-color:var(--ok); opacity:.72; }
+  .test input[type=checkbox] { width:20px; height:20px; margin-top:2px; flex:0 0 auto;
+          accent-color:var(--ok); cursor:pointer; }
+  .tbody { flex:1; min-width:0; }
+  .id { font-weight:700; color:var(--accent); margin-right:6px; }
+  .star { color:var(--star); }
+  .steps { margin:2px 0; }
+  .expect { color:var(--mut); font-size:14px; margin-top:4px; }
+  .expect b { color:var(--fg); }
+  textarea { width:100%; margin-top:8px; background:var(--code); color:var(--fg);
+             border:1px solid var(--line); border-radius:6px; padding:6px 8px; resize:vertical;
+             font:13px/1.4 inherit; min-height:30px; }
+  ul { margin:6px 0; padding-left:20px; }
+  .hint { color:var(--mut); font-size:13px; }
+</style>
+</head>
+<body>
+<header>
+  <h1>F35B.lua — SITL Test Plan</h1>
+  <div class="bar"><div id="fill"></div></div>
+  <div class="meta">
+    <span id="count">0 / 0 complete</span>
+    <span>
+      <button id="collapseNotes">Toggle notes</button>
+      <button id="exportBtn">Copy results</button>
+      <button id="resetBtn">Reset</button>
+    </span>
+  </div>
+</header>
+<main>
+
+<div class="intro">
+  <h2>Setup</h2>
+  <p>Run with <code>DOOR_DEBUG = 1</code> so the script narrates every decision. Load your
+  F-35B params (or the closest tiltrotor + dedicated-lift model) so <code>DOOR_TILT_FN</code>
+  and <code>DOOR_LIFT_FN</code> move — <b>Group&nbsp;1 verifies these first.</b></p>
+  <ul>
+    <li><b>Launch:</b> <code>Tools/autotest/sim_vehicle.py -v ArduPlane -f quadplane --console --map</code></li>
+    <li><b>Selector (ch 8):</b> <code>rc 8 1000</code> QSTABILIZE · <code>rc 8 1500</code> QLOITER · <code>rc 8 2000</code> FBWA</li>
+    <li><b>Override (FLTMODE_CH ≠ 8):</b> <code>rc &lt;ch&gt; &lt;pwm&gt;</code> to FBWA / MANUAL</li>
+    <li><b>GCS mode:</b> <code>mode QHOVER</code> · arm/disarm: <code>arm throttle</code> / <code>disarm</code></li>
+    <li><b>Signals:</b> <code>DOOR_ST</code> (0 closed/1 partial/2 open/3 opening),
+        <code>DOOR_PWM</code>, <code>VTOL_DLY</code>, <code>TILT_POS</code> (tilt PWM),
+        <code>LIFT_PWM</code>. These are <code>NAMED_VALUE_FLOAT</code> — if MP doesn't list them,
+        read the <b>~2 s heartbeat</b> in Messages: <code>F35B hb st=S t=T l=L as=A</code>.</li>
+  </ul>
+  <p class="hint">★ = priority subset (safety-critical). Progress (checks + notes) is saved in
+  this browser per file, and survives content updates. "Copy results" includes your notes.</p>
+</div>
+
+<div id="plan"></div>
+</main>
+
+<script>
+const PLAN = [
+ ["1. Telemetry foundation (do this first)", [
+   ["1a", true, "Disarmed, fixed-wing. Read <code>TILT_POS</code> (now tilt <b>PWM</b>).",
+    "A stable value in <b>1000–2000</b>. If ~0, <code>DOOR_TILT_FN</code> is the wrong function. (Disarmed the tilt may not be driven — 1b tests it armed.)"],
+   ["1b", true, "<b>Armed / in flight</b>, enter QHOVER, let nacelles come up. Read <code>TILT_POS</code>.",
+    "Sweeps across its <b>PWM</b> range (1000↔2000) as nacelles move. Note the forward-flight value → set <code>DOOR_TILT_FWD</code> there (direction auto-detected)."],
+   ["1c", true, "With <code>DOOR_LIFT_FN</code> set: disarmed vs armed-hover, read <code>LIFT_PWM</code>.",
+    "Low (stopped) disarmed; higher when the lift motor runs. Set <code>DOOR_LIFT_OFF</code> between them."],
+   ["1d", false, "Watch <code>DOOR_ST</code> while idle.", "Stable, not flickering."],
+ ]],
+ ["2. Config invariant — no fixed-wing blip", [
+   ["2a", true, "Override switch static. Sweep <code>rc 8</code> through all 3 positions.",
+    "<b>Mode does not change on its own</b> from the sweep (only the script's own commands move it). Proves <code>FLTMODE_CH</code> ≠ 8."],
+ ]],
+ ["3. Core manual transitions", [
+   ["3a", true, "<b>Inbound (fast):</b> in FBWA at cruise, <code>rc 8 1500</code> (QLOITER).",
+    "<code>dbg: inbound … holding fixed-wing</code>; <code>DOOR_PWM→1500</code>; <b>mode stays FBWA</b> for <code>DOOR_ENTRY_MS</code> (<code>VTOL_DLY</code> counts down); then <code>doors open - entering VTOL</code>, mode→QLOITER. <b>No VTOL motor/tilt motion before the flip.</b> As it slows, <code>DOOR_PWM→2000</code> + <code>dbg: latched FULL</code>."],
+   ["3b", false, "<b>Inbound (slow):</b> fly FBWA below <code>DOOR_PART_AS</code>, select QLOITER.",
+    "Doors go to <b>full (2000)</b> through the entry, not partial."],
+   ["3c", true, "<b>Outbound:</b> hovering QLOITER, <code>rc 8 2000</code> (FBWA).",
+    "Mode→FBWA immediately; doors stay open, neck full→partial past <code>DOOR_PART_AS</code>; <b>close only when <code>TILT_POS</code> reaches forward (<code>DOOR_TILT_FWD</code>) AND <code>LIFT_PWM</code>≤<code>DOOR_LIFT_OFF</code></b> → <code>doors closed</code>."],
+   ["3d", false, "Full round trip FBWA→QLOITER→hover→FBWA→cruise.",
+    "Choreography correct both ways; ends <code>DOOR_ST=0</code>."],
+ ]],
+ ["4. Airspeed door position, latch-full, chatter", [
+   ["4a", false, "Note airspeed where doors neck 2000→1500 <b>outbound</b>.", "≈ <code>DOOR_PART_AS</code>."],
+   ["4b", false, "Note airspeed where doors open 1500→2000 <b>inbound</b> (in VTOL, decelerating).", "≈ <code>DOOR_FULL_AS</code>."],
+   ["4c", true, "<b>Latch-full:</b> after 3a settles full in QLOITER, push speed back up above <code>DOOR_FULL_AS</code>.",
+    "<code>DOOR_ST</code> <b>stays 2 (full)</b> — no neck to partial."],
+   ["4d", false, "Transition out to FBWA then back into QLOITER fast.",
+    "<code>dbg: session ended - full latch reset</code>; the fresh fast entry necks to partial again."],
+   ["4e", false, "<b>Chatter:</b> hold a steady airspeed right at a threshold ~30 s.",
+    "<code>DOOR_PWM</code> does <b>not</b> oscillate; Messages stays quiet (debounce)."],
+ ]],
+ ["5. Close-safety gates (both must be satisfied)", [
+   ["5a", true, "During an outbound transition, watch <code>TILT_POS</code> vs door close.",
+    "Doors do <b>not</b> close until <code>TILT_POS</code> reaches forward (<code>DOOR_TILT_FWD</code>) — waits out the intermediate airspeed-wait angle."],
+   ["5b", true, "With <code>DOOR_LIFT_FN</code> set: after nacelles reach forward, watch <code>LIFT_PWM</code>.",
+    "Doors stay open until <code>LIFT_PWM</code>≤<code>DOOR_LIFT_OFF</code>, then close — not on a still-spinning lift motor."],
+   ["5c", false, "Temporarily set <code>DOOR_TILT_FWD</code> to the non-forward end so nacelles never read \"forward\".",
+    "Doors <b>never close</b> (fail-safe open). Restore afterward."],
+ ]],
+ ["6. Selector edge cases", [
+   ["6a", true, "In QLOITER, <code>rc 8 1000</code> (QSTABILIZE).",
+    "<code>dbg: VTOL->VTOL … immediately</code>; instant switch, <b>no</b> \"opening\", no delay."],
+   ["6b", false, "From FBWA select QLOITER (gate running), then <code>rc 8 2000</code> before <code>DOOR_ENTRY_MS</code>.",
+    "Pending cancels; stays FBWA; no VTOL entry; doors close."],
+   ["6c", false, "Select QHOVER (pending), then QLOITER before delay elapses.",
+    "Retargets; timer restarts; ends in QLOITER."],
+   ["6d", false, "FW↔FW via selector (MANUAL/FBWA/CRUISE if mapped).", "Immediate; doors stay closed."],
+ ]],
+ ["7. MANUAL override & lockout", [
+   ["7a", true, "Hovering QLOITER, flip override to MANUAL.",
+    "Immediate MANUAL (bypasses script); lift motor stops, nacelles slew forward; doors stay open then close per 5a/5b."],
+   ["7b", true, "While in MANUAL, move <code>rc 8</code> to a VTOL position.",
+    "<code>MANUAL override active - selector ignored</code>; <b>no</b> mode change, <b>no</b> door opening."],
+   ["7c", false, "Override back to rest (→FBWA), then select QLOITER.", "Selector works again → QLOITER via the normal gate."],
+   ["7d", false, "FBWA → override MANUAL.", "MANUAL; doors stay closed."],
+   ["7e", false, "<code>DOOR_ENABLE 0</code> (or stop script), flip override to MANUAL.",
+    "MANUAL still engages (script-independent). Doors hold last PWM. Re-enable after."],
+ ]],
+ ["8. External / automatic mode changes", [
+   ["8a", false, "In FBWA, <code>mode QHOVER</code> from GCS.",
+    "<code>VTOL entered externally - opening doors</code> (warning); doors open reactively; mode is QHOVER."],
+   ["8b", false, "In QLOITER (selector on QLOITER), <code>mode FBWA</code> from GCS.",
+    "Mode goes FBWA and <b>stays</b> — script does not drag it back. Doors follow the transition."],
+   ["8c", false, "AUTO mission with VTOL_TAKEOFF / VTOL_LAND.",
+    "Doors track phase; external-VTOL warning on the VTOL legs (reactive, documented)."],
+   ["8d", false, "RTL that auto-transitions to a VTOL land.",
+    "Doors open reactively during the back-transition + warning (known limitation)."],
+ ]],
+ ["9. Ground & disarmed", [
+   ["9a", false, "Disarmed in QHOVER (nacelles up).", "Doors open (<code>DOOR_ST</code> 1/2)."],
+   ["9b", true, "Disarmed, <code>rc 8 2000</code> (FBWA); let nacelles settle forward.",
+    "Doors <b>close</b> (<code>DOOR_ST 0</code>) once <code>TILT_POS</code> reaches forward (<code>DOOR_TILT_FWD</code>) &amp; <code>LIFT_PWM</code> low — the disarmed-close fix."],
+   ["9c", false, "Disarmed in FBWA, select QHOVER.",
+    "Doors open + <code>DOOR_ENTRY_MS</code> gate, then QHOVER. Arm → VTOL spin-up only <b>after</b> doors open."],
+   ["9d", false, "Reboot with <code>rc 8</code> on QHOVER position.", "Gated open + delayed entry, not an instant blocked spin-up."],
+ ]],
+ ["10. Failure & robustness", [
+   ["10a", false, "<code>DOOR_MODE_CH 0</code>.", "Doors track phase reactively; no mode gating; no script errors. Restore after."],
+   ["10b", false, "Trigger RC failsafe (e.g. <code>SIM_RC_FAIL 1</code>).",
+    "No selector edge acted on; failsafe mode engages; doors reactive; no misfire. Clear after."],
+   ["10c", false, "Rapidly sweep the selector across all positions.", "No stuck/oscillating state, no runaway mode commands."],
+   ["10d", false, "<code>DOOR_TILT_FN 0</code> momentarily.", "<code>TILT_POS</code>=0 → treated as \"deployed\" → doors stay open (fail-safe). Restore after."],
+   ["10e", false, "<code>DOOR_DEBUG 0</code>.", "Verbose <code>F35B[dbg]:</code> messages stop; production event messages remain."],
+ ]],
+];
+
+const KEY = "f35b-testplan-v1";
+let store = JSON.parse(localStorage.getItem(KEY) || "{}");
+const save = () => localStorage.setItem(KEY, JSON.stringify(store));
+
+const plan = document.getElementById("plan");
+let total = 0;
+for (const [title, tests] of PLAN) {
+  const sec = document.createElement("section");
+  sec.innerHTML = `<h2>${title}</h2>`;
+  for (const [id, prio, steps, expect] of tests) {
+    total++;
+    const st = store[id] || {};
+    const div = document.createElement("div");
+    div.className = "test" + (st.done ? " done" : "");
+    div.innerHTML = `
+      <input type="checkbox" ${st.done ? "checked" : ""}>
+      <div class="tbody">
+        <div class="steps"><span class="id">${id}${prio ? ' <span class="star">★</span>' : ''}</span>${steps}</div>
+        <div class="expect"><b>Expect:</b> ${expect}</div>
+        <textarea placeholder="notes / result…">${(st.notes||"").replace(/</g,"&lt;")}</textarea>
+      </div>`;
+    const cb = div.querySelector("input");
+    const ta = div.querySelector("textarea");
+    cb.addEventListener("change", () => {
+      store[id] = {...(store[id]||{}), done: cb.checked};
+      div.classList.toggle("done", cb.checked); save(); refresh();
+    });
+    ta.addEventListener("input", () => { store[id] = {...(store[id]||{}), notes: ta.value}; save(); });
+    sec.appendChild(div);
+  }
+  plan.appendChild(sec);
+}
+
+function refresh() {
+  const done = Object.values(store).filter(s => s.done).length;
+  document.getElementById("count").textContent = `${done} / ${total} complete`;
+  document.getElementById("fill").style.width = (100*done/total) + "%";
+}
+refresh();
+
+document.getElementById("resetBtn").onclick = () => {
+  if (confirm("Clear all checkmarks and notes?")) { store = {}; save(); location.reload(); }
+};
+document.getElementById("collapseNotes").onclick = () => {
+  document.querySelectorAll("textarea").forEach(t =>
+    t.style.display = t.style.display === "none" ? "" : "none");
+};
+document.getElementById("exportBtn").onclick = () => {
+  let out = "F35B SITL test results\n\n";
+  for (const [title, tests] of PLAN) {
+    out += title + "\n";
+    for (const [id] of tests) {
+      const s = store[id] || {};
+      out += `  [${s.done ? "x" : " "}] ${id}${s.notes ? " — " + s.notes : ""}\n`;
+    }
+    out += "\n";
+  }
+  navigator.clipboard.writeText(out).then(
+    () => alert("Results copied to clipboard."),
+    () => { prompt("Copy:", out); });
+};
+</script>
+</body>
+</html>
