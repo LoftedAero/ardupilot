@@ -191,6 +191,9 @@ public:
 #if AP_PLANE_SYSTEMID_ENABLED
     friend class AP_SystemID;
 #endif
+#if AP_PLANE_GYRO_ENABLED
+    friend class PlaneGyro;
+#endif
 
     Plane(void);
 

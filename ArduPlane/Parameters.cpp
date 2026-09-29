@@ -1298,6 +1298,12 @@ const AP_Param::GroupInfo ParametersG2::var_info[] = {
     AP_GROUPINFO("RNGFND_LND_DIST", 41, ParametersG2, rangefinder_land_engage_dist_m, 0),
 #endif
 
+#if AP_PLANE_GYRO_ENABLED
+    // @Group: GYRO_
+    // @Path: gyro.cpp
+    AP_SUBGROUPINFO(gyro, "GYRO_", 42, ParametersG2, PlaneGyro),
+#endif
+
     AP_GROUPEND
 };
 

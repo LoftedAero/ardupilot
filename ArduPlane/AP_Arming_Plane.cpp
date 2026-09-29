@@ -382,7 +382,12 @@ void AP_Arming_Plane::update_soft_armed()
 
     hal.util->set_soft_armed(_armed);
 #if HAL_LOGGING_ENABLED
-    AP::logger().set_vehicle_armed(hal.util->get_soft_armed());
+    bool log_armed = hal.util->get_soft_armed();
+#if AP_PLANE_GYRO_ENABLED
+    // throttle based logging gate for ARMING_REQUIRE 0 (no-op unless GYRO_LOG_THR)
+    log_armed = log_armed && plane.g2.gyro.logging_allowed();
+#endif
+    AP::logger().set_vehicle_armed(log_armed);
 #endif
 
     // update delay_arming oneshot

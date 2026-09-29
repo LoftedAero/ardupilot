@@ -3,6 +3,7 @@
 #define AP_PARAM_VEHICLE_NAME plane
 
 #include <AP_Common/AP_Common.h>
+#include "gyro.h"
 
 // Global parameter class.
 //
@@ -593,6 +594,11 @@ public:
 
 #if AP_PLANE_SYSTEMID_ENABLED
     AP_SystemID systemid;
+#endif
+
+#if AP_PLANE_GYRO_ENABLED
+    // gyro-style helpers (gain knob, trim capture, logging gate)
+    PlaneGyro gyro;
 #endif
 };
 
