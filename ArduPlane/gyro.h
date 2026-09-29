@@ -12,6 +12,8 @@
      become the neutral for the stabilised modes
    - a throttle based logging gate for vehicles with ARMING_REQUIRE 0,
      which otherwise log continuously from boot
+   - a calibration request parameter (GYRO_CAL) so the Lua transmitter
+     menu can have gyro and level calibration run on the main thread
 
   Everything is off by default; stock ArduPlane behaviour is unchanged
   until a GYRO_ parameter enables it.
@@ -57,15 +59,18 @@ private:
     AP_Float gain_max;
     AP_Int8 trim_capture;
     AP_Int8 log_thr;
+    AP_Int8 cal_request;
 
     float gain_scale = 1.0f;
     bool log_allowed = false;   // never let the logger see "armed" before the first update()
     bool was_armed;
     uint32_t last_thr_high_ms;
     uint16_t trim_captures;
+    bool cal_request_cleared;
 
     void update_gain_scale();
     void update_logging_gate(uint32_t now_ms);
+    void update_calibration();
     void write_log();
 };
 

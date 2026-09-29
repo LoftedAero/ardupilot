@@ -43,6 +43,13 @@ const AP_Param::GroupInfo PlaneGyro::var_info[] = {
     // @User: Standard
     AP_GROUPINFO("LOG_THR", 5, PlaneGyro, log_thr, 0),
 
+    // @Param: CAL
+    // @DisplayName: Gyro calibration request
+    // @Description: Used by the transmitter setup menu. Set to 1 to calibrate the gyros, or 2 to calibrate level (simple accelerometer calibration with the model held at its level flight attitude). The calibration runs on the main thread, only while disarmed, like a ground station calibration. The value reads back 0 when the calibration succeeded and -1 when it failed or was refused. It is reset to 0 at boot.
+    // @Values: -1:Last calibration failed,0:Idle,1:Calibrate gyros,2:Calibrate level
+    // @User: Advanced
+    AP_GROUPINFO("CAL", 6, PlaneGyro, cal_request, 0),
+
     AP_GROUPEND
 };
 
@@ -56,6 +63,7 @@ void PlaneGyro::update()
     const uint32_t now_ms = AP_HAL::millis();
     update_gain_scale();
     update_logging_gate(now_ms);
+    update_calibration();
 
     // trim capture at the moment of arming, like a gyro learning stick
     // centre at power-up
@@ -114,6 +122,47 @@ void PlaneGyro::update_logging_gate(uint32_t now_ms)
     }
     const bool recent_throttle = (last_thr_high_ms != 0) && (now_ms - last_thr_high_ms < 60000U);
     log_allowed = recent_throttle || plane.is_flying();
+}
+
+/*
+  run a calibration requested through GYRO_CAL. Calling the calibration
+  from a Lua script directly (gcs:run_command_int) blocks the main loop
+  while the calibration waits for IMU samples, so the script only sets
+  the request and the calibration runs here, on the main thread.
+ */
+void PlaneGyro::update_calibration()
+{
+    if (!cal_request_cleared) {
+        // a request must never survive a reboot (for example if a
+        // ground station saved the parameter)
+        cal_request_cleared = true;
+        if (cal_request.get() != 0) {
+            cal_request.set_and_save(0);
+        }
+        return;
+    }
+
+    const int8_t req = cal_request.get();
+    if (req != 1 && req != 2) {
+        return;
+    }
+
+    bool ok = false;
+    if (hal.util->get_soft_armed()) {
+        GCS_SEND_TEXT(MAV_SEVERITY_WARNING, "Gyro: disarm to calibrate");
+    } else {
+        EXPECT_DELAY_MS(30000);
+        plane.in_calibration = true;
+        if (req == 1) {
+            ok = AP::ins().calibrate_gyros();
+        } else {
+            ok = AP::ins().simple_accel_cal() == MAV_RESULT_ACCEPTED;
+        }
+        plane.in_calibration = false;
+        GCS_SEND_TEXT(MAV_SEVERITY_INFO, "Gyro: %s calibration %s",
+                      req == 1 ? "gyro" : "level", ok ? "done" : "failed");
+    }
+    cal_request.set(ok ? 0 : -1);
 }
 
 /*
