@@ -177,7 +177,12 @@ public:
     const static uint8_t MAX_SCRIPTED_PARAMETERS = 255U;
     const static uint8_t MAX_SCRIPTED_PARAMETER_SIZE = 255U;
     const static uint8_t MAX_SCRIPTED_MENU_NAME_LEN = 16;
+#if OSD_PARAM_ENABLED
     const static uint8_t SCRIPTED_MENU_START_ID = AP_OSD_ParamScreen::NUM_PARAMS * AP_OSD_NUM_PARAM_SCREENS + 2;
+#else
+    // no OSD parameter menu: scripted menus start right after the (unused) parameter menu id
+    const static uint8_t SCRIPTED_MENU_START_ID = PARAMETER_MENU_ID + 1;
+#endif
 
     // 8-bit parameter ids must be unique within the whole menu structure
     // each parameter has an id, length and packed data
@@ -387,7 +392,7 @@ private:
 #if AP_CRSF_SCRIPTING_ENABLED
     bool calc_scripted_parameter();
 #endif
-#if HAL_CRSF_TELEM_TEXT_SELECTION_ENABLED
+#if HAL_CRSF_TELEM_TEXT_SELECTION_ENABLED && OSD_PARAM_ENABLED
     void calc_text_selection( AP_OSD_ParamSetting* param, uint8_t chunk);
 #endif
     void process_pending_requests();

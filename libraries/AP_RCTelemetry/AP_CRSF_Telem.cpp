@@ -1269,7 +1269,7 @@ void AP_CRSF_Telem::calc_bind() {
 
 // return parameter information
 void AP_CRSF_Telem::calc_parameter() {
-#if OSD_PARAM_ENABLED
+#if OSD_PARAM_ENABLED || AP_CRSF_SCRIPTING_ENABLED
 #if AP_CRSF_SCRIPTING_ENABLED
     WITH_SEMAPHORE(scr_sem);
 #endif
@@ -1292,7 +1292,9 @@ void AP_CRSF_Telem::calc_parameter() {
 
 #if AP_CRSF_SCRIPTING_ENABLED
         if (scripted_menus.next_menu != nullptr) {
+#if OSD_PARAM_ENABLED
             _telem.ext.param_entry.payload[idx++] = PARAMETER_MENU_ID; // root parameter screen ardupilot menu
+#endif
             for (ScriptedMenu* m = scripted_menus.next_menu; m != nullptr; m = m->next_menu) {
                 if (m->parent_id == 0) {
                     _telem.ext.param_entry.payload[idx++] = m->id;   // scripted menus
@@ -1301,10 +1303,12 @@ void AP_CRSF_Telem::calc_parameter() {
         } else
 #endif // AP_CRSF_SCRIPTING_ENABLED
         {
+#if OSD_PARAM_ENABLED
             // write out all of the ids we are going to send
             for (uint8_t i = 0; i < AP_OSD_ParamScreen::NUM_PARAMS * AP_OSD_NUM_PARAM_SCREENS; i++) {
                 _telem.ext.param_entry.payload[idx++] = PARAMETER_MENU_ID + i + 1;
             }
+#endif
         }
         _telem.ext.param_entry.payload[idx] = 0xFF; // terminator
 
@@ -1316,6 +1320,7 @@ void AP_CRSF_Telem::calc_parameter() {
     }
 
 #if AP_CRSF_SCRIPTING_ENABLED
+#if OSD_PARAM_ENABLED
     // root folder request
     if (scripted_menus.next_menu != nullptr && _param_request.param_num == PARAMETER_MENU_ID) {
         _telem.ext.param_entry.header.param_num = PARAMETER_MENU_ID;
@@ -1338,6 +1343,7 @@ void AP_CRSF_Telem::calc_parameter() {
         _telem_pending = true;
         return;
     }
+#endif // OSD_PARAM_ENABLED
 
     // scripted menu folder request indexed as the set of parameter ids from SCRIPTED_MENU_START_ID
     AP_CRSF_Telem::ScriptedMenu* menu = scripted_menus.find_menu(_param_request.param_num);
@@ -1370,6 +1376,7 @@ void AP_CRSF_Telem::calc_parameter() {
     }
 #endif // AP_CRSF_SCRIPTING_ENABLED
 
+#if OSD_PARAM_ENABLED
     AP_OSD* osd = AP::osd();
 
     if (osd == nullptr) {
@@ -1467,6 +1474,7 @@ void AP_CRSF_Telem::calc_parameter() {
     _pending_request.frame_type = 0;
     _telem_pending = true;
 #endif  // OSD_PARAM_ENABLED
+#endif  // OSD_PARAM_ENABLED || AP_CRSF_SCRIPTING_ENABLED
 }
 
 #if AP_CRSF_SCRIPTING_ENABLED
@@ -1529,7 +1537,7 @@ bool AP_CRSF_Telem::calc_scripted_parameter()
 }
 #endif // AP_CRSF_SCRIPTING_ENABLED
 
-#if HAL_CRSF_TELEM_TEXT_SELECTION_ENABLED
+#if HAL_CRSF_TELEM_TEXT_SELECTION_ENABLED && OSD_PARAM_ENABLED
 // class that spits out a chunk of data from a larger stream of contiguous chunks
 // the caller describes which chunk it needs and provides this class with all of the data
 // data is not written until the start position is reached and after a whole chunk
@@ -1681,7 +1689,7 @@ void AP_CRSF_Telem::calc_text_selection(AP_OSD_ParamSetting* param, uint8_t chun
     _pending_request.frame_type = 0;
     _telem_pending = true;
 }
-#endif  // HAL_CRSF_TELEM_TEXT_SELECTION_ENABLED
+#endif  // HAL_CRSF_TELEM_TEXT_SELECTION_ENABLED && OSD_PARAM_ENABLED
 
 // write parameter information back into AP - assumes we already know the encoding for floats
 void AP_CRSF_Telem::process_param_write_frame(ParameterSettingsWriteFrame* write_frame, uint8_t length)
