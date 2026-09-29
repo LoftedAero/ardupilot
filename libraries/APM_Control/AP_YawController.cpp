@@ -287,6 +287,9 @@ int32_t AP_YawController::get_servo_out(float scaler, bool disable_integrator)
     // Scale using inverse dynamic pressure (1/V^2)
     _pid_info.I = _K_D * _integrator * scaler * scaler;
     _pid_info.D = _K_D * (-rate_hp_out) * scaler * scaler;
+    // master gain scale (transmitter gain knob)
+    _pid_info.I *= gain_scale;
+    _pid_info.D *= gain_scale;
     _last_out =  _pid_info.I + _pid_info.D;
 
     // Convert to centi-degrees and constrain
@@ -346,6 +349,13 @@ float AP_YawController::get_rate_out(float desired_rate, float scaler, bool disa
     pinfo.I *= deg_scale;
     pinfo.D *= deg_scale;
     pinfo.DFF = dff;
+
+    // master gain scale (transmitter gain knob); held at 1.0 while autotune runs
+    if (!(autotune != nullptr && autotune->running)) {
+        pinfo.P *= gain_scale;
+        pinfo.I *= gain_scale;
+        pinfo.D *= gain_scale;
+    }
     pinfo.limit = limit_I;
 
     // fix the logged target and actual values to not have the scalers applied

@@ -191,6 +191,13 @@ float AP_FW_Controller::run_rate_control(float desired_rate_degs, float scaler, 
     pinfo.D *= deg_scale;
     pinfo.DFF = dff;
 
+    // master gain scale (transmitter gain knob); held at 1.0 while autotune runs
+    if (!(autotune != nullptr && autotune->running)) {
+        pinfo.P *= gain_scale;
+        pinfo.I *= gain_scale;
+        pinfo.D *= gain_scale;
+    }
+
     // fix the logged target and actual values to not have the scalers applied
     pinfo.target = desired_rate_degs;
     pinfo.actual = degrees(rate_rads);

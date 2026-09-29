@@ -46,6 +46,9 @@ public:
     // set the PID notch sample rates
     void set_notch_sample_rate(float sample_rate) { rate_pid.set_notch_sample_rate(sample_rate); }
 
+    // master gain scale applied to the P, I and D terms (not FF). Persists until changed.
+    void set_gain_scale(float scale) { gain_scale = scale; }
+
     // start/stop auto tuner
     void autotune_start(void);
     void autotune_restore(void);
@@ -65,6 +68,7 @@ private:
 
     uint32_t _last_t;
     float _last_out;
+    float gain_scale = 1.0;
     float _last_rate_hp_out;
     float _last_rate_hp_in;
     float _K_D_last;

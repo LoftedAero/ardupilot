@@ -22,6 +22,9 @@ public:
     // so should only be used when only one source of scaling is needed
     void set_ff_scale(float _ff_scale) { ff_scale = _ff_scale; }
 
+    // master gain scale applied to the P, I and D terms (not FF). Persists until changed.
+    void set_gain_scale(float scale) { gain_scale = scale; }
+
     // Reset I term
     void reset_I();
 
@@ -71,6 +74,7 @@ protected:
     AC_PID rate_pid;
     float angle_err_deg;
     float ff_scale = 1.0;
+    float gain_scale = 1.0;
 
     AP_PIDInfo _pid_info;
 
