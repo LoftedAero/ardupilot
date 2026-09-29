@@ -1,0 +1,80 @@
+# Default parameters for the KakuteF4-Wing gyro build.
+# These make a freshly flashed board behave like an RC gyro with an
+# arm switch: ELRS AUX1 (channel 5) arms, a three-position mode switch
+# on channel 6, RTL on channel 7, gain knob on channel 8, and link-loss
+# handling that never needs a GPS.
+
+# --- Arming: switch on channel 5 (ELRS AUX1), all optional pre-arm checks skipped, no rudder arming ---
+# Throttle is held at minimum PWM while disarmed so the ESC stays quiet.
+ARMING_REQUIRE 1
+ARMING_SKIPCHK -1
+ARMING_RUDDER 0
+RC5_OPTION 153
+INS_GYR_CAL 1
+
+# --- Sensors ---
+COMPASS_ENABLE 0
+AHRS_EKF_TYPE 0
+ARSPD_TYPE 0
+
+# --- RC input: ELRS/CRSF on SERIAL3, standard CRSF endpoints ---
+SERIAL3_PROTOCOL 23
+RC_PROTOCOLS 512
+RC1_MIN 988
+RC1_MAX 2012
+RC2_MIN 988
+RC2_MAX 2012
+RC3_MIN 988
+RC3_MAX 2012
+RC4_MIN 988
+RC4_MAX 2012
+RC5_MIN 988
+RC5_MAX 2012
+RC6_MIN 988
+RC6_MAX 2012
+RC7_MIN 988
+RC7_MAX 2012
+RC8_MIN 988
+RC8_MAX 2012
+
+# --- Mode switch: 3-position on channel 6 -> MANUAL / ACRO / FBWA ---
+FLTMODE_CH 6
+FLTMODE1 0
+FLTMODE2 0
+FLTMODE3 4
+FLTMODE4 4
+FLTMODE5 5
+FLTMODE6 5
+INITIAL_MODE 0
+
+# --- RTL on channel 7 (only useful with a GPS and home set) ---
+RC7_OPTION 4
+
+# --- Gain knob on channel 8: master gain for the rate controllers ---
+GYRO_GAIN_CH 8
+GYRO_GAIN_MIN 0
+GYRO_GAIN_MAX 1.5
+
+# --- Trims: captured on arming and on MANUAL -> ACRO/FBWA; auto-trim servos in FBWA ---
+SERVO_AUTO_TRIM 1
+GYRO_TRIM_CAP 1
+STICK_MIXING 0
+
+# --- Link loss: short = FBWA at zero throttle; long = RTL if home is set, else FBWA glide
+THR_FAILSAFE 1
+FS_SHORT_ACTN 2
+FS_SHORT_TIMEOUT 1
+FS_LONG_ACTN 1
+FS_LONG_TIMEOUT 5
+FS_GCS_ENABL 0
+
+# --- ACRO feel ---
+ACRO_ROLL_RATE 180
+ACRO_PITCH_RATE 90
+ACRO_LOCKING 0
+
+# --- Logging: while armed only ---
+LOG_DISARMED 0
+
+# --- Transmitter setup menu: Lua applet embedded in ROMFS ---
+SCR_ENABLE 1

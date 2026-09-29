@@ -1,0 +1,3 @@
+# Bootloader definition for KakuteF4-Wing-gyro
+# Same hardware as KakuteF4-Wing, reuse its bootloader definition.
+include ../KakuteF4-Wing/hwdef-bl.dat
