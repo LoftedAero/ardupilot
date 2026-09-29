@@ -1,0 +1,15 @@
+# Gyro-mode build for the TBS Lucid H7 Wing.
+# Inherits all hardware pin definitions from the base board, then
+# applies the shared gyro feature profile.
+
+include ../TBS_LUCID_H7_WING/hwdef.dat
+include ../include/gyro.inc
+
+# SERIAL3 is the HD VTX DisplayPort on the base board; MSP is compiled
+# out in the gyro profile, so leave the port idle.
+undef DEFAULT_SERIAL3_PROTOCOL
+define DEFAULT_SERIAL3_PROTOCOL SerialProtocol_None
+
+# Transmitter setup menu (CRSF/ELRS) as a ROMFS Lua applet
+ROMFS scripts/gyro_menu.lua libraries/AP_Scripting/applets/gyro_menu.lua
+ROMFS scripts/modules/crsf_helper.lua libraries/AP_Scripting/modules/crsf_helper.lua
