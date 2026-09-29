@@ -154,12 +154,14 @@ void Plane::failsafe_long_on_event(enum failsafe_state fstype, ModeReason reason
             IGNORE_RETURN(set_mode(mode_auto, reason));
 #if MODE_AUTOLAND_ENABLED
         } else if (g.fs_action_long == FS_ACTION_LONG_AUTOLAND) {
-            if (!set_mode(mode_autoland, reason)) {
-               IGNORE_RETURN(set_mode(mode_rtl, reason));
+            if (!set_mode(mode_autoland, reason) && !set_mode(mode_rtl, reason)) {
+               // no home position: level glide instead
+               IGNORE_RETURN(set_mode(mode_fbwa, reason));
             }
 #endif
-        } else {
-            IGNORE_RETURN(set_mode(mode_rtl, reason));
+        } else if (!set_mode(mode_rtl, reason)) {
+            // no home position: level glide instead
+            IGNORE_RETURN(set_mode(mode_fbwa, reason));
         }
         break;
 

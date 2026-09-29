@@ -3,6 +3,12 @@
 
 bool ModeRTL::_enter()
 {
+    if (!plane.ahrs.home_is_set()) {
+        // never navigate towards an unset home. Failsafe handling
+        // falls back to FBWA when this fails.
+        GCS_SEND_TEXT(MAV_SEVERITY_WARNING, "RTL refused: no home position");
+        return false;
+    }
     plane.prev_WP_loc = plane.current_loc;
     plane.do_RTL(plane.get_RTL_altitude_cm());
     plane.rtl.done_climb = false;
