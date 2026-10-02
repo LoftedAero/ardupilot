@@ -16,10 +16,11 @@ How the firmware is meant to behave is described in
 
 ## 0. Preparation
 
-**Board.** The transmitter menu (step 11) only runs on the TBS Lucid
-H7 Wing. On the KakuteF4-Wing it fails for lack of RAM, which is known;
-skip step 11 there and expect the menu error in step 1. Every other
-step applies to both boards.
+**Board.** On the TBS Lucid H7 Wing the transmitter menu (step 11)
+works with the defaults. On the KakuteF4-Wing it needs LOG_FILE_BUFSIZE
+4, SCR_HEAP_SIZE 61440 and SCR_DEBUG_OPTS 64 (not yet the defaults);
+without them expect the menu error in step 1 and skip step 11. Every
+other step applies to both boards.
 
 **Parameters already on the board.** Flashing keeps saved parameters.
 If the board was set up before, either reset parameters to defaults

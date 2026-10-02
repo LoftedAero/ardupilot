@@ -495,17 +495,16 @@ Both need pymavlink.
   simulator only. Bench test on the Kakute first: surface directions in
   MANUAL, correct stabilization direction in FBWA when tilting the
   model, arm switch, trim capture, gain knob response, and the menu.
-- **The transmitter menu does not fit on the KakuteF4-Wing (F405).**
-  Measured on hardware: with the 43 KB Lua heap allocated only about
-  14 KB of RAM is left, and the menu still runs out of memory even
-  with the heap raised to 52 KB and grown until 3.5 KB of RAM remains.
-  The board reports `not enough mem, increase SCR_HEAP_SIZE` at boot.
-  Everything else works; use a ground station for setup on this board
-  until the menu is implemented natively in the firmware. The H7 boards
-  have a 200 KB Lua heap.
-- **Transmitter menu on a real radio is untested.** The simulator
-  confirms the script builds its menus; the radio side has not been
-  tried yet.
+- **The transmitter menu needs bench-only settings on the
+  KakuteF4-Wing (F405).** With the default 43 KB Lua heap it runs out
+  of memory (`not enough mem, increase SCR_HEAP_SIZE`). It loads with
+  LOG_FILE_BUFSIZE 4, SCR_HEAP_SIZE 61440 and SCR_DEBUG_OPTS 64, which
+  leave about 7 KB of RAM free. These are not the defaults yet, and
+  logging with a 4 KB buffer has not been checked. The H7 boards have
+  a 200 KB Lua heap.
+- **Transmitter menu verified on one radio.** A RadioMaster AX12 with
+  ELRS Lua r15 shows the full menu, reads values and writes them back.
+  Calibration commands from the radio have not been tried yet.
 - **No EKF.** DCM is used for attitude. It is adequate for
   stabilization and GPS return home but less precise than the EKF in
   turbulent flight and does not use a compass.

@@ -189,6 +189,12 @@ GPS sets home, disarm on channel 5, and GYRO.Gain following the knob
   scripting thread stack 17.8 KB, the Lua heap, the dataflash buffer
   16 KB; the menu itself needs ~50 KB of Lua heap on 64-bit SITL on
   top of a ~16 KB Lua baseline.
+  4. With the menu loaded, the ELRS Lua script still showed an empty
+     device: ArduPilot spaced scripted ids in blocks and advertised a
+     count of 0 without OSD, while ELRS Lua loads ids 1..count. Fixed
+     in AP_CRSF_Telem (contiguous ids, real count). Verified on a
+     RadioMaster AX12 (Android, ELRS Lua r15): menu, values and a
+     parameter write all work.
   Options: ship the reduced log buffer as the F405 default (cheapest);
   add margin with a slimmer Lua menu without the generic crsf_helper,
   or by dropping MAVLink FTP and spare serial ports; or a native C++
