@@ -169,9 +169,10 @@ public:
 #if AP_CRSF_SCRIPTING_ENABLED
     // scripted CRSF menus
     // menus follow the predefined ardupilot parameter menu
-    // to avoid a lot of id shuffling at most 10 menus each with at most 20 parameters are allowed
-    // menu indexes are SCRIPTED_MENU_START_ID -> SCRIPTED_MENU_START_ID + 10
-    // parameter indexes are SCRIPTED_MENU_START_ID + 10 + menu_id * MAX_SCRIPTED_MENU_SIZE
+    // menu and parameter ids are allocated sequentially from SCRIPTED_MENU_START_ID in
+    // creation order, so the ids form one contiguous range. The ExpressLRS Lua script
+    // loads ids 1..count (count from the device info frame) and retries a missing id
+    // forever, so gaps in the range would stall it.
     const static uint8_t MAX_SCRIPTED_MENUS = 10U;
     const static uint8_t MAX_SCRIPTED_MENU_SIZE = 20U;
     const static uint8_t MAX_SCRIPTED_PARAMETERS = 255U;
@@ -180,8 +181,8 @@ public:
 #if OSD_PARAM_ENABLED
     const static uint8_t SCRIPTED_MENU_START_ID = AP_OSD_ParamScreen::NUM_PARAMS * AP_OSD_NUM_PARAM_SCREENS + 2;
 #else
-    // no OSD parameter menu: scripted menus start right after the (unused) parameter menu id
-    const static uint8_t SCRIPTED_MENU_START_ID = PARAMETER_MENU_ID + 1;
+    // no OSD parameter menu: scripted entries take every id from 1 upwards
+    const static uint8_t SCRIPTED_MENU_START_ID = 1;
 #endif
 
     // 8-bit parameter ids must be unique within the whole menu structure
@@ -209,7 +210,8 @@ public:
 
         // public API called from lua
         ScriptedMenu* add_menu(const char* menu_name, uint8_t size, uint8_t parent_menu);
-        ScriptedParameter* add_parameter(uint8_t length, const char* data);
+        // fixed_id != 0 reuses an existing id (the entry that links a sub-menu into its parent)
+        ScriptedParameter* add_parameter(uint8_t length, const char* data, uint8_t fixed_id = 0);
 
         // private API
         ScriptedMenu(const char* menu_name, uint8_t size, uint8_t parent_menu);
@@ -228,6 +230,9 @@ public:
     };
 
     ScriptedMenu scripted_menus;
+    // next free id for a scripted menu or parameter
+    uint8_t next_scripted_id = SCRIPTED_MENU_START_ID;
+    uint8_t allocate_scripted_id() { return next_scripted_id++; }
 
     typedef ParameterPayload ScriptedPayload;
 

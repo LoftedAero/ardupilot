@@ -1191,6 +1191,10 @@ void AP_CRSF_Telem::calc_device_info() {
     }
 #endif // AP_CRSF_SCRIPTING_ENABLED
     n++;
+#elif AP_CRSF_SCRIPTING_ENABLED
+    // no OSD parameters: scripted ids run contiguously from 1, so the
+    // highest id in use is the number of entries to load
+    _telem.ext.info.payload[n++] = next_scripted_id - SCRIPTED_MENU_START_ID; // param count
 #else
     _telem.ext.info.payload[n++] = 0; // param count
 #endif
@@ -1927,7 +1931,7 @@ AP_CRSF_Telem::ScriptedParameter* AP_CRSF_Telem::ScriptedMenu::find_parameter(ui
 }
 
 // called from lua
-AP_CRSF_Telem::ScriptedParameter* AP_CRSF_Telem::ScriptedMenu::add_parameter(uint8_t length, const char* data)
+AP_CRSF_Telem::ScriptedParameter* AP_CRSF_Telem::ScriptedMenu::add_parameter(uint8_t length, const char* data, uint8_t fixed_id)
 {
     WITH_SEMAPHORE(AP::crsf_telem()->get_semaphore());
 
@@ -1940,7 +1944,6 @@ AP_CRSF_Telem::ScriptedParameter* AP_CRSF_Telem::ScriptedMenu::add_parameter(uin
     num_params++;
     params = new_params;
     ScriptedParameter& param = params[num_params-1];
-    param.id = id + num_params;
     param.parent_id = id;
     param.length = length;
     if (length > 0) {
@@ -1953,6 +1956,8 @@ AP_CRSF_Telem::ScriptedParameter* AP_CRSF_Telem::ScriptedMenu::add_parameter(uin
 
         memcpy((char*)param.data, data, length);
     }
+    // allocate the id only once the parameter exists, so a failed allocation leaves no gap
+    param.id = fixed_id != 0 ? fixed_id : AP::crsf_telem()->allocate_scripted_id();
     debug("adding menu item %d", param.id);
 
     return &param;
@@ -2014,13 +2019,12 @@ AP_CRSF_Telem::ScriptedMenu* AP_CRSF_Telem::ScriptedMenu::add_menu(const char* m
         return nullptr;
     }
 
-    menu->id = tail->id == 0 ? SCRIPTED_MENU_START_ID : tail->id + MAX_SCRIPTED_MENU_SIZE + 1;
+    menu->id = AP::crsf_telem()->allocate_scripted_id();
     tail->next_menu = menu;
 
-    // dummy parameter for a submenu
+    // dummy parameter for a submenu, carrying the submenu's own id
     if (parent_menu != 0) {
-        ScriptedParameter* param = add_parameter(0, nullptr);
-        param->id = menu->id;
+        add_parameter(0, nullptr, menu->id);
     }
     return menu;
 }
@@ -2146,6 +2150,7 @@ void AP_CRSF_Telem::clear_menus()
         m = next;
     }
     scripted_menus.next_menu = nullptr;
+    next_scripted_id = SCRIPTED_MENU_START_ID;
 }
 
 #ifdef CRSF_DEBUG
