@@ -179,10 +179,21 @@ GPS sets home, disarm on channel 5, and GYRO.Gain following the knob
      SCR_HEAP_SIZE`. With SCR_HEAP_SIZE 52 KB plus Lua's automatic heap
      expansion it still fails, with 3.5 KB of RAM left. **The Lua menu
      cannot run on an F405.** It is fine on H7 boards (200 KB heap).
-  Options: a native C++ menu in the gyro module using the same CRSF
-  menu structures (no Lua needed, frees ~43 KB RAM and, with scripting
-  off, ~120 KB flash); or setup by ground station on F405 boards.
-  Decision pending.
+  3. Freeing RAM works: with LOG_FILE_BUFSIZE 4 (dataflash buffer
+     16 KB -> 4 KB), SCR_HEAP_SIZE 61440 and Lua heap expansion off
+     (SCR_DEBUG_OPTS 64), the menu loads and ~7 KB of RAM stays free
+     (bench experiment, 2026-10-02). Not yet checked: whether logging
+     keeps up with a 4 KB buffer.
+  Where the RAM goes (board @SYS/threads.txt, linker map): static
+  ~61 KB (16 KB parameter storage mirror, 15 KB Plane object), the
+  scripting thread stack 17.8 KB, the Lua heap, the dataflash buffer
+  16 KB; the menu itself needs ~50 KB of Lua heap on 64-bit SITL on
+  top of a ~16 KB Lua baseline.
+  Options: ship the reduced log buffer as the F405 default (cheapest);
+  add margin with a slimmer Lua menu without the generic crsf_helper,
+  or by dropping MAVLink FTP and spare serial ports; or a native C++
+  menu (no Lua: frees ~43 KB heap + 17.8 KB stack, and ~120 KB flash
+  with scripting off). Decision pending.
 
 ## Considered and rejected
 
