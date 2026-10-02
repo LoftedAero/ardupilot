@@ -169,9 +169,20 @@ GPS sets home, disarm on channel 5, and GYRO.Gain following the knob
   afterwards (main loop stuck on the SERIAL5 UART lock). Stock
   behaviour, not ours; the menu test therefore runs its calibration
   checks without the CRSF simulator.
-- Open risk: the F405 defaults to a 43 KB Lua heap. If the menu fails
-  to load on hardware with an out-of-memory message, raise
-  SCR_HEAP_SIZE (RAM permitting) or trim the menu.
+- Measured on a KakuteF4-Wing on 2026-10-02 (ELRS receiver on SERIAL2):
+  1. The 15 KB `crsf_helper` module could not even be opened: compressed
+     ROMFS files are decompressed into a heap buffer, and only ~14 KB of
+     RAM is free once the 43 KB Lua heap is allocated. Fixed by
+     `env ROMFS_UNCOMPRESSED True` in `gyro.inc` (files read straight
+     from flash, +24 KB flash).
+  2. The Lua heap is then too small: `not enough mem, increase
+     SCR_HEAP_SIZE`. With SCR_HEAP_SIZE 52 KB plus Lua's automatic heap
+     expansion it still fails, with 3.5 KB of RAM left. **The Lua menu
+     cannot run on an F405.** It is fine on H7 boards (200 KB heap).
+  Options: a native C++ menu in the gyro module using the same CRSF
+  menu structures (no Lua needed, frees ~43 KB RAM and, with scripting
+  off, ~120 KB flash); or setup by ground station on F405 boards.
+  Decision pending.
 
 ## Considered and rejected
 

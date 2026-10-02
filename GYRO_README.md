@@ -73,7 +73,7 @@ bootloader, so the stock bootloader and the usual flashing tools work.
 
 | Board | Build name | Flash | Logging | Notes |
 |---|---|---|---|---|
-| Holybro KakuteF4-Wing | `KakuteF4-Wing-gyro` | 1 MB (725 KB used) | onboard dataflash | small Lua heap, see limitations |
+| Holybro KakuteF4-Wing | `KakuteF4-Wing-gyro` | 1 MB (749 KB used) | onboard dataflash | transmitter menu does not fit in RAM, see limitations |
 | TBS Lucid H7 Wing | `TBS_LUCID_H7_WING-gyro` | 2 MB | microSD card | dual IMU, 13 outputs, big Lua heap |
 
 Default port assignments on the Kakute:
@@ -120,9 +120,15 @@ Outputs are in `build/<build name>/bin/`:
 - `arduplane.apj` for Mission Planner or QGroundControl "load custom firmware"
 - `arduplane_with_bl.hex` for DFU flashing when the bootloader is missing
 
-The first boot after flashing a different firmware wipes parameters and
-applies the gyro defaults. To go back to stock ArduPlane, flash the
-stock firmware for the board the same way.
+Flashing keeps the parameters already saved on the board when it
+already runs ArduPlane. The gyro defaults then only fill in parameters
+that were never saved, so a board that was set up before keeps its old
+settings for anything that was changed. For a clean start, reset the
+parameters to defaults from a ground station after flashing (Mission
+Planner: Full Parameter List, Reset to Default), then redo the
+accelerometer calibration. Flashing over a different vehicle type or
+over Betaflight/INAV starts from the defaults. To go back to stock
+ArduPlane, flash the stock firmware for the board the same way.
 
 ---
 
@@ -489,11 +495,17 @@ Both need pymavlink.
   simulator only. Bench test on the Kakute first: surface directions in
   MANUAL, correct stabilization direction in FBWA when tilting the
   model, arm switch, trim capture, gain knob response, and the menu.
-- **Transmitter menu on a real radio is untested.** The simulator only
-  confirms the script loads and builds its menus. The F405 has a small
-  Lua heap (43 KB). If the script reports out of memory on boot, raise
-  SCR_HEAP_SIZE if memory allows or trim the menu. The H7 boards have
-  a 200 KB heap and no such concern.
+- **The transmitter menu does not fit on the KakuteF4-Wing (F405).**
+  Measured on hardware: with the 43 KB Lua heap allocated only about
+  14 KB of RAM is left, and the menu still runs out of memory even
+  with the heap raised to 52 KB and grown until 3.5 KB of RAM remains.
+  The board reports `not enough mem, increase SCR_HEAP_SIZE` at boot.
+  Everything else works; use a ground station for setup on this board
+  until the menu is implemented natively in the firmware. The H7 boards
+  have a 200 KB Lua heap.
+- **Transmitter menu on a real radio is untested.** The simulator
+  confirms the script builds its menus; the radio side has not been
+  tried yet.
 - **No EKF.** DCM is used for attitude. It is adequate for
   stabilization and GPS return home but less precise than the EKF in
   turbulent flight and does not use a compass.

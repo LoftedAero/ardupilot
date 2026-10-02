@@ -16,9 +16,15 @@ How the firmware is meant to behave is described in
 
 ## 0. Preparation
 
-**Board.** Start with the TBS Lucid H7 Wing if you have it. Its Lua
-memory is large, so the transmitter menu cannot fail for lack of
-memory there. Test the KakuteF4-Wing second.
+**Board.** The transmitter menu (step 11) only runs on the TBS Lucid
+H7 Wing. On the KakuteF4-Wing it fails for lack of RAM, which is known;
+skip step 11 there and expect the menu error in step 1. Every other
+step applies to both boards.
+
+**Parameters already on the board.** Flashing keeps saved parameters.
+If the board was set up before, either reset parameters to defaults
+after flashing (then redo the accelerometer calibration) or check the
+values in GYRO_README.md's parameter reference by hand.
 
 **Build and flash.**
 
@@ -68,10 +74,10 @@ Expect in the Messages tab:
 
 Must **not** appear:
 
-- [ ] `Insufficent memory loading ...` (spelled that way in the
-      firmware) or `Lua: Unable to allocate a heap`. Either means the
-      menu script did not fit in Lua memory. Expected to be possible on
-      the Kakute only.
+- [ ] On the Lucid: no `not enough mem`, `Insufficent memory
+      loading ...` or `Lua: Unable to allocate a heap` messages. On the
+      Kakute the `not enough mem, increase SCR_HEAP_SIZE` message is
+      expected (known limitation).
 
 ## 2. Radio link
 
