@@ -59,6 +59,13 @@ define AP_SCRIPTING_ENABLED 1
 undef HAL_CRSF_TELEM_TEXT_SELECTION_ENABLED
 define HAL_CRSF_TELEM_TEXT_SELECTION_ENABLED 1
 
+# Store ROMFS files uncompressed. A compressed file is decompressed into
+# a heap buffer of its full size when opened; on an F405 with the Lua
+# heap allocated only ~14 KB is free, so the 15 KB crsf_helper module
+# could not be opened ("module 'crsf_helper' not found"). Uncompressed
+# files are read straight from flash, at a cost of ~24 KB of flash.
+env ROMFS_UNCOMPRESSED True
+
 # --- Keep ------------------------------------------------------------
 # Logging stays on for autotune review (board must provide a
 # dataflash or SD backend). Autotune, transmitter tuning knob and
