@@ -201,7 +201,37 @@ GPS sets home, disarm on channel 5, and GYRO.Gain following the knob
   menu (no Lua: frees ~43 KB heap + 17.8 KB stack, and ~120 KB flash
   with scripting off). Decision pending.
 
-## Phase 3b: native C++ transmitter menu (designed 2026-10-02)
+## Phase 3b: native C++ transmitter menu (built 2026-10-02)
+
+Status: built in `ArduPlane/gyro_menu.cpp` and served by the gyro
+module at 50 Hz. Gyro builds now have Lua scripting off. Verified: the
+whole menu loads with live values on a RadioMaster AX12 (ELRS Lua r15)
+against a KakuteF4-Wing; writes, command popups, stick and switch
+learning, templates and the arm-switch safety rule pass 27 end-to-end
+checks in SITL (`Tools/gyro/sitl_crsf_menu_test.py`, using the CRSF
+radio emulator `Tools/gyro/crsf_menu_client.py`).
+
+Differences from the design below:
+
+- No guided "Check directions" step: ExpressLRS closes a popup on Exit,
+  so a chain of yes/no questions cannot continue after a "no". Each
+  output's Reversed entry applies immediately instead.
+- No "Capture trims" command: trim capture already runs on arming in
+  MANUAL and on MANUAL -> ACRO/FBWA.
+- Command results are shown as a confirmation the pilot dismisses,
+  because ExpressLRS closes a popup as soon as a command reports ready.
+- The arm function is only assigned (by Learn or by the channel
+  selection) while that switch is off: ArduPilot only tracks a
+  switch's position while it has a function, so assigning it in the
+  on position would arm the plane.
+- SITL must be built with `--extra-hwdef=Tools/gyro/sitl-gyro.hwdef`
+  (no OSD parameter screens). With them, reading an OSD parameter
+  entry over CRSF crashes SITL in AP_OSD_ParamSetting::update (stock
+  issue, not in gyro builds).
+- After reflashing, the ExpressLRS script must be restarted: it caches
+  the entry count from its first device ping.
+
+Design:
 
 Decided: the transmitter menu moves from Lua to C++ in the gyro module,
 using the same CRSF scripted-menu structures. Reasons: the Lua menu only
@@ -325,3 +355,4 @@ Considered and not pursued:
 | Phase 1 (logging on, OSD off, quadplane off, scripting off) | 580 KB |
 | Phase 2 (gyro module added) | 581 KB |
 | Phase 3 (scripting + CRSF menu + embedded Lua) | 725 KB |
+| Phase 3b (native C++ menu, scripting off) | 593 KB |

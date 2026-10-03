@@ -41,7 +41,6 @@ Kept from ArduPlane:
   flaperons, differential spoilers)
 - Fixed-wing autotune
 - Onboard logging (dataflash or SD card, depending on the board)
-- Lua scripting, used for the transmitter setup menu
 - MAVLink over USB and a serial port for a ground station
 
 Removed to fit a 1 MB flight controller and to keep the pilot-facing
@@ -53,6 +52,7 @@ behavior simple:
 - Quadplane / VTOL
 - OSD, video transmitter control, camera and gimbal control
 - MSP and DisplayPort
+- Lua scripting (the transmitter menu is built into the firmware)
 
 Added on top of ArduPlane, all in one module (`ArduPlane/gyro.cpp`):
 
@@ -63,6 +63,7 @@ Added on top of ArduPlane, all in one module (`ArduPlane/gyro.cpp`):
   position is known
 - A throttle-based logging gate for setups that do not arm (off by
   default)
+- A "Gyro Setup" transmitter menu over CRSF (`ArduPlane/gyro_menu.cpp`)
 
 ---
 
@@ -73,8 +74,8 @@ bootloader, so the stock bootloader and the usual flashing tools work.
 
 | Board | Build name | Flash | Logging | Notes |
 |---|---|---|---|---|
-| Holybro KakuteF4-Wing | `KakuteF4-Wing-gyro` | 1 MB (749 KB used) | onboard dataflash | transmitter menu does not fit in RAM, see limitations |
-| TBS Lucid H7 Wing | `TBS_LUCID_H7_WING-gyro` | 2 MB | microSD card | dual IMU, 13 outputs, big Lua heap |
+| Holybro KakuteF4-Wing | `KakuteF4-Wing-gyro` | 1 MB (593 KB used) | onboard dataflash | 7 outputs |
+| TBS Lucid H7 Wing | `TBS_LUCID_H7_WING-gyro` | 2 MB (940 KB used) | microSD card | dual IMU, 13 outputs |
 
 Default port assignments on the Kakute:
 
@@ -249,10 +250,10 @@ Recommended workflow: fly in MANUAL, trim until the model flies hands
 off, then flip to ACRO or FBWA. The trims follow.
 
 The captured values are stored in the RC trim and servo trim
-parameters. To start over, set RC1 to RC4 trims to 1500 and the servo
-trims to their mechanical neutrals from a ground station, or use
-"Capture trims" in the transmitter menu with the transmitter trims
-zeroed.
+parameters. To start over, zero the transmitter trims, then arm in
+MANUAL with the sticks centered: the capture runs again and moves the
+neutrals back. The servo trims can also be set directly in the
+transmitter menu (5 Outputs, Trim) or from a ground station.
 
 ---
 
@@ -325,39 +326,68 @@ With a u-blox GPS on SERIAL1:
 
 ## 10. Transmitter setup menu
 
-The firmware includes a Lua applet that publishes a "Gyro Setup" menu
-over CRSF. On an EdgeTX radio open the ELRS Lua script and look for the
-flight controller in the device list; on TBS radios use Agent Lite.
+The firmware serves a "Gyro Setup" menu over CRSF. On an ELRS radio open
+the ExpressLRS Lua script, go to Other Devices and select ArduPlane; on
+TBS radios use Agent Lite. No script needs to be installed on the
+flight controller.
 
-| Submenu | Items |
+After flashing new firmware, exit the ExpressLRS script and start it
+again. The script remembers how many entries the flight controller had
+when it first saw it, and with a stale count part of the menu stays
+empty.
+
+The menu follows the Loft GCS setup order. Values are read from and
+saved to ArduPilot parameters immediately.
+
+| Folder | Entries |
 |---|---|
-| Level & cal | Calibrate level (place the model in its level flight attitude first), Calibrate gyros, Capture trims |
-| Servos | Wing type (Normal, Elevons, V-tail, Custom), direction of outputs 1 to 4 |
-| Rates & limits | Acro roll rate, Acro pitch rate, bank limit, pitch up and pitch down limits |
-| Gyro | Gain knob min and max, trim capture on/off, yaw rate mode on/off |
-| RTL & link loss | RTL altitude, link-loss action, RC failsafe on/off |
+| Status | armed state, flight mode, GPS state |
+| 1 Frame | Wing type, Apply template |
+| 2 Sensors | Orientation, Detect orientation, Calibrate level, Calibrate gyros |
+| 3 Radio | Learn sticks; Arm switch, RTL switch, Autotune switch, Gain knob, each with a Learn command |
+| 4 Flight modes | Mode channel and Learn; Low, Middle and High positions: MANUAL, ACRO, FBWA or AUTOTUNE |
+| 5 Outputs | Output 1 to 8, each with Function, Min, Trim, Max, Reversed |
+| 6 Failsafe | Link loss (FBWA glide or RTL if GPS), RTL altitude |
+| 7 Tuning | Gain knob min and max, ACRO roll and pitch rates, FBWA bank and pitch limits, Autotune level, Trim capture |
+| Tools | Firmware version, Reset to defaults |
 
-Values are read from and saved to parameters immediately. Calibration
-requires the arm switch to be off and answers "Disarm first" otherwise.
-While a calibration runs the command shows "Hold still", then "Done"
-or "Failed". The menu does not run the calibration itself: it sets
-GYRO_CAL and the firmware runs the calibration on its main loop, the
-same way a ground station calibration runs. The flight controller
-pauses for a second or two meanwhile, so the radio may briefly report
-lost telemetry.
+Commands (the entries that start something) open a popup on the radio.
+They all need the arm switch off and answer "Disarm first" otherwise.
+Each ends with a result the pilot dismisses with OK; Exit cancels.
 
-"Wing type" writes the functions of outputs 1 to 4:
+- **Apply template** sets the functions of outputs 1 to 4 for the wing
+  type chosen above it:
 
-| Wing type | Output 1 | Output 2 | Output 3 | Output 4 |
-|---|---|---|---|---|
-| Normal | Aileron | Elevator | Throttle | Rudder |
-| Elevons | Elevon left | Elevon right | Throttle | Rudder |
-| V-tail | Aileron | V-tail left | Throttle | V-tail right |
+  | Wing type | Output 1 | Output 2 | Output 3 | Output 4 |
+  |---|---|---|---|---|
+  | Normal | Aileron | Elevator | Throttle | Rudder |
+  | Flying wing | Elevon left | Elevon right | Throttle | Rudder |
+  | V-tail | Aileron | V-tail left | Throttle | V-tail right |
 
-"Custom" shows when the outputs do not match a preset and writes
-nothing. After choosing a wing type, check each surface direction in
-MANUAL and then in FBWA by tilting the model, and fix any output that
-moves the wrong way with the direction items.
+  Min, trim, max and reversing are left alone. Check every surface
+  direction afterwards and flip the output's Reversed entry where
+  needed; the servo moves as soon as the value changes.
+- **Detect orientation**: hold the model level with the nose forward
+  and press OK, then raise the nose about 45 degrees and press OK. The
+  firmware works out how the board is mounted and sets Orientation.
+  Run Calibrate level afterwards.
+- **Calibrate level** and **Calibrate gyros** run on the main loop
+  like a ground station calibration. The flight controller pauses for
+  a second or two, so the radio may briefly report lost telemetry.
+- **Learn sticks**: center the sticks with the throttle low, start,
+  then move each stick as asked (aileron right, elevator back, rudder
+  right, throttle full). The firmware works out the channel order and
+  which channels are reversed and shows it, for example
+  `A2 E3 R4 T1 Save?`. If the channel order changed, the flight
+  controller restarts to apply it.
+- **Learn** for a switch: flip the switch or turn the knob when asked.
+  A channel already used by another of these functions is refused.
+  The arm switch is only assigned once it is in its off position,
+  because assigning it while on would arm the plane.
+
+Entries that need a GPS (RTL switch, RTL altitude) are hidden when the
+menu is opened without one, and a "RTL: needs a GPS" line is shown
+instead. The firmware refuses RTL without a home position in any case.
 
 ---
 
@@ -454,7 +484,6 @@ Standard ArduPlane parameters set by the defaults:
 | ACRO_LOCKING | 0 | No attitude locking in ACRO |
 | INS_GYR_CAL | 1 | Gyro calibration at boot; keep the model still |
 | LOG_DISARMED | 0 | Log only while armed |
-| SCR_ENABLE | 1 | Lua scripting on, for the transmitter menu |
 
 ---
 
@@ -465,27 +494,32 @@ Source of the customization:
 | Location | What |
 |---|---|
 | `libraries/AP_HAL_ChibiOS/hwdef/include/gyro.inc` | Feature profile. Include it after any base board hwdef to make a gyro build of that board. |
-| `libraries/AP_HAL_ChibiOS/hwdef/KakuteF4-Wing-gyro/` | Kakute variant: hwdef, defaults, ROMFS entries for the menu script |
+| `libraries/AP_HAL_ChibiOS/hwdef/KakuteF4-Wing-gyro/` | Kakute variant: hwdef and defaults |
 | `libraries/AP_HAL_ChibiOS/hwdef/TBS_LUCID_H7_WING-gyro/` | Lucid H7 Wing variant, same layout |
-| `ArduPlane/gyro.h`, `ArduPlane/gyro.cpp` | The gyro module: gain knob, trim capture, logging gate, GYRO_ parameters |
+| `ArduPlane/gyro.h`, `ArduPlane/gyro.cpp` | The gyro module: gain knob, trim capture, logging gate, calibration requests, GYRO_ parameters |
+| `ArduPlane/gyro_menu.h`, `ArduPlane/gyro_menu.cpp` | The transmitter setup menu |
 | `ArduPlane/mode_rtl.cpp`, `ArduPlane/events.cpp` | RTL refused without home; failsafe falls back to FBWA |
 | `libraries/APM_Control/AP_FW_Controller.*`, `AP_YawController.*` | Gain scale hook in the rate controllers |
-| `libraries/AP_RCTelemetry/AP_CRSF_Telem.*` | CRSF scripted menus without the OSD |
-| `libraries/AP_Scripting/applets/gyro_menu.lua` | The transmitter setup menu |
-| `Tools/gyro/` | SITL tests |
+| `libraries/AP_RCTelemetry/AP_CRSF_Telem.*` | CRSF menus without the OSD, numbered the way ExpressLRS expects |
+| `Tools/gyro/` | SITL tests, CRSF radio emulator, SITL build defines |
 
 Porting to another board takes two files: a hwdef that includes the base
 board and `gyro.inc`, and a `defaults.parm`.
 
-Simulator tests (build SITL first with
-`./waf configure --board sitl && ./waf plane`):
+Simulator tests. Build SITL first with the gyro-like defines (no OSD
+parameter screens, CRSF menu engine on):
 
 ```
-python3 Tools/gyro/sitl_gyro_test.py    # arming, trims, gain knob, failsafe, RTL guard, logging, armed calibration refusal
-python3 Tools/gyro/sitl_menu_test.py    # the Lua menu builds; menu-style calibration requests complete
+./waf configure --board sitl --extra-hwdef=Tools/gyro/sitl-gyro.hwdef
+./waf plane
+python3 Tools/gyro/sitl_gyro_test.py        # arming, trims, gain knob, failsafe, RTL guard, logging
+python3 Tools/gyro/sitl_menu_test.py        # menu builds; calibration requests complete
+python3 Tools/gyro/sitl_crsf_menu_test.py   # the menu over CRSF, driven like the ExpressLRS script
 ```
 
-Both need pymavlink.
+All need pymavlink. `sitl_crsf_menu_test.py` uses
+`Tools/gyro/crsf_menu_client.py`, a small CRSF receiver and radio
+emulator that loads the menu exactly as the ExpressLRS script does.
 
 ---
 
@@ -495,16 +529,18 @@ Both need pymavlink.
   simulator only. Bench test on the Kakute first: surface directions in
   MANUAL, correct stabilization direction in FBWA when tilting the
   model, arm switch, trim capture, gain knob response, and the menu.
-- **The transmitter menu needs bench-only settings on the
-  KakuteF4-Wing (F405).** With the default 43 KB Lua heap it runs out
-  of memory (`not enough mem, increase SCR_HEAP_SIZE`). It loads with
-  LOG_FILE_BUFSIZE 4, SCR_HEAP_SIZE 61440 and SCR_DEBUG_OPTS 64, which
-  leave about 7 KB of RAM free. These are not the defaults yet, and
-  logging with a 4 KB buffer has not been checked. The H7 boards have
-  a 200 KB Lua heap.
-- **Transmitter menu verified on one radio.** A RadioMaster AX12 with
-  ELRS Lua r15 shows the full menu, reads values and writes them back.
-  Calibration commands from the radio have not been tried yet.
+- **Transmitter menu partly verified on hardware.** On a KakuteF4-Wing
+  with a RadioMaster AX12 (ELRS Lua r15) the whole menu loads and shows
+  live values. Writes and the command popups (calibration, learning,
+  templates, the arm-switch safety rule) are verified end to end in
+  SITL with the CRSF emulator, not yet on a real radio.
+- **The guided "check directions" step from the design is not
+  included.** ExpressLRS closes a popup when Exit is pressed, so a
+  chain of yes/no questions cannot continue after a "no". Each output
+  has a Reversed entry instead.
+- **Detect orientation is untested on hardware.** It needs the model
+  held still in two attitudes; SITL cannot tilt the simulated plane
+  on the bench.
 - **No EKF.** DCM is used for attitude. It is adequate for
   stabilization and GPS return home but less precise than the EKF in
   turbulent flight and does not use a compass.

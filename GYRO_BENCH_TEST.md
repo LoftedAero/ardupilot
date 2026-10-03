@@ -16,11 +16,8 @@ How the firmware is meant to behave is described in
 
 ## 0. Preparation
 
-**Board.** On the TBS Lucid H7 Wing the transmitter menu (step 11)
-works with the defaults. On the KakuteF4-Wing it needs LOG_FILE_BUFSIZE
-4, SCR_HEAP_SIZE 61440 and SCR_DEBUG_OPTS 64 (not yet the defaults);
-without them expect the menu error in step 1 and skip step 11. Every
-other step applies to both boards.
+**Board.** Every step applies to both the KakuteF4-Wing and the TBS
+Lucid H7 Wing.
 
 **Parameters already on the board.** Flashing keeps saved parameters.
 If the board was set up before, either reset parameters to defaults
@@ -70,15 +67,9 @@ power-up and wants no movement for a few seconds.
 Expect in the Messages tab:
 
 - [ ] `ArduPilot Ready`
-- [ ] `CRSF: Built menu 'Gyro Setup'` (may be missed if the ground
-      station connected late; step 11 checks the menu directly)
-
-Must **not** appear:
-
-- [ ] On the Lucid: no `not enough mem`, `Insufficent memory
-      loading ...` or `Lua: Unable to allocate a heap` messages. On the
-      Kakute the `not enough mem, increase SCR_HEAP_SIZE` message is
-      expected (known limitation).
+- [ ] `Gyro: setup menu ready (75 entries)` once the receiver is
+      linked (may be missed if the ground station connected late; step
+      11 checks the menu directly)
 
 ## 2. Radio link
 
@@ -106,10 +97,11 @@ sticks.
 - [ ] Pull back on pitch: elevator trailing edge up.
 - [ ] Right rudder: rudder trailing edge moves right.
 
-Wrong direction: fix it in the transmitter menu under Servos, output
-direction (or `SERVOn_REVERSED` in the ground station), **not** by
-reversing in the radio. For elevons or a V-tail, pick the wing type
-first (Servos, Wing type), then fix directions.
+Wrong direction: fix it in the transmitter menu under 5 Outputs, the
+output's Reversed entry (or `SERVOn_REVERSED` in the ground station),
+**not** by reversing in the radio. For elevons or a V-tail, set the
+wing type first (1 Frame: Wing type, then Apply template), then fix
+directions.
 
 ## 5. Stabilization direction in FBWA
 
@@ -164,9 +156,9 @@ Mode switch low, sticks centered, disarmed.
 4. Back in MANUAL, add a few more clicks, then switch to ACRO.
    - [ ] Another `trim complete`.
 
-To undo afterwards: zero the transmitter trims, go to MANUAL with the
-sticks centered, and run Level & cal, Capture trims from the
-transmitter menu.
+To undo afterwards: zero the transmitter trims, then disarm and arm
+again in MANUAL with the sticks centered; the capture moves the
+neutrals back.
 
 ## 10. Link loss
 
@@ -185,24 +177,32 @@ transmitter menu.
 ## 11. Transmitter menu
 
 On the radio, open the ExpressLRS Lua script, go to Other Devices and
-select the flight controller. TBS Agent Lite works too.
+select ArduPlane, then Gyro Setup. TBS Agent Lite works too. If you
+reflashed while the script was open, exit it and start it again first.
 
-- [ ] A "Gyro Setup" folder is listed with five submenus: Level & cal,
-      Servos, Rates & limits, Gyro, RTL & link loss.
-- [ ] Change Acro roll rate, then read `ACRO_ROLL_RATE` in the ground
-      station: it matches.
-- [ ] Disarmed, model at its level flight attitude: Calibrate level
-      shows `Hold still`, then `Done`, and the Messages tab shows
-      `Gyro: level calibration done`. The radio may briefly report lost
-      telemetry while it runs; that is expected.
-- [ ] Same for Calibrate gyros: `Done` and
-      `Gyro: gyro calibration done`.
-- [ ] Armed: Calibrate level answers `Disarm first`.
-- [ ] Wing type shows the current layout (Normal by default). If you
-      change it, set it back and recheck step 4.
+- [ ] Gyro Setup shows Status, then 1 Frame to 7 Tuning, then Tools,
+      and every folder has entries (give it about 20 seconds to load).
+- [ ] Status reads `DISARMED`, the current mode and the GPS state.
+- [ ] 7 Tuning: change ACRO roll rate, then read `ACRO_ROLL_RATE` in
+      the ground station: it matches. Set it back.
+- [ ] 5 Outputs, Output 1: change Trim by one step and watch the
+      surface move; set it back.
+- [ ] 2 Sensors, Calibrate level, disarmed, model at its level flight
+      attitude: `Hold model at level attitude`, OK, `Calibrating`, then
+      `Calibration done`. The radio may briefly report lost telemetry
+      while it runs; that is expected.
+- [ ] Same with the arm switch on: `Disarm first`.
+- [ ] 3 Radio, Learn sticks: follow the prompts. The summary (for
+      example `A1 E2 R4 T3 Save?`) matches your radio's channel order.
+      Cancel with Exit unless something needs fixing.
+- [ ] 3 Radio, Learn arm switch: flip the arm switch when asked. It
+      asks you to switch it off, and only then accepts OK. The plane
+      must not arm during this.
+- [ ] 2 Sensors, Detect orientation: level then nose up. It reports
+      the board orientation you expect for how the board is mounted.
 
-If the flight controller is not listed, check that both receiver wires
-are connected and that ELRS telemetry is on.
+If ArduPlane is not listed, check that both receiver wires are
+connected and that ELRS telemetry is on.
 
 ## 12. GPS and RTL (optional)
 
@@ -225,5 +225,4 @@ Download the latest log over USB.
 ## What to report
 
 For anything that did not match: the step number, what you saw, and
-the text of any message in the Messages tab. For step 1, also report
-whether the menu script loaded on the Kakute.
+the text of any message in the Messages tab.
