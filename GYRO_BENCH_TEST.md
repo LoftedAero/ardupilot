@@ -97,10 +97,10 @@ sticks.
 - [ ] Pull back on pitch: elevator trailing edge up.
 - [ ] Right rudder: rudder trailing edge moves right.
 
-Wrong direction: fix it in the transmitter menu under 5 Outputs, the
-output's Reversed entry (or `SERVOn_REVERSED` in the ground station),
+Wrong direction: fix it in the transmitter menu under 4 Outputs, the
+channel's Reversed entry (or `SERVOn_REVERSED` in the ground station),
 **not** by reversing in the radio. For elevons or a V-tail, set the
-wing type first (1 Config: Wing type, then Apply template), then fix
+wing type first (4 Outputs: Wing type, then Apply template), then fix
 directions.
 
 ## 5. Stabilization direction in FBWA
@@ -180,26 +180,26 @@ On the radio, open the ExpressLRS Lua script, go to Other Devices and
 select Gyro. TBS Agent Lite works too. If you
 reflashed while the script was open, exit it and start it again first.
 
-- [ ] Gyro shows Status, then 1 Config to 7 Tuning, then Tools, and
+- [ ] Gyro shows Status, then 1 Sensors to 6 Tuning, then Tools, and
       every folder has entries (give it about 20 seconds to load).
-- [ ] Back from 5 Outputs > Channel 1 returns to that list.
+- [ ] Back from 4 Outputs > Channel 1 returns to that list.
 - [ ] Status reads `DISARMED`, the current mode and the GPS state.
-- [ ] 7 Tuning: change ACRO roll rate, then read `ACRO_ROLL_RATE` in
+- [ ] 6 Tuning: change ACRO roll rate, then read `ACRO_ROLL_RATE` in
       the ground station: it matches. Set it back.
-- [ ] 5 Outputs, Channel 1: change Trim by one step and watch the
+- [ ] 4 Outputs, Channel 1: change Trim by one step and watch the
       surface move; set it back.
-- [ ] 2 Sensors, Calibrate level, disarmed, model at its level flight
+- [ ] 1 Sensors, Calibrate level, disarmed, model at its level flight
       attitude: `Hold model at level attitude`, OK, `Calibrating`, then
       `Calibration done`. The radio may briefly report lost telemetry
       while it runs; that is expected.
 - [ ] Same with the arm switch on: `Disarm first`.
-- [ ] 3 Radio, Learn sticks: follow the prompts. The summary (for
+- [ ] 2 Radio, Learn sticks: follow the prompts. The summary (for
       example `A1 E2 R4 T3 Save?`) matches your radio's channel order.
       Cancel with Exit unless something needs fixing.
-- [ ] 3 Radio, Learn arm switch: flip the arm switch when asked. It
+- [ ] 2 Radio, Learn arm switch: flip the arm switch when asked. It
       asks you to switch it off, and only then accepts OK. The plane
       must not arm during this.
-- [ ] 2 Sensors, Detect orientation: level then nose up. It reports
+- [ ] 1 Sensors, Detect orientation: level then nose up. It reports
       the board orientation you expect for how the board is mounted.
 
 If Gyro is not listed, check that both receiver wires are

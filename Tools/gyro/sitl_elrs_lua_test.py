@@ -152,7 +152,7 @@ try:
         # folder, however deep, returns to the device's top level, which
         # is why the menu's folders sit there
         sim.press("exit")
-        return sim.contains("1 Config") and sim.contains("Tools")
+        return sim.contains("1 Sensors") and sim.contains("Tools")
 
     # 1. root and device list
     sim.idle(3)
@@ -168,13 +168,13 @@ try:
     # entries arrive one by one; the last top-level folder is Tools
     check("all folders load", sim.wait_for("Tools", 60))
     shot("top_level")
-    for folder in ("1 Config", "2 Sensors", "3 Radio", "4 Flight modes", "5 Outputs", "6 Failsafe",
-                   "7 Tuning", "Tools"):
+    for folder in ("1 Sensors", "2 Radio", "3 Flight modes", "4 Outputs", "5 Failsafe", "6 Tuning",
+                   "Tools"):
         check("folder %s shown" % folder, sim.contains(folder))
     check("status line", sim.contains("DISARMED"))
 
     # 3. edit a number: ACRO roll rate, one step up and back
-    open_entry("7 Tuning")
+    open_entry("6 Tuning")
     shot("tuning")
     before = get_param("ACRO_ROLL_RATE")
     sim.select("d/s")               # ACRO roll rate is the first d/s value
@@ -193,7 +193,7 @@ try:
     check("back returns to the folders", back(), sim.text())
 
     # 4. edit a selection: Channel 5 function None -> Aileron and back
-    open_entry("5 Outputs")
+    open_entry("4 Outputs")
     open_entry("Channel 5")
     shot("output5")
     sim.select("None")
@@ -211,7 +211,7 @@ try:
     check("back from Channel 5 returns to the folders", back(), sim.text())
 
     # 5. command popups: calibrate gyros
-    open_entry("2 Sensors")
+    open_entry("1 Sensors")
     open_entry("Calibrate gyros")
     check("calibration asks to keep still", sim.wait_for("Keep the model still", 5))
     shot("cal_prompt")
@@ -224,7 +224,7 @@ try:
     back()
 
     # 6. stick learning with a TAER radio, cancelled at the summary
-    open_entry("3 Radio")
+    open_entry("2 Radio")
     c.channels[:4] = [988, 1500, 1500, 1500]
     sim.idle(0.5)
     open_entry("Learn sticks")
@@ -243,7 +243,7 @@ try:
     back()
 
     # 7. no GPS: RTL settings hidden, explanation shown
-    open_entry("6 Failsafe")
+    open_entry("5 Failsafe")
     shot("failsafe_no_gps")
     check("RTL altitude hidden", not sim.contains("RTL altitude"))
     check("needs a GPS shown", sim.contains("needs a GPS"))

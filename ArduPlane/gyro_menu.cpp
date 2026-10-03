@@ -426,31 +426,30 @@ bool PlaneGyroMenu::build()
 
     add(root, Handler::STATUS, 0, "Status");
 
-    AP_CRSF_Telem::ScriptedMenu *m = submenu(root, "1 Config");
-    add(m, Handler::WING_TYPE, 0, "Wing type");
-    add(m, Handler::WING_APPLY, 0, "Apply template");
-
-    m = submenu(root, "2 Sensors");
+    AP_CRSF_Telem::ScriptedMenu *m = submenu(root, "1 Sensors");
     add(m, Handler::ORIENT, 0, "Orientation");
     add(m, Handler::ORIENT_DETECT, 0, "Detect orientation");
     add(m, Handler::CAL_LEVEL, 0, "Calibrate level");
     add(m, Handler::CAL_GYRO, 0, "Calibrate gyros");
 
-    m = submenu(root, "3 Radio");
+    m = submenu(root, "2 Radio");
     add(m, Handler::LEARN_STICKS, 0, "Learn sticks");
     for (const uint8_t f : {AUX_ARM, AUX_RTL, AUX_AUTOTUNE, AUX_GAIN}) {
         add(m, Handler::AUX_CH, f, aux_specs[f].label);
         add(m, Handler::AUX_LEARN, f, aux_specs[f].learn);
     }
 
-    m = submenu(root, "4 Flight modes");
+    m = submenu(root, "3 Flight modes");
     add(m, Handler::AUX_CH, AUX_MODE, aux_specs[AUX_MODE].label);
     add(m, Handler::AUX_LEARN, AUX_MODE, aux_specs[AUX_MODE].learn);
     add(m, Handler::MODE_POS, 0, "Low");
     add(m, Handler::MODE_POS, 1, "Middle");
     add(m, Handler::MODE_POS, 2, "High");
 
-    m = submenu(root, "5 Outputs");
+    // the wing template sits above the channels it sets
+    m = submenu(root, "4 Outputs");
+    add(m, Handler::WING_TYPE, 0, "Wing type");
+    add(m, Handler::WING_APPLY, 0, "Apply template");
     static const char *const output_names[NUM_OUTPUTS] = {
         "Channel 1", "Channel 2", "Channel 3", "Channel 4", "Channel 5", "Channel 6", "Channel 7", "Channel 8",
     };
@@ -463,12 +462,12 @@ bool PlaneGyroMenu::build()
         add(o, Handler::OUT_REV, n, "Reversed");
     }
 
-    m = submenu(root, "6 Failsafe");
+    m = submenu(root, "5 Failsafe");
     add(m, Handler::LINK_LOSS, 0, "Link loss");
     add(m, Handler::NUMBER, NUM_RTL_ALT, "RTL altitude");
     add(m, Handler::NO_GPS_INFO, 0, "RTL");
 
-    m = submenu(root, "7 Tuning");
+    m = submenu(root, "6 Tuning");
     add(m, Handler::NUMBER, NUM_GAIN_MIN, "Gain knob min");
     add(m, Handler::NUMBER, NUM_GAIN_MAX, "Gain knob max");
     add(m, Handler::NUMBER, NUM_ACRO_ROLL, "ACRO roll rate");

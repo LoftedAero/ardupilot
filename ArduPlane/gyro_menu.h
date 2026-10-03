@@ -6,8 +6,8 @@
 
   It is built natively on AP_CRSF_Telem's scripted-menu structures, so
   no Lua scripting is needed. The menu follows the Loft GCS setup order
-  (frame, sensors, radio, flight modes, outputs, failsafe, tuning) and
-  reads and writes ordinary ArduPilot parameters.
+  (sensors, radio, flight modes, outputs with the wing template,
+  failsafe, tuning) and reads and writes ordinary ArduPilot parameters.
  */
 
 #include <AP_HAL/AP_HAL_Boards.h>

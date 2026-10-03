@@ -253,7 +253,7 @@ The captured values are stored in the RC trim and servo trim
 parameters. To start over, zero the transmitter trims, then arm in
 MANUAL with the sticks centered: the capture runs again and moves the
 neutrals back. The servo trims can also be set directly in the
-transmitter menu (5 Outputs, Trim) or from a ground station.
+transmitter menu (4 Outputs, Trim) or from a ground station.
 
 ---
 
@@ -339,18 +339,17 @@ empty.
 The menu follows the Loft GCS setup order. Values are read from and
 saved to ArduPilot parameters immediately. Status and the folders sit
 at the device's top level: the ExpressLRS script returns there on Back
-from any folder, including from an output inside 5 Outputs.
+from any folder, including from a channel inside 4 Outputs.
 
 | Folder | Entries |
 |---|---|
 | Status | armed state, flight mode, GPS state |
-| 1 Config | Wing type, Apply template |
-| 2 Sensors | Orientation, Detect orientation, Calibrate level, Calibrate gyros |
-| 3 Radio | Learn sticks; Arm switch, RTL switch, Autotune switch, Gain knob, each with a Learn command |
-| 4 Flight modes | Mode channel and Learn; Low, Middle and High positions: MANUAL, ACRO, FBWA or AUTOTUNE |
-| 5 Outputs | Channel 1 to 8 (servo outputs), each with Function, Min, Trim, Max, Reversed |
-| 6 Failsafe | Link loss (FBWA glide or RTL if GPS), RTL altitude |
-| 7 Tuning | Gain knob min and max, ACRO roll and pitch rates, FBWA bank and pitch limits, Autotune level, Trim capture |
+| 1 Sensors | Orientation, Detect orientation, Calibrate level, Calibrate gyros |
+| 2 Radio | Learn sticks; Arm switch, RTL switch, Autotune switch, Gain knob, each with a Learn command |
+| 3 Flight modes | Mode channel and Learn; Low, Middle and High positions: MANUAL, ACRO, FBWA or AUTOTUNE |
+| 4 Outputs | Wing type and Apply template; Channel 1 to 8 (servo outputs), each with Function, Min, Trim, Max, Reversed |
+| 5 Failsafe | Link loss (FBWA glide or RTL if GPS), RTL altitude |
+| 6 Tuning | Gain knob min and max, ACRO roll and pitch rates, FBWA bank and pitch limits, Autotune level, Trim capture |
 | Tools | Firmware version, Reset to defaults |
 
 Commands (the entries that start something) open a popup on the radio.

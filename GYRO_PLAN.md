@@ -268,30 +268,29 @@ commands with OK/Cancel popups; values refresh when a menu is reopened):
 ```
 Gyro (device top level)
 ├─ Status                   DISARMED · FBWA · GPS: none      (info)
-├─ 1 Config ▸
-│   ├─ Wing type            Normal / Flying wing / V-tail
-│   └─ Apply template       [Run]  confirm: "Set channels 1-4 for <wing>?"
-├─ 2 Sensors ▸
+├─ 1 Sensors ▸
 │   ├─ Board orientation    current value          [Detect]: level, then nose up
 │   ├─ Level calibration    [Run]                  (GYRO_CAL 2)
 │   └─ Gyro calibration     [Run]                  (GYRO_CAL 1)
-├─ 3 Radio ▸
+├─ 2 Radio ▸
 │   ├─ Learn sticks         [Start]  move each stick: sets RCMAP_*, RCn_REVERSED,
 │   │                                RCn_MIN/MAX/TRIM
 │   ├─ Arm switch           Off / Ch5..Ch16        [Learn]
 │   ├─ RTL switch           Off / Ch5..Ch16        [Learn]   (only with a GPS)
 │   ├─ Autotune switch      Off / Ch5..Ch16        [Learn]   (works in FBWA)
 │   └─ Gain knob            Off / Ch5..Ch16        [Learn]
-├─ 4 Flight modes ▸
+├─ 3 Flight modes ▸
 │   ├─ Mode channel         Ch5..Ch16              [Learn]
 │   └─ Low / Mid / High     MANUAL / ACRO / FBWA / AUTOTUNE
-├─ 5 Outputs ▸
+├─ 4 Outputs ▸
+│   ├─ Wing type            Normal / Flying wing / V-tail
+│   ├─ Apply template       [Run]  confirm: "Set channels 1-4 for <wing>?"
 │   ├─ Check directions     [Start]  yes/no per surface, flips Reversed
 │   └─ Channel 1..N ▸       Function, Min, Trim, Max, Reversed
-├─ 6 Failsafe ▸
+├─ 5 Failsafe ▸
 │   ├─ Link loss            FBWA glide / RTL       (RTL only with a GPS)
 │   └─ RTL altitude         m                      (only with a GPS)
-├─ 7 Tuning ▸
+├─ 6 Tuning ▸
 │   ├─ Gain knob min / max
 │   ├─ ACRO roll / pitch rate
 │   ├─ FBWA bank / pitch limits
