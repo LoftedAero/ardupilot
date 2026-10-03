@@ -18,7 +18,8 @@ Ground rules (decided 2026-09-14):
 - Arm switch on channel 5 (ELRS AUX1), decided 2026-09-14 after first
   trying no arming at all. It lets calibration, logging and home
   position work the stock way and doubles as a throttle cut. Optional
-  pre-arm checks are skipped (ARMING_SKIPCHK -1), no rudder arming.
+  pre-arm checks are skipped (ARMING_SKIPCHK -65: all but RC, with
+  RC_OPTIONS 96 so only the throttle-low check runs), no rudder arming.
   Boot gyro calibration runs when the model is still.
 - Single three-position mode switch on channel 6 (MANUAL / ACRO / FBWA),
   RTL on channel 7, gain knob on channel 8.

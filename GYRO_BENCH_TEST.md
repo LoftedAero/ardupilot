@@ -136,7 +136,11 @@ In ACRO or FBWA, repeat step 5 or 6 at three knob positions.
 
 **Propellers off.** Mode switch low (MANUAL).
 
-- [ ] Arm switch high: ground station shows ARMED.
+- [ ] Throttle stick at about half, arm switch high: not armed, and the
+      ground station shows `Arm: Throttle (RC1) is not neutral` (RC
+      number = your throttle channel). The motor does not spin.
+- [ ] Arm switch low, throttle stick low, arm switch high: ground station
+      shows ARMED.
 - [ ] Throttle stick now drives the motor.
 - [ ] Arm switch low: DISARMED, motor stops.
 

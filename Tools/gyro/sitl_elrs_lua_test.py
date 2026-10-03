@@ -55,7 +55,8 @@ parm = os.path.join(HERE, "test.parm")
 with open(parm, "w") as f:
     f.write("""
 ARMING_REQUIRE 1
-ARMING_SKIPCHK -1
+ARMING_SKIPCHK -65
+RC_OPTIONS 96
 SERIAL5_PROTOCOL 23
 RC_PROTOCOLS 512
 RC5_OPTION 153

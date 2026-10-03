@@ -177,8 +177,16 @@ While disarmed:
 
 Arming (switch high):
 
-- All optional pre-arm checks are skipped, so a board with no GPS will
-  arm. The transmitter must be on with a valid link.
+- The throttle stick must be low; otherwise arming is refused with
+  `Arm: Throttle (RC3) is not neutral` (the throttle channel number
+  follows your stick map). Lower the throttle, then flip the switch off
+  and on again.
+- The switch's position when the radio first connects is ignored: if it
+  is already on at power-up, flip it off and on.
+- RC must have been received since power-up (`Waiting for RC`
+  otherwise).
+- All other optional pre-arm checks are skipped, so a board with no GPS
+  arms. The roll, pitch and rudder sticks do not need to be centered.
 - Logging starts.
 - If a GPS has a fix, the home position is locked at the arming
   location.
@@ -495,7 +503,8 @@ Standard ArduPlane parameters set by the defaults:
 | Parameter | Default | Meaning |
 |---|---|---|
 | ARMING_REQUIRE | 1 | Arm switch required; throttle at minimum PWM when disarmed |
-| ARMING_SKIPCHK | -1 | Skip all optional pre-arm checks |
+| ARMING_SKIPCHK | -65 | Skip all optional pre-arm checks except RC |
+| RC_OPTIONS | 96 | RC check runs only its throttle-low part (bit 5 on, bit 6 skips roll/pitch/yaw) |
 | ARMING_RUDDER | 0 | No rudder-stick arming |
 | RC5_OPTION | 153 | Channel 5 arms and disarms |
 | FLTMODE_CH | 6 | Mode switch channel |

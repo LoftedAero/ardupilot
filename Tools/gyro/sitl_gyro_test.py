@@ -12,6 +12,7 @@ Needs pymavlink. Scratch files and the dataflash log go to $GYRO_TEST_DIR (defau
 
 Checks:
   A. RTL refused with no home (disarmed and armed)
+  H. arming is refused with the throttle up; other optional checks stay skipped
   B. arming and MANUAL -> ACRO leave the trims alone (no trim capture)
   F. nothing logged before arming, log starts on arming
   C. long RC failsafe falls back to FBWA when RTL is refused
@@ -41,7 +42,8 @@ extra = os.path.join(HERE, "gyro_test.parm")
 with open(extra, "w") as f:
     f.write("""
 ARMING_REQUIRE 1
-ARMING_SKIPCHK -1
+ARMING_SKIPCHK -65
+RC_OPTIONS 96
 ARMING_RUDDER 0
 AHRS_EKF_TYPE 0
 RC5_OPTION 153
@@ -167,6 +169,20 @@ try:
     # F/B. arm with the sticks off centre: log starts, trims untouched
     check("F: nothing logged before arming", log_bytes() == 0, f"bytes={log_bytes()}")
     trims_before = (get_param("RC1_TRIM"), get_param("RC2_TRIM"))
+
+    # H. throttle up: the arm switch is refused
+    rc[2] = 1500
+    pump(2)
+    texts.clear()
+    rc[4] = 2000  # arm switch
+    pump(3)
+    check("H: arming refused with throttle up", state["armed"] is False
+          and any("Throttle" in t and "not neutral" in t for t in texts), str(texts[-3:]))
+    rc[4] = 1000
+    rc[2] = 1000
+    pump(2)
+
+    # roll and pitch off centre do not block arming (RC_OPTIONS skips them)
     rc[0], rc[1] = 1530, 1480
     pump(2)
     texts.clear()
