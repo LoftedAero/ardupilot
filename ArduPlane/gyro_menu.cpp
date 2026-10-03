@@ -426,7 +426,7 @@ bool PlaneGyroMenu::build()
 
     add(root, Handler::STATUS, 0, "Status");
 
-    AP_CRSF_Telem::ScriptedMenu *m = submenu(root, "1 Sensors");
+    AP_CRSF_Telem::ScriptedMenu *m = submenu(root, "1 Calibration");
     add(m, Handler::ORIENT, 0, "Orientation");
     add(m, Handler::ORIENT_DETECT, 0, "Detect orientation");
     add(m, Handler::CAL_LEVEL, 0, "Calibrate level");

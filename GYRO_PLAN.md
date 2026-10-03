@@ -268,7 +268,7 @@ commands with OK/Cancel popups; values refresh when a menu is reopened):
 ```
 Gyro (device top level)
 ├─ Status                   DISARMED · FBWA · GPS: none      (info)
-├─ 1 Sensors ▸
+├─ 1 Calibration ▸
 │   ├─ Board orientation    current value          [Detect]: level, then nose up
 │   ├─ Level calibration    [Run]                  (GYRO_CAL 2)
 │   └─ Gyro calibration     [Run]                  (GYRO_CAL 1)

@@ -122,7 +122,7 @@ try:
     check("every parent is a folder", not bad_parent, bad_parent)
     top = [e["name"] for pid, e in sorted(entries.items()) if e["parent"] == 0]
     check("top level is Status then the folders",
-          top == ["Status", "1 Sensors", "2 Radio", "3 Flight modes", "4 Outputs", "5 Failsafe", "6 Tuning",
+          top == ["Status", "1 Calibration", "2 Radio", "3 Flight modes", "4 Outputs", "5 Failsafe", "6 Tuning",
                   "Tools"], top)
 
     def find(name, parent_name=None):

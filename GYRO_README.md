@@ -344,7 +344,7 @@ from any folder, including from a channel inside 4 Outputs.
 | Folder | Entries |
 |---|---|
 | Status | armed state, flight mode, GPS state |
-| 1 Sensors | Orientation, Detect orientation, Calibrate level, Calibrate gyros |
+| 1 Calibration | Orientation, Detect orientation, Calibrate level, Calibrate gyros |
 | 2 Radio | Learn sticks; Arm switch, RTL switch, Autotune switch, Gain knob, each with a Learn command |
 | 3 Flight modes | Mode channel and Learn; Low, Middle and High positions: MANUAL, ACRO, FBWA or AUTOTUNE |
 | 4 Outputs | Wing type and Apply template; Channel 1 to 8 (servo outputs), each with Function, Min, Trim, Max, Reversed |

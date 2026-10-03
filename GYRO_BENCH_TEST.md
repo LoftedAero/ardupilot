@@ -180,7 +180,7 @@ On the radio, open the ExpressLRS Lua script, go to Other Devices and
 select Gyro. TBS Agent Lite works too. If you
 reflashed while the script was open, exit it and start it again first.
 
-- [ ] Gyro shows Status, then 1 Sensors to 6 Tuning, then Tools, and
+- [ ] Gyro shows Status, then 1 Calibration to 6 Tuning, then Tools, and
       every folder has entries (give it about 20 seconds to load).
 - [ ] Back from 4 Outputs > Channel 1 returns to that list.
 - [ ] Status reads `DISARMED`, the current mode and the GPS state.
@@ -188,7 +188,7 @@ reflashed while the script was open, exit it and start it again first.
       the ground station: it matches. Set it back.
 - [ ] 4 Outputs, Channel 1: change Trim by one step and watch the
       surface move; set it back.
-- [ ] 1 Sensors, Calibrate level, disarmed, model at its level flight
+- [ ] 1 Calibration, Calibrate level, disarmed, model at its level flight
       attitude: `Hold model at level attitude`, OK, `Calibrating`, then
       `Calibration done`. The radio may briefly report lost telemetry
       while it runs; that is expected.
@@ -199,7 +199,7 @@ reflashed while the script was open, exit it and start it again first.
 - [ ] 2 Radio, Learn arm switch: flip the arm switch when asked. It
       asks you to switch it off, and only then accepts OK. The plane
       must not arm during this.
-- [ ] 1 Sensors, Detect orientation: level then nose up. It reports
+- [ ] 1 Calibration, Detect orientation: level then nose up. It reports
       the board orientation you expect for how the board is mounted.
 
 If Gyro is not listed, check that both receiver wires are
