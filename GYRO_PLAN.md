@@ -201,6 +201,88 @@ GPS sets home, disarm on channel 5, and GYRO.Gain following the knob
   menu (no Lua: frees ~43 KB heap + 17.8 KB stack, and ~120 KB flash
   with scripting off). Decision pending.
 
+## Phase 3b: native C++ transmitter menu (designed 2026-10-02)
+
+Decided: the transmitter menu moves from Lua to C++ in the gyro module,
+using the same CRSF scripted-menu structures. Reasons: the Lua menu only
+fits on an F405 with bench-only memory settings, and the planned menu is
+roughly twice its size. With the menu native, F405 gyro builds can turn
+scripting off (frees ~60 KB of RAM and ~120 KB of flash).
+
+Design rules (user feedback 2026-10-02):
+
+- Follow the Loft GCS setup order: Configuration (frame), Sensors,
+  Radio, Flight Modes, Outputs, Failsafe, Tuning. Ports, Power, OSD and
+  Filters stay ground-station only. Steps are numbered, per the Loft GCS
+  rule that an ordered process numbers its steps.
+- ArduPilot naming throughout: MANUAL, ACRO, FBWA, AUTOTUNE, RTL.
+- Outputs use the ArduPilot model: each servo output has a function,
+  min, trim, max and reversed. Wing type is a template that sets the
+  output functions on demand, not a separate mixing layer.
+- Borrowed from AS3X: learn the transmitter by moving sticks and
+  switches; detect board orientation by holding the model level and
+  then raising the nose; one gain plus a knob.
+- Avoided: per-mode gain tables, multi-position calibration, firmware
+  parameter names on the radio.
+
+Menu (ELRS Lua shows folders, numbers, selections, info lines and
+commands with OK/Cancel popups; values refresh when a menu is reopened):
+
+```
+Gyro Setup
+├─ Status                   DISARMED · FBWA · GPS: none      (info)
+├─ 1 Frame ▸
+│   ├─ Wing type            Normal / Flying wing / V-tail
+│   └─ Apply template       [Run]  confirm: "Sets outputs 1-4 functions"
+├─ 2 Sensors ▸
+│   ├─ Board orientation    current value          [Detect]: level, then nose up
+│   ├─ Level calibration    [Run]                  (GYRO_CAL 2)
+│   └─ Gyro calibration     [Run]                  (GYRO_CAL 1)
+├─ 3 Radio ▸
+│   ├─ Learn sticks         [Start]  move each stick: sets RCMAP_*, RCn_REVERSED,
+│   │                                RCn_MIN/MAX/TRIM
+│   ├─ Arm switch           Off / Ch5..Ch16        [Learn]
+│   ├─ RTL switch           Off / Ch5..Ch16        [Learn]   (only with a GPS)
+│   ├─ Autotune switch      Off / Ch5..Ch16        [Learn]   (works in FBWA)
+│   └─ Gain knob            Off / Ch5..Ch16        [Learn]
+├─ 4 Flight modes ▸
+│   ├─ Mode channel         Ch5..Ch16              [Learn]
+│   └─ Low / Mid / High     MANUAL / ACRO / FBWA / AUTOTUNE
+├─ 5 Outputs ▸
+│   ├─ Check directions     [Start]  yes/no per surface, flips Reversed
+│   └─ Output 1..N ▸        Function, Min, Trim, Max, Reversed
+├─ 6 Failsafe ▸
+│   ├─ Link loss            FBWA glide / RTL       (RTL only with a GPS)
+│   └─ RTL altitude         m                      (only with a GPS)
+├─ 7 Tuning ▸
+│   ├─ Gain knob min / max
+│   ├─ ACRO roll / pitch rate
+│   ├─ FBWA bank / pitch limits
+│   ├─ Autotune level
+│   └─ Trim capture         On / Off
+└─ Tools ▸
+    ├─ Firmware             version, board          (info)
+    └─ Reset to defaults    [Run]  confirm
+```
+
+Notes:
+
+- Mode positions write FLTMODE pairs (1-2 low, 3-4 mid, 5-6 high).
+- The autotune switch (RCn_OPTION 107) only tunes in FBWA among the
+  allowed modes; AUTOTUNE as a mode position is FBWA with tuning on.
+  Both are offered.
+- GPS presence: AP_GPS reports NO_GPS when the GPS is disabled or
+  nothing has been heard for 4 s, NO_FIX when it is talking without a
+  lock. When the menu is opened without a GPS, the RTL items are
+  replaced by an info line "RTL: no GPS". The firmware already refuses
+  RTL without a home and glides instead, so this is presentation only.
+- Output functions offered: None, Aileron, Elevator, Rudder, Throttle,
+  Elevon L/R, V-tail L/R, Flaperon L/R, Flap. Outputs listed are the
+  board's PWM outputs.
+- The menu needs new firmware support for the learn steps (live RC
+  channel detection) and orientation detection (accelerometer), in the
+  gyro module, triggered from the menu like GYRO_CAL.
+
 ## Considered and rejected
 
 - **Assumed airspeed for DCM centripetal correction without GPS**
