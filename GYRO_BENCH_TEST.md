@@ -148,7 +148,7 @@ Mode switch low, sticks centered.
       ailerons in MANUAL. Center the trim again afterwards.
 - [ ] In the ground station, `RC1_TRIM`, `RC2_TRIM` and `RC4_TRIM` are
       at the stick centers (about 1500). Earlier builds could have
-      moved them; if not, run 2 Radio, Learn sticks.
+      moved them; if not, set them back in the ground station.
 - [ ] Arm and switch to ACRO: no `trim complete` message, and
       `RC1_TRIM` is unchanged. Disarm.
 - [ ] Back in MANUAL, add a few clicks of aileron trim, then run 4

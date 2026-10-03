@@ -279,8 +279,8 @@ Gyro (device top level)
 │   ├─ Level calibration    [Run]                  (GYRO_CAL 2)
 │   └─ Gyro calibration     [Run]                  (GYRO_CAL 1)
 ├─ 2 Radio ▸
-│   ├─ Learn sticks         [Start]  move each stick: sets RCMAP_*, RCn_REVERSED,
-│   │                                RCn_MIN/MAX/TRIM
+│   ├─ Learn sticks         [Start]  move each stick: sets RCMAP_*, RCn_REVERSED
+│   │                                (endpoints and trims are not learned)
 │   ├─ Arm switch           Off / Ch5..Ch16        [Learn]
 │   ├─ Mode switch          Ch5..Ch16              [Learn]
 │   ├─ RTL switch           Off / Ch5..Ch16        [Learn]   (only with a GPS)

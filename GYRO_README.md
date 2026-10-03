@@ -247,7 +247,8 @@ Earlier builds captured the transmitter trims automatically on arming
 and on MANUAL to ACRO/FBWA (`GYRO_TRIM_CAP`). That was removed: it also
 captured any stick held at that moment, up to 20 percent of the throw.
 On a board that ran it, check that `RC1_TRIM`, `RC2_TRIM` and
-`RC4_TRIM` are at the stick centers (2 Radio, Learn sticks sets them).
+`RC4_TRIM` are at the stick centers (about 1500) and set them from a
+ground station if not; the menu does not change stick trims.
 
 ---
 
