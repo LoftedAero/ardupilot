@@ -302,11 +302,6 @@ bool Plane::set_mode(Mode &new_mode, const ModeReason reason)
         return false;
     }
 
-#if AP_PLANE_GYRO_ENABLED
-    // gyro-style trim capture on MANUAL -> ACRO/FBWA (no-op unless GYRO_TRIM_CAP)
-    g2.gyro.mode_change_hook(new_mode);
-#endif
-
     // backup current control_mode and previous_mode
     Mode &old_previous_mode = *previous_mode;
     Mode &old_mode = *control_mode;

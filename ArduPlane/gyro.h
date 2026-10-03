@@ -8,9 +8,6 @@
    - a transmitter master gain knob that scales the roll, pitch and yaw
      rate controllers (P and D, and the I build-up rate; feedforward is
      untouched)
-   - automatic trim capture on arming in MANUAL and on the MANUAL ->
-     ACRO/FBWA transition, so transmitter trims applied in MANUAL
-     become the neutral for the stabilised modes
    - a throttle based logging gate for vehicles with ARMING_REQUIRE 0,
      which otherwise log continuously from boot
    - a calibration request parameter (GYRO_CAL) so gyro and level
@@ -32,8 +29,6 @@
 
 #include "gyro_menu.h"
 
-class Mode;
-
 class PlaneGyro {
 public:
     PlaneGyro();
@@ -45,12 +40,6 @@ public:
 
     // scheduler task, 10Hz
     void update();
-
-    // called by Plane::set_mode() before control_mode changes
-    void mode_change_hook(const Mode &new_mode);
-
-    // capture trims now if the preconditions hold (MANUAL, sticks centred, still)
-    bool capture_trims();
 
     // true when the logger should treat the vehicle as armed
     bool logging_allowed() const { return log_allowed; }
@@ -71,15 +60,12 @@ private:
     AP_Int8 gain_ch;
     AP_Float gain_min;
     AP_Float gain_max;
-    AP_Int8 trim_capture;
     AP_Int8 log_thr;
     AP_Int8 cal_request;
 
     float gain_scale = 1.0f;
     bool log_allowed = false;   // never let the logger see "armed" before the first update()
-    bool was_armed;
     uint32_t last_thr_high_ms;
-    uint16_t trim_captures;
     bool cal_request_cleared;
 
 #if AP_PLANE_GYRO_MENU_ENABLED

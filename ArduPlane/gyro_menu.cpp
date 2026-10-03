@@ -54,7 +54,6 @@ const Choice orientation_choices[] = {
 };
 const Choice link_loss_choices[] = {{"FBWA glide", 2}, {"RTL if GPS", 1}};
 const Choice reversed_choices[] = {{"Normal", 0}, {"Reversed", 1}};
-const Choice on_off_choices[] = {{"Off", 0}, {"On", 1}};
 const Choice channel_choices[] = {
     {"Off", 0}, {"Ch5", 5}, {"Ch6", 6}, {"Ch7", 7}, {"Ch8", 8}, {"Ch9", 9}, {"Ch10", 10},
     {"Ch11", 11}, {"Ch12", 12}, {"Ch13", 13}, {"Ch14", 14}, {"Ch15", 15}, {"Ch16", 16},
@@ -489,7 +488,6 @@ bool PlaneGyroMenu::build()
     add(m, Handler::NUMBER, NUM_PITCH_MAX, "FBWA pitch up");
     add(m, Handler::NUMBER, NUM_PITCH_MIN, "FBWA pitch down");
     add(m, Handler::NUMBER, NUM_AUTOTUNE_LEVEL, "Autotune level");
-    add(m, Handler::TRIM_CAP, 0, "Trim capture");
 
     m = submenu(root, "Tools");
     add(m, Handler::FIRMWARE, 0, "Firmware");
@@ -595,10 +593,6 @@ uint8_t PlaneGyroMenu::pack(const Item &item, uint8_t *buf, uint8_t size)
         pack_number(p, flags, item.name, param_get(n.param), n.min, n.max, n.step, n.decimals, n.unit);
         break;
     }
-    case Handler::TRIM_CAP:
-        pack_select(p, 0, item.name, on_off_choices, ARRAY_SIZE(on_off_choices),
-                    int16_t(param_get("GYRO_TRIM_CAP")));
-        break;
     case Handler::WING_APPLY:
     case Handler::ORIENT_DETECT:
     case Handler::CAL_LEVEL:
@@ -751,12 +745,6 @@ uint8_t PlaneGyroMenu::write(const Item &item, const uint8_t *payload, uint8_t l
             param_set("FS_LONG_ACTN", link_loss_choices[idx].value);
         }
         p.u8(choice_index(link_loss_choices, ARRAY_SIZE(link_loss_choices), int16_t(param_get("FS_LONG_ACTN"))));
-        break;
-    case Handler::TRIM_CAP:
-        if (idx < ARRAY_SIZE(on_off_choices)) {
-            param_set("GYRO_TRIM_CAP", on_off_choices[idx].value);
-        }
-        p.u8(choice_index(on_off_choices, ARRAY_SIZE(on_off_choices), int16_t(param_get("GYRO_TRIM_CAP"))));
         break;
     default:
         // info entries are read only

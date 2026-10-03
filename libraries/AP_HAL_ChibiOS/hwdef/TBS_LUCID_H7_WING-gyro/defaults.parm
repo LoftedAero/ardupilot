@@ -57,9 +57,8 @@ GYRO_GAIN_CH 8
 GYRO_GAIN_MIN 0
 GYRO_GAIN_MAX 1.5
 
-# --- Trims: captured on arming and on MANUAL -> ACRO/FBWA; auto-trim servos in FBWA ---
+# --- Trims: set servo trims in the menu (4 Outputs, Channel N, Trim); auto-trim in FBWA with a GPS ---
 SERVO_AUTO_TRIM 1
-GYRO_TRIM_CAP 1
 STICK_MIXING 0
 
 # --- Link loss: short = FBWA at zero throttle; long = RTL if home is set, else FBWA glide

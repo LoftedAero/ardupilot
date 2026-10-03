@@ -52,7 +52,6 @@ private:
         OUT_REV,        // select: SERVOn_REVERSED
         LINK_LOSS,      // select: FS_LONG_ACTN
         NUMBER,         // number bound to a parameter (arg = number spec)
-        TRIM_CAP,       // select: GYRO_TRIM_CAP
         RESET,          // command: reset all parameters and reboot
     };
 

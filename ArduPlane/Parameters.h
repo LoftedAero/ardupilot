@@ -597,7 +597,7 @@ public:
 #endif
 
 #if AP_PLANE_GYRO_ENABLED
-    // gyro-style helpers (gain knob, trim capture, logging gate)
+    // gyro-style helpers (gain knob, logging gate)
     PlaneGyro gyro;
 #endif
 };

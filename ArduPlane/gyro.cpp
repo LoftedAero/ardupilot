@@ -28,12 +28,7 @@ const AP_Param::GroupInfo PlaneGyro::var_info[] = {
     // @User: Standard
     AP_GROUPINFO("GAIN_MAX", 3, PlaneGyro, gain_max, 1.5f),
 
-    // @Param: TRIM_CAP
-    // @DisplayName: Gyro trim capture on mode change
-    // @Description: When enabled, arming in MANUAL and switching from MANUAL to ACRO or FBWA capture the current transmitter trims: the servo trims are set to the current surface positions and the RC trims to the current stick centre, exactly as the TRIM_TO_CURRENT_SERVO_RC aux function does. This lets transmitter trims applied in MANUAL carry into the stabilised modes without becoming a rate or attitude demand. The capture is skipped silently if roll or pitch stick is more than 20 percent from centre, the airframe is rotating faster than 30 deg/s, or RC is in failsafe.
-    // @Values: 0:Disabled,1:Enabled
-    // @User: Standard
-    AP_GROUPINFO("TRIM_CAP", 4, PlaneGyro, trim_capture, 0),
+    // index 4 was TRIM_CAP (trim capture, removed): do not reuse
 
     // @Param: LOG_THR
     // @DisplayName: Gyro logging throttle threshold
@@ -64,14 +59,6 @@ void PlaneGyro::update()
     update_gain_scale();
     update_logging_gate(now_ms);
     update_calibration();
-
-    // trim capture at the moment of arming, like a gyro learning stick
-    // centre at power-up
-    const bool armed = plane.arming.is_armed();
-    if (armed && !was_armed && trim_capture.get() > 0) {
-        capture_trims();
-    }
-    was_armed = armed;
 
     write_log();
 }
@@ -165,49 +152,6 @@ void PlaneGyro::update_calibration()
     cal_request.set(ok ? 0 : -1);
 }
 
-/*
-  gyro style trim capture: called from Plane::set_mode() while
-  control_mode is still the old mode
- */
-void PlaneGyro::mode_change_hook(const Mode &new_mode)
-{
-    if (trim_capture.get() <= 0) {
-        return;
-    }
-    if (plane.control_mode != &plane.mode_manual) {
-        return;
-    }
-    if (&new_mode != &plane.mode_acro && &new_mode != &plane.mode_fbwa) {
-        return;
-    }
-    capture_trims();
-}
-
-/*
-  run Plane::trim_radio() if it can succeed. The preconditions are the
-  same as trim_radio()'s own, checked here so a capture that cannot
-  happen is skipped silently instead of producing an error message.
- */
-bool PlaneGyro::capture_trims()
-{
-    if (plane.control_mode != &plane.mode_manual) {
-        return false;
-    }
-    if (plane.failsafe.rc_failsafe || !rc().has_valid_input()) {
-        return false;
-    }
-    if (labs(plane.channel_roll->get_control_in()) > (plane.channel_roll->get_range() * 0.2) ||
-        labs(plane.channel_pitch->get_control_in()) > (plane.channel_pitch->get_range() * 0.2)) {
-        return false;
-    }
-    if (degrees(plane.ahrs.get_gyro().length()) > 30.0f) {
-        return false;
-    }
-    plane.trim_radio();
-    trim_captures++;
-    return true;
-}
-
 void PlaneGyro::write_log()
 {
 #if HAL_LOGGING_ENABLED
@@ -216,13 +160,11 @@ void PlaneGyro::write_log()
     // @Field: TimeUS: Time since system startup
     // @Field: Gain: master gain scale applied to the rate controllers
     // @Field: LogOK: logging gate state
-    // @Field: TrimN: number of automatic trim captures since boot
-    AP::logger().WriteStreaming("GYRO", "TimeUS,Gain,LogOK,TrimN",
-                                "s---", "F---", "QfBH",
+    AP::logger().WriteStreaming("GYRO", "TimeUS,Gain,LogOK",
+                                "s--", "F--", "QfB",
                                 AP_HAL::micros64(),
                                 gain_scale,
-                                (uint8_t)log_allowed,
-                                trim_captures);
+                                (uint8_t)log_allowed);
 #endif
 }
 
