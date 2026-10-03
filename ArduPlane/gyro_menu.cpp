@@ -427,7 +427,7 @@ bool PlaneGyroMenu::build()
 
     add(root, Handler::STATUS, 0, "Status");
 
-    AP_CRSF_Telem::ScriptedMenu *m = submenu(root, "1 Frame");
+    AP_CRSF_Telem::ScriptedMenu *m = submenu(root, "1 Config");
     add(m, Handler::WING_TYPE, 0, "Wing type");
     add(m, Handler::WING_APPLY, 0, "Apply template");
 
