@@ -1171,8 +1171,14 @@ void AP_CRSF_Telem::calc_device_info() {
 
     const AP_FWVersion &fwver = AP::fwversion();
     // write out the name with version, max width is 60 - 18 = the meaning of life
-    int32_t n = strlen(fwver.fw_short_string);
-    strncpy((char*)_telem.ext.info.payload, fwver.fw_short_string, 41);
+    // a build can choose the name radios show for this device instead
+#ifdef AP_CRSF_DEVICE_NAME
+    const char *device_name = AP_CRSF_DEVICE_NAME;
+#else
+    const char *device_name = fwver.fw_short_string;
+#endif
+    int32_t n = strlen(device_name);
+    strncpy((char*)_telem.ext.info.payload, device_name, 41);
     n = MIN(n + 1, 42);
 
     put_be32_ptr(&_telem.ext.info.payload[n], // serial number
