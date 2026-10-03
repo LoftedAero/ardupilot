@@ -36,6 +36,7 @@ private:
         NO_GPS_INFO,    // info shown in place of RTL settings without a GPS
         WING_TYPE,      // select: template to apply
         WING_APPLY,     // command: set output channels 1-4 from the template
+        TRIM_COPY,      // command: copy transmitter trims into the servo trims
         ORIENT,         // select: AHRS_ORIENTATION
         ORIENT_DETECT,  // command: detect orientation (level, then nose up)
         CAL_LEVEL,      // command: level (simple accel) calibration
@@ -85,6 +86,7 @@ private:
         AUX_MOVE,           // waiting for a switch to move
         AUX_CONFIRM,        // learned a switch, waiting for OK to save
         MODE_WATCH,         // showing the mode switch until the pilot exits
+        TRIM_CENTER,        // trims copied, waiting for the TX trims to be centred
         DONE,               // finished, reporting the result
     };
 
@@ -115,6 +117,8 @@ private:
         int8_t saved_arm_ch;        // arm switch channel cleared while learning
         // orientation detection
         Vector3f level_accel;
+        // trim copy: servo trims before the copy, 0 where not changed
+        uint16_t saved_trim[NUM_OUTPUTS];
     } cmd;
 
     uint32_t reboot_at_ms;
@@ -142,6 +146,10 @@ private:
     void stick_prompt();
     void mode_watch_prompt();
     void restore_arm_switch();
+    // undo a trim copy that was not confirmed
+    void restore_trims();
+    // first stick (roll, pitch, yaw) further from centre than percent, or nullptr
+    static const RC_Channel *stick_off_centre(int16_t percent);
 
     // parameter helpers
     static float param_get(const char *name);

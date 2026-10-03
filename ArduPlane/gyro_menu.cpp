@@ -33,6 +33,13 @@ constexpr uint8_t CMD_POLL_INTERVAL = 25;
 constexpr int16_t LEARN_STICK_DELTA = 350;
 constexpr int16_t LEARN_RELEASE_DELTA = 150;
 constexpr int16_t LEARN_SWITCH_DELTA = 300;
+// trim copy: stick offsets above this (percent of throw) are a held stick
+constexpr int16_t TRIM_COPY_MAX_PCT = 15;
+// trim copy: TX trims count as centred within this
+constexpr int16_t TRIM_CENTRED_PCT = 3;
+// a command's reply to a write goes out in one frame with no chunks:
+// its name and popup text together must stay within this
+constexpr uint8_t CMD_TEXT_MAX = 50;
 constexpr uint32_t LEARN_TIMEOUT_MS = 30000;
 
 struct Choice {
@@ -123,6 +130,25 @@ const char *const stick_prompts[] = {
 };
 const char *const rcmap_params[] = {"RCMAP_ROLL", "RCMAP_PITCH", "RCMAP_YAW", "RCMAP_THROTTLE"};
 const char stick_letters[] = {'A', 'E', 'R', 'T'};
+
+// control surface outputs: the ones a trim copy sets
+bool is_surface(SRV_Channel::Function f)
+{
+    switch (f) {
+    case SRV_Channel::k_aileron:
+    case SRV_Channel::k_elevator:
+    case SRV_Channel::k_rudder:
+    case SRV_Channel::k_elevon_left:
+    case SRV_Channel::k_elevon_right:
+    case SRV_Channel::k_vtail_left:
+    case SRV_Channel::k_vtail_right:
+    case SRV_Channel::k_flaperon_left:
+    case SRV_Channel::k_flaperon_right:
+        return true;
+    default:
+        return false;
+    }
+}
 
 // big-endian writer for CRSF parameter entries
 class Packer {
@@ -462,6 +488,7 @@ bool PlaneGyroMenu::build()
     m = submenu(root, "4 Outputs");
     add(m, Handler::WING_TYPE, 0, "Wing type");
     add(m, Handler::WING_APPLY, 0, "Apply template");
+    add(m, Handler::TRIM_COPY, 0, "Copy stick trims");
     static const char *const output_names[NUM_OUTPUTS] = {
         "Channel 1", "Channel 2", "Channel 3", "Channel 4", "Channel 5", "Channel 6", "Channel 7", "Channel 8",
     };
@@ -594,6 +621,7 @@ uint8_t PlaneGyroMenu::pack(const Item &item, uint8_t *buf, uint8_t size)
         break;
     }
     case Handler::WING_APPLY:
+    case Handler::TRIM_COPY:
     case Handler::ORIENT_DETECT:
     case Handler::CAL_LEVEL:
     case Handler::CAL_GYRO:
@@ -610,7 +638,14 @@ uint8_t PlaneGyroMenu::pack(const Item &item, uint8_t *buf, uint8_t size)
         p.str(item.name);
         p.u8(active ? cmd.status : CMD_READY);
         p.u8(CMD_POLL_INTERVAL);
-        p.str(active ? cmd.info : "");
+        // clip the text rather than lose the reply
+        char info[sizeof(cmd.info)] {};
+        if (active) {
+            const size_t name_len = strlen(item.name);
+            const size_t room = name_len < CMD_TEXT_MAX ? CMD_TEXT_MAX - name_len : 0;
+            memcpy(info, cmd.info, MIN(strnlen(cmd.info, sizeof(cmd.info)), MIN(room, sizeof(info) - 1)));
+        }
+        p.str(info);
         break;
     }
     }
@@ -627,6 +662,7 @@ uint8_t PlaneGyroMenu::write(const Item &item, const uint8_t *payload, uint8_t l
 
     switch (item.handler) {
     case Handler::WING_APPLY:
+    case Handler::TRIM_COPY:
     case Handler::ORIENT_DETECT:
     case Handler::CAL_LEVEL:
     case Handler::CAL_GYRO:
@@ -823,9 +859,38 @@ void PlaneGyroMenu::restore_arm_switch()
     }
 }
 
+void PlaneGyroMenu::restore_trims()
+{
+    bool restored = false;
+    for (uint8_t n = 1; n <= NUM_OUTPUTS; n++) {
+        if (cmd.saved_trim[n - 1] != 0) {
+            set_output_param(n, "TRIM", cmd.saved_trim[n - 1]);
+            cmd.saved_trim[n - 1] = 0;
+            restored = true;
+        }
+    }
+    if (restored) {
+        GCS_SEND_TEXT(MAV_SEVERITY_INFO, "Gyro: trim copy undone");
+    }
+}
+
+const RC_Channel *PlaneGyroMenu::stick_off_centre(int16_t percent)
+{
+    // raw values: a trim inside the stick dead zone still moves the
+    // surfaces in MANUAL, so it must count here too
+    for (const RC_Channel *c : {plane.channel_roll, plane.channel_pitch, plane.channel_rudder}) {
+        const int32_t half_throw = MAX((c->get_radio_max() - c->get_radio_min()) / 2, 1);
+        if (abs(int32_t(c->get_radio_in()) - c->get_radio_trim()) * 100 > percent * half_throw) {
+            return c;
+        }
+    }
+    return nullptr;
+}
+
 void PlaneGyroMenu::command_cancel()
 {
     restore_arm_switch();
+    restore_trims();
     command_close();
 }
 
@@ -834,6 +899,7 @@ void PlaneGyroMenu::command_start(uint8_t index)
     // abandon whatever was open before
     if (cmd.item >= 0 && cmd.stage != Stage::DONE) {
         restore_arm_switch();
+        restore_trims();
     }
     const int8_t pending_arm = cmd.saved_arm_ch;
     cmd = {};
@@ -865,6 +931,18 @@ void PlaneGyroMenu::command_start(uint8_t index)
         }
         cmd.stage = Stage::CONFIRM;
         command_prompt(CMD_CONFIRMATION_NEEDED, "Set channels 1-4 for %s?", wing_labels[wing_choice]);
+        break;
+    case Handler::TRIM_COPY:
+        if (plane.control_mode != &plane.mode_manual) {
+            command_finish("Switch to MANUAL first");
+            return;
+        }
+        if (!rc().has_valid_input()) {
+            command_finish("No RC signal");
+            return;
+        }
+        cmd.stage = Stage::CONFIRM;
+        command_prompt(CMD_CONFIRMATION_NEEDED, "Trims set? Hands off sticks");
         break;
     case Handler::ORIENT_DETECT:
         cmd.stage = Stage::ORIENT_LEVEL;
@@ -975,6 +1053,7 @@ void PlaneGyroMenu::command_confirm()
     }
     if (armed()) {
         restore_arm_switch();
+        restore_trims();
         command_finish("Disarm first");
         return;
     }
@@ -986,6 +1065,37 @@ void PlaneGyroMenu::command_confirm()
             apply_wing(wing_choice);
             command_finish("Channels 1-4 set for %s", wing_labels[wing_choice]);
             break;
+        case Handler::TRIM_COPY: {
+            if (plane.control_mode != &plane.mode_manual || !rc().has_valid_input()) {
+                command_finish("Needs MANUAL and RC signal");
+                break;
+            }
+            // trims are small: a bigger offset is a stick being held
+            const RC_Channel *held = stick_off_centre(TRIM_COPY_MAX_PCT);
+            if (held != nullptr) {
+                command_finish("Ch%u off centre: release the stick", unsigned(held->ch()));
+                break;
+            }
+            // in MANUAL each surface output sits where the sticks and
+            // trims put it, mixing included: make that its neutral
+            uint8_t copied = 0;
+            for (uint8_t n = 1; n <= NUM_OUTPUTS; n++) {
+                const SRV_Channel *out = SRV_Channels::srv_channel(n - 1);
+                if (out == nullptr || !is_surface(out->get_function())) {
+                    continue;
+                }
+                cmd.saved_trim[n - 1] = uint16_t(output_param(n, "TRIM"));
+                set_output_param(n, "TRIM", out->get_output_pwm());
+                copied++;
+            }
+            if (copied == 0) {
+                command_finish("No surface outputs set");
+                break;
+            }
+            cmd.stage = Stage::TRIM_CENTER;
+            command_prompt(CMD_CONFIRMATION_NEEDED, "Now center the TX trims, then OK");
+            break;
+        }
         case Handler::CAL_LEVEL:
         case Handler::CAL_GYRO:
             plane.g2.gyro.request_calibration(item.handler == Handler::CAL_LEVEL ? 2 : 1);
@@ -1032,6 +1142,22 @@ void PlaneGyroMenu::command_confirm()
         } else {
             command_finish("Rotation %u, now calibrate level", unsigned(rotation));
         }
+        break;
+    }
+
+    case Stage::TRIM_CENTER: {
+        const RC_Channel *off = stick_off_centre(TRIM_CENTRED_PCT);
+        if (off != nullptr) {
+            // still the copied neutral plus the TX trim: ask again, Exit undoes
+            command_prompt(CMD_CONFIRMATION_NEEDED, "Ch%u trim not centred, then OK", unsigned(off->ch()));
+            break;
+        }
+        uint8_t copied = 0;
+        for (uint16_t &t : cmd.saved_trim) {
+            copied += t != 0 ? 1 : 0;
+            t = 0;
+        }
+        command_finish("Trims copied to %u outputs", unsigned(copied));
         break;
     }
 
