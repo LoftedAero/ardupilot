@@ -287,8 +287,7 @@ int32_t AP_YawController::get_servo_out(float scaler, bool disable_integrator)
     // Scale using inverse dynamic pressure (1/V^2)
     _pid_info.I = _K_D * _integrator * scaler * scaler;
     _pid_info.D = _K_D * (-rate_hp_out) * scaler * scaler;
-    // master gain scale (transmitter gain knob)
-    _pid_info.I *= gain_scale;
+    // master gain scale (transmitter gain knob): damping only
     _pid_info.D *= gain_scale;
     _last_out =  _pid_info.I + _pid_info.D;
 
@@ -322,7 +321,12 @@ float AP_YawController::get_rate_out(float desired_rate, float scaler, bool disa
     //
     // note that we run AC_PID in radians so that the normal scaling
     // range for IMAX in AC_PID applies (usually an IMAX value less than 1.0)
-    rate_pid.update_all(radians(desired_rate) * scaler * scaler, rate_z * scaler * scaler, dt, limit_I);
+    //
+    // the master gain scale (transmitter gain knob) scales P and D and how
+    // fast I builds up, so changing it never steps the I output; it is held
+    // at 1.0 while autotune runs
+    const float gain = (autotune != nullptr && autotune->running) ? 1.0f : gain_scale;
+    rate_pid.update_all(radians(desired_rate) * scaler * scaler, rate_z * scaler * scaler, dt, limit_I, gain, gain);
 
     if (underspeed) {
         // when underspeed we lock the integrator
@@ -349,13 +353,6 @@ float AP_YawController::get_rate_out(float desired_rate, float scaler, bool disa
     pinfo.I *= deg_scale;
     pinfo.D *= deg_scale;
     pinfo.DFF = dff;
-
-    // master gain scale (transmitter gain knob); held at 1.0 while autotune runs
-    if (!(autotune != nullptr && autotune->running)) {
-        pinfo.P *= gain_scale;
-        pinfo.I *= gain_scale;
-        pinfo.D *= gain_scale;
-    }
     pinfo.limit = limit_I;
 
     // fix the logged target and actual values to not have the scalers applied

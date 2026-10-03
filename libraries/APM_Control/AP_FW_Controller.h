@@ -22,7 +22,7 @@ public:
     // so should only be used when only one source of scaling is needed
     void set_ff_scale(float _ff_scale) { ff_scale = _ff_scale; }
 
-    // master gain scale applied to the P, I and D terms (not FF). Persists until changed.
+    // master gain scale: scales P and D and the I build-up rate (not FF). Persists until changed.
     void set_gain_scale(float scale) { gain_scale = scale; }
 
     // Reset I term

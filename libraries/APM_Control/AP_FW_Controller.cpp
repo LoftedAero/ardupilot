@@ -162,7 +162,12 @@ float AP_FW_Controller::run_rate_control(float desired_rate_degs, float scaler, 
     //
     // note that we run AC_PID in radians so that the normal scaling
     // range for IMAX in AC_PID applies (usually an IMAX value less than 1.0)
-    rate_pid.update_all(radians(desired_rate_degs) * scaler * scaler, rate_rads * scaler * scaler, dt, limit_I);
+    //
+    // the master gain scale (transmitter gain knob) scales P and D and how
+    // fast I builds up, so changing it never steps the I output; it is held
+    // at 1.0 while autotune runs
+    const float gain = (autotune != nullptr && autotune->running) ? 1.0f : gain_scale;
+    rate_pid.update_all(radians(desired_rate_degs) * scaler * scaler, rate_rads * scaler * scaler, dt, limit_I, gain, gain);
 
     if (underspeed) {
         // when underspeed we lock the integrator
@@ -190,13 +195,6 @@ float AP_FW_Controller::run_rate_control(float desired_rate_degs, float scaler, 
     pinfo.I *= deg_scale;
     pinfo.D *= deg_scale;
     pinfo.DFF = dff;
-
-    // master gain scale (transmitter gain knob); held at 1.0 while autotune runs
-    if (!(autotune != nullptr && autotune->running)) {
-        pinfo.P *= gain_scale;
-        pinfo.I *= gain_scale;
-        pinfo.D *= gain_scale;
-    }
 
     // fix the logged target and actual values to not have the scalers applied
     pinfo.target = desired_rate_degs;
