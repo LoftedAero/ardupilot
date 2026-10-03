@@ -44,6 +44,7 @@ private:
         AUX_CH,         // select: channel of a switch function (arg = AuxFunc)
         AUX_LEARN,      // command: learn a switch channel (arg = AuxFunc)
         MODE_POS,       // select: mode for switch position (arg 0..2)
+        MODE_CHECK,     // command: show the mode switch position and mode live
         OUT_FUNC,       // select: SERVOn_FUNCTION (arg = output)
         OUT_MIN,        // number: SERVOn_MIN
         OUT_TRIM,       // number: SERVOn_TRIM
@@ -84,6 +85,7 @@ private:
         STICK_CONFIRM,      // learned all sticks, waiting for OK to save
         AUX_MOVE,           // waiting for a switch to move
         AUX_CONFIRM,        // learned a switch, waiting for OK to save
+        MODE_WATCH,         // showing the mode switch until the pilot exits
         DONE,               // finished, reporting the result
     };
 
@@ -139,6 +141,7 @@ private:
     void command_close();
     void command_prompt(uint8_t status, const char *fmt, ...) FMT_PRINTF(3, 4);
     void stick_prompt();
+    void mode_watch_prompt();
     void restore_arm_switch();
 
     // parameter helpers
@@ -158,6 +161,8 @@ private:
 
     static bool gps_present();
     static bool armed();
+    // a flight mode's name in capitals, short enough for the radio screen
+    static void mode_name(const Mode &mode, char *buf, uint8_t size);
     bool orientation_from(const Vector3f &level, const Vector3f &nose_up, uint8_t &rotation) const;
 };
 

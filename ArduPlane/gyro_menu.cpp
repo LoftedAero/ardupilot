@@ -108,7 +108,7 @@ struct AuxSpec {
     int16_t option;         // RCn_OPTION, or -1 for functions with their own parameter
 };
 const AuxSpec aux_specs[] = {
-    {"Mode channel", "Learn mode switch", "Move the mode switch", -1},
+    {"Mode switch", "Learn mode switch", "Move the mode switch", -1},
     {"Arm switch", "Learn arm switch", "Flip the arm switch", 153},
     {"RTL switch", "Learn RTL switch", "Flip the RTL switch", 4},
     {"Autotune switch", "Learn autotune sw", "Flip the autotune switch", 107},
@@ -262,6 +262,20 @@ bool PlaneGyroMenu::gps_present()
 bool PlaneGyroMenu::armed()
 {
     return plane.arming.is_armed();
+}
+
+void PlaneGyroMenu::mode_name(const Mode &mode, char *buf, uint8_t size)
+{
+    const char *name = mode.name();
+    if (strlen(name) > 8) {
+        name = mode.name4();
+    }
+    uint8_t i = 0;
+    for (; name[i] != 0 && i + 1 < size; i++) {
+        const char c = name[i];
+        buf[i] = (c >= 'a' && c <= 'z') ? char(c - 'a' + 'A') : c;
+    }
+    buf[i] = 0;
 }
 
 /*
@@ -434,14 +448,13 @@ bool PlaneGyroMenu::build()
 
     m = submenu(root, "2 Radio");
     add(m, Handler::LEARN_STICKS, 0, "Learn sticks");
-    for (const uint8_t f : {AUX_ARM, AUX_RTL, AUX_AUTOTUNE, AUX_GAIN}) {
+    for (const uint8_t f : {AUX_ARM, AUX_MODE, AUX_RTL, AUX_AUTOTUNE, AUX_GAIN}) {
         add(m, Handler::AUX_CH, f, aux_specs[f].label);
         add(m, Handler::AUX_LEARN, f, aux_specs[f].learn);
     }
 
     m = submenu(root, "3 Flight modes");
-    add(m, Handler::AUX_CH, AUX_MODE, aux_specs[AUX_MODE].label);
-    add(m, Handler::AUX_LEARN, AUX_MODE, aux_specs[AUX_MODE].learn);
+    add(m, Handler::MODE_CHECK, 0, "Check mode switch");
     add(m, Handler::MODE_POS, 0, "Low");
     add(m, Handler::MODE_POS, 1, "Middle");
     add(m, Handler::MODE_POS, 2, "High");
@@ -523,10 +536,8 @@ uint8_t PlaneGyroMenu::pack(const Item &item, uint8_t *buf, uint8_t size)
             hal.util->snprintf(gps, sizeof(gps), "%u sats", unsigned(AP::gps().num_sats()));
             break;
         }
-        const char *mode = plane.control_mode->name();
-        if (strlen(mode) > 8) {
-            mode = plane.control_mode->name4();
-        }
+        char mode[10];
+        mode_name(*plane.control_mode, mode, sizeof(mode));
         hal.util->snprintf(text, sizeof(text), "%s %s GPS %s", armed() ? "ARMED" : "DISARMED", mode, gps);
         pack_info(p, 0, item.name, text);
         break;
@@ -594,6 +605,7 @@ uint8_t PlaneGyroMenu::pack(const Item &item, uint8_t *buf, uint8_t size)
     case Handler::CAL_GYRO:
     case Handler::LEARN_STICKS:
     case Handler::AUX_LEARN:
+    case Handler::MODE_CHECK:
     case Handler::RESET: {
         const bool active = cmd.item == index;
         uint8_t flags = 0;
@@ -626,6 +638,7 @@ uint8_t PlaneGyroMenu::write(const Item &item, const uint8_t *payload, uint8_t l
     case Handler::CAL_GYRO:
     case Handler::LEARN_STICKS:
     case Handler::AUX_LEARN:
+    case Handler::MODE_CHECK:
     case Handler::RESET:
         // commands answer with their full entry: status and text
         if (length >= 1) {
@@ -841,6 +854,16 @@ void PlaneGyroMenu::command_start(uint8_t index)
     cmd.start_ms = AP_HAL::millis();
 
     const Item &item = items[index];
+    if (item.handler == Handler::MODE_CHECK) {
+        // only shows the switch, so it also works armed
+        if (aux_channel(AUX_MODE) == 0) {
+            command_finish("No mode switch: set it in Radio");
+            return;
+        }
+        cmd.stage = Stage::MODE_WATCH;
+        mode_watch_prompt();
+        return;
+    }
     if (armed()) {
         command_finish("Disarm first");
         return;
@@ -903,6 +926,49 @@ void PlaneGyroMenu::command_start(uint8_t index)
     default:
         command_finish("Not a command");
         break;
+    }
+}
+
+// the mode switch position, the mode it selects and the mode flown now
+void PlaneGyroMenu::mode_watch_prompt()
+{
+    const uint8_t ch = aux_channel(AUX_MODE);
+    const uint16_t pwm = RC_Channels::get_radio_in(ch - 1);
+    if (!rc().has_valid_input() || pwm <= RC_Channel::RC_MIN_LIMIT_PWM || pwm >= RC_Channel::RC_MAX_LIMIT_PWM) {
+        command_prompt(CMD_PROGRESS, "Ch%u: no signal", unsigned(ch));
+        return;
+    }
+    // ArduPilot's six mode switch positions, in pairs for a 3 position switch
+    uint8_t position;
+    if (pwm < 1231) {
+        position = 0;
+    } else if (pwm < 1361) {
+        position = 1;
+    } else if (pwm < 1491) {
+        position = 2;
+    } else if (pwm < 1621) {
+        position = 3;
+    } else if (pwm < 1750) {
+        position = 4;
+    } else {
+        position = 5;
+    }
+    static const char *const position_names[] = {"Low", "Middle", "High"};
+    char param[10];
+    hal.util->snprintf(param, sizeof(param), "FLTMODE%u", unsigned(position + 1));
+    const int16_t selected = int16_t(param_get(param));
+    const Mode *selected_mode = plane.mode_from_mode_num(Mode::Number(selected));
+    char selected_name[10] = "?";
+    if (selected_mode != nullptr) {
+        mode_name(*selected_mode, selected_name, sizeof(selected_name));
+    }
+    if (selected == int16_t(plane.control_mode->mode_number())) {
+        command_prompt(CMD_PROGRESS, "Ch%u %s: %s", unsigned(ch), position_names[position / 2], selected_name);
+    } else {
+        char current[10];
+        mode_name(*plane.control_mode, current, sizeof(current));
+        command_prompt(CMD_PROGRESS, "Ch%u %s: %s, now %s", unsigned(ch), position_names[position / 2],
+                       selected_name, current);
     }
 }
 
@@ -1088,6 +1154,10 @@ void PlaneGyroMenu::command_poll()
         }
         break;
     }
+
+    case Stage::MODE_WATCH:
+        mode_watch_prompt();
+        break;
 
     case Stage::AUX_MOVE: {
         if (now - cmd.start_ms > LEARN_TIMEOUT_MS) {
