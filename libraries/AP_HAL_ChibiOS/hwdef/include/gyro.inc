@@ -50,21 +50,16 @@ define HAL_MSP_SENSORS_ENABLED 0
 # Drop the OSD font files that the base board put into ROMFS.
 undef ROMFS
 
-# --- Scripting / transmitter menu ------------------------------------
-# Lua scripting stays on so a small ROMFS applet can offer a setup menu
-# on CRSF/ELRS transmitters. HAL_CRSF_TELEM_TEXT_SELECTION_ENABLED gates
-# the CRSF parameter-menu code and is normally tied to the OSD, so it is
-# forced on here.
-define AP_SCRIPTING_ENABLED 1
+# --- Transmitter menu ------------------------------------------------
+# The "Gyro Setup" menu is built natively in ArduPlane (gyro_menu.cpp)
+# on the CRSF scripted-menu engine, so Lua scripting is not needed and
+# stays off (frees ~60 KB of RAM and ~120 KB of flash on an F405).
+# The menu engine is normally tied to scripting and the OSD, so it is
+# switched on explicitly.
+define AP_SCRIPTING_ENABLED 0
 undef HAL_CRSF_TELEM_TEXT_SELECTION_ENABLED
 define HAL_CRSF_TELEM_TEXT_SELECTION_ENABLED 1
-
-# Store ROMFS files uncompressed. A compressed file is decompressed into
-# a heap buffer of its full size when opened; on an F405 with the Lua
-# heap allocated only ~14 KB is free, so the 15 KB crsf_helper module
-# could not be opened ("module 'crsf_helper' not found"). Uncompressed
-# files are read straight from flash, at a cost of ~24 KB of flash.
-env ROMFS_UNCOMPRESSED True
+define AP_CRSF_SCRIPTING_ENABLED 1
 
 # --- Keep ------------------------------------------------------------
 # Logging stays on for autotune review (board must provide a

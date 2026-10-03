@@ -75,6 +75,3 @@ ACRO_LOCKING 0
 
 # --- Logging: while armed only ---
 LOG_DISARMED 0
-
-# --- Transmitter setup menu: Lua applet embedded in ROMFS ---
-SCR_ENABLE 1

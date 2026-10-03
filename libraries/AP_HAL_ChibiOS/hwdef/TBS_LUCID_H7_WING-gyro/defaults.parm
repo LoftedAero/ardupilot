@@ -78,9 +78,6 @@ ACRO_LOCKING 0
 # --- Logging: while armed only ---
 LOG_DISARMED 0
 
-# --- Transmitter setup menu: Lua applet embedded in ROMFS ---
-SCR_ENABLE 1
-
 # --- Board specifics carried over from the stock Lucid H7 Wing defaults ---
 # WS2812 LED strip on output 13
 SERVO13_FUNCTION 120
