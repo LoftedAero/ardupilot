@@ -292,6 +292,8 @@ Gyro (device top level)
 ├─ 4 Outputs ▸
 │   ├─ Wing type            Normal / Flying wing / V-tail
 │   ├─ Apply template       [Run]  confirm: "Set channels 1-4 for <wing>?"
+│   ├─ Copy stick trims     [Run]  MANUAL: outputs' positions -> SERVOn_TRIM,
+│   │                              then center TX trims; Exit undoes
 │   ├─ Check directions     [Start]  yes/no per surface, flips Reversed
 │   └─ Channel 1..N ▸       Function, Min, Trim, Max, Reversed
 ├─ 5 Failsafe ▸

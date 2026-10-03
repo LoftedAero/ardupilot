@@ -210,6 +210,25 @@ try:
     check("selection edit back", get_param("SERVO5_FUNCTION") == 0)
     check("back from Channel 5 returns to the folders", back(), sim.text())
 
+    # 4b. copy stick trims: two confirmations, then the result
+    c.channels[5] = 2000                # MANUAL in this setup
+    c.channels[0] = 1530                # a transmitter trim
+    sim.idle(1)
+    open_entry("4 Outputs")
+    open_entry("Copy stick trims")
+    check("trim copy asks first", sim.wait_for("Hands off", 5), sim.popup)
+    sim.press("enter")
+    check("trim copy asks to center the trims", sim.wait_for("center the TX trims", 5), sim.popup)
+    shot("trim_copy_center")
+    c.channels[0] = 1500
+    sim.idle(1)
+    sim.press("enter")
+    check("trim copy done", sim.wait_for("Trims copied", 5), sim.popup)
+    sim.press("enter")
+    sim.idle(1)
+    c.channels[5] = 988
+    back()
+
     # 5. command popups: calibrate gyros
     open_entry("1 Calibration")
     open_entry("Calibrate gyros")

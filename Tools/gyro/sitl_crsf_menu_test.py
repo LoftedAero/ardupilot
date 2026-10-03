@@ -203,6 +203,51 @@ try:
     c.channels[5] = 988
     time.sleep(1)
 
+    # 4c. copy the transmitter trims into the servo trims (MANUAL, disarmed)
+    copy = find("Copy stick trims", "4 Outputs")
+    trims0 = (get_param("SERVO1_TRIM"), get_param("SERVO2_TRIM"))
+    c.channels[0] = 1800                                  # a held stick, not a trim
+    time.sleep(1)
+    state = command(copy, CMD_START)
+    check("trim copy asks first", state is not None and state[0] == CMD_CONFIRMATION_NEEDED, state)
+    state = command(copy, CMD_CONFIRM)
+    check("trim copy refuses a held stick", state is not None and "off centre" in state[1]
+          and get_param("SERVO1_TRIM") == trims0[0], state)
+    command(copy, CMD_CONFIRM)
+    c.channels[0], c.channels[1] = 1530, 1480             # TX trims
+    time.sleep(1)
+    command(copy, CMD_START)
+    state = command(copy, CMD_CONFIRM)
+    trims1 = (get_param("SERVO1_TRIM"), get_param("SERVO2_TRIM"))
+    check("trim copy asks to center the TX trims", state is not None and "center the TX trims" in state[1], state)
+    check("trims copied into SERVO1/2_TRIM", trims1[0] != trims0[0] and trims1[1] != trims0[1]
+          and all(abs(a - b) < 100 for a, b in zip(trims0, trims1)), (trims0, trims1))
+    state = command(copy, CMD_CONFIRM)                    # TX trims not centred yet
+    check("trim copy waits for centred TX trims", state is not None and "not centred" in state[1], state)
+    c.channels[0], c.channels[1] = 1500, 1500
+    time.sleep(1)
+    state = command(copy, CMD_CONFIRM)
+    check("trim copy done", state is not None and state[1].startswith("Trims copied"), state)
+    command(copy, CMD_CONFIRM)
+    c.channels[0] = 1530
+    time.sleep(1)
+    command(copy, CMD_START)
+    command(copy, CMD_CONFIRM)
+    moved = get_param("SERVO1_TRIM")
+    state = command(copy, CMD_CANCEL)                     # Exit before confirming: undo
+    check("Exit undoes an unconfirmed trim copy", moved != trims1[0] and get_param("SERVO1_TRIM") == trims1[0]
+          and state is not None and state[0] == CMD_READY, (moved, get_param("SERVO1_TRIM")))
+    c.channels[0] = 1500
+    c.channels[5] = 2000                                  # FBWA
+    time.sleep(1)
+    state = command(copy, CMD_START)
+    check("trim copy needs MANUAL", state is not None and "MANUAL" in state[1], state)
+    command(copy, CMD_CONFIRM)
+    c.channels[5] = 988
+    set_param("SERVO1_TRIM", trims0[0])
+    set_param("SERVO2_TRIM", trims0[1])
+    time.sleep(1)
+
     # 5. calibration popup flow
     first, final = run_command(find("Calibrate gyros"))
     check("calibration asks to keep still", first is not None and first[0] == CMD_CONFIRMATION_NEEDED, first)

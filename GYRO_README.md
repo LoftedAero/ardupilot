@@ -230,9 +230,12 @@ Trims work the standard ArduPilot way:
 So set the surface neutrals with the servo trims, not the transmitter
 trims: keep the transmitter trims centered and set each surface's
 neutral in the transmitter menu (4 Outputs, Channel N, Trim) or from a
-ground station (`SERVOn_TRIM`). If the model needs trim in MANUAL,
-move that trim into the servo trims and center the transmitter trims
-again.
+ground station (`SERVOn_TRIM`).
+
+If the model needs trim, trim it in MANUAL with the transmitter trims,
+then land and run **Copy stick trims** (4 Outputs). It moves the trims
+into the servo trims and has you center the transmitter trims; see the
+transmitter menu section.
 
 In flight, the I term of the rate controllers holds the model against a
 small trim error in ACRO and FBWA. The built-in servo auto-trim
@@ -346,7 +349,7 @@ from any folder, including from a channel inside 4 Outputs.
 | 1 Calibration | Orientation, Detect orientation, Calibrate level, Calibrate gyros |
 | 2 Radio | Learn sticks; Arm switch, Mode switch, RTL switch, Autotune switch, Gain knob, each with a Learn command |
 | 3 Flight modes | Check mode switch; Low, Middle and High positions: MANUAL, ACRO, FBWA or AUTOTUNE |
-| 4 Outputs | Wing type and Apply template; Channel 1 to 8 (servo outputs), each with Function, Min, Trim, Max, Reversed |
+| 4 Outputs | Wing type and Apply template; Copy stick trims; Channel 1 to 8 (servo outputs), each with Function, Min, Trim, Max, Reversed |
 | 5 Failsafe | Link loss (FBWA glide or RTL if GPS), RTL altitude |
 | 6 Tuning | Gain knob min and max, ACRO roll and pitch rates, FBWA bank and pitch limits, Autotune level |
 | Tools | Firmware version, Reset to defaults |
@@ -367,6 +370,16 @@ Each ends with a result the pilot dismisses with OK; Exit cancels.
   Min, trim, max and reversing are left alone. Check every surface
   direction afterwards and flip the channel's Reversed entry where
   needed; the servo moves as soon as the value changes.
+- **Copy stick trims** moves the transmitter trims into the servo trims.
+  Disarmed, in MANUAL, with the trims set and the sticks released:
+  1. `Trims set? Hands off sticks`: OK. Every surface output's current
+     position becomes its servo trim. A stick more than 15 percent off
+     center is refused as a held stick.
+  2. `Now center the TX trims, then OK`: center them; the surfaces stay
+     where they are. OK checks they are centered (`Ch1 trim not
+     centred` otherwise), then shows `Trims copied to N outputs`.
+
+  Exit before the last OK undoes the copy.
 - **Detect orientation**: hold the model level with the nose forward
   and press OK, then raise the nose about 45 degrees and press OK. The
   firmware works out how the board is mounted and sets Orientation.

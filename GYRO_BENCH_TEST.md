@@ -151,6 +151,13 @@ Mode switch low, sticks centered.
       moved them; if not, run 2 Radio, Learn sticks.
 - [ ] Arm and switch to ACRO: no `trim complete` message, and
       `RC1_TRIM` is unchanged. Disarm.
+- [ ] Back in MANUAL, add a few clicks of aileron trim, then run 4
+      Outputs, Copy stick trims. OK at `Trims set? Hands off sticks`.
+      At `Now center the TX trims`, center the trim: the ailerons stay
+      at the trimmed position. OK: `Trims copied to N outputs`, and the
+      aileron channels' `SERVOn_TRIM` have moved in the ground station.
+- [ ] Repeat, but press Exit at `Now center the TX trims`: the servo
+      trims go back (`Gyro: trim copy undone` in the ground station).
 
 Set surface neutrals with 4 Outputs, Channel N, Trim (section 11), not
 with the transmitter trims.
