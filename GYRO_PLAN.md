@@ -276,11 +276,12 @@ Gyro (device top level)
 │   ├─ Learn sticks         [Start]  move each stick: sets RCMAP_*, RCn_REVERSED,
 │   │                                RCn_MIN/MAX/TRIM
 │   ├─ Arm switch           Off / Ch5..Ch16        [Learn]
+│   ├─ Mode switch          Ch5..Ch16              [Learn]
 │   ├─ RTL switch           Off / Ch5..Ch16        [Learn]   (only with a GPS)
 │   ├─ Autotune switch      Off / Ch5..Ch16        [Learn]   (works in FBWA)
 │   └─ Gain knob            Off / Ch5..Ch16        [Learn]
 ├─ 3 Flight modes ▸
-│   ├─ Mode channel         Ch5..Ch16              [Learn]
+│   ├─ Check mode switch    [Start]  live: "Ch6 High: FBWA" (", now RTL" if different)
 │   └─ Low / Mid / High     MANUAL / ACRO / FBWA / AUTOTUNE
 ├─ 4 Outputs ▸
 │   ├─ Wing type            Normal / Flying wing / V-tail

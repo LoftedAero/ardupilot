@@ -345,8 +345,8 @@ from any folder, including from a channel inside 4 Outputs.
 |---|---|
 | Status | armed state, flight mode, GPS state |
 | 1 Calibration | Orientation, Detect orientation, Calibrate level, Calibrate gyros |
-| 2 Radio | Learn sticks; Arm switch, RTL switch, Autotune switch, Gain knob, each with a Learn command |
-| 3 Flight modes | Mode channel and Learn; Low, Middle and High positions: MANUAL, ACRO, FBWA or AUTOTUNE |
+| 2 Radio | Learn sticks; Arm switch, Mode switch, RTL switch, Autotune switch, Gain knob, each with a Learn command |
+| 3 Flight modes | Check mode switch; Low, Middle and High positions: MANUAL, ACRO, FBWA or AUTOTUNE |
 | 4 Outputs | Wing type and Apply template; Channel 1 to 8 (servo outputs), each with Function, Min, Trim, Max, Reversed |
 | 5 Failsafe | Link loss (FBWA glide or RTL if GPS), RTL altitude |
 | 6 Tuning | Gain knob min and max, ACRO roll and pitch rates, FBWA bank and pitch limits, Autotune level, Trim capture |
@@ -385,6 +385,10 @@ Each ends with a result the pilot dismisses with OK; Exit cancels.
   A channel already used by another of these functions is refused.
   The arm switch is only assigned once it is in its off position,
   because assigning it while on would arm the plane.
+- **Check mode switch** shows the mode switch live while it is open,
+  for example `Ch6 High: FBWA`. When the plane is flying another mode
+  (the RTL switch or a failsafe), it says so: `Ch6 High: FBWA, now RTL`.
+  It changes nothing, so it also works armed. Exit closes it.
 
 Entries that need a GPS (RTL switch, RTL altitude) are hidden when the
 menu is opened without one, and a "RTL: needs a GPS" line is shown

@@ -242,13 +242,27 @@ try:
     check("cancel keeps channel map", get_param("RCMAP_ROLL") == 1)
     back()
 
-    # 7. no GPS: RTL settings hidden, explanation shown
+    # 7. the mode switch check updates live while the popup is open
+    open_entry("3 Flight modes")
+    open_entry("Check mode switch")
+    check("mode check shows the switch", sim.wait_for("Ch6 Low", 5), sim.popup)
+    shot("mode_check_low")
+    c.channels[5] = 2000
+    check("mode check follows the switch", sim.wait_for("Ch6 High", 5), sim.popup)
+    shot("mode_check_high")
+    c.channels[5] = 988
+    sim.press("exit")
+    sim.idle(1)
+    check("mode check closes", sim.popup is None, sim.popup)
+    back()
+
+    # 8. no GPS: RTL settings hidden, explanation shown
     open_entry("5 Failsafe")
     shot("failsafe_no_gps")
     check("RTL altitude hidden", not sim.contains("RTL altitude"))
     check("needs a GPS shown", sim.contains("needs a GPS"))
 
-    # 8. Back at the device's top level switches to the TX module page;
+    # 9. Back at the device's top level switches to the TX module page;
     # moving from a low line there must not hang the script
     back()
     open_entry("Tools")

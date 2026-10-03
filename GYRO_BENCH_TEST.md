@@ -199,6 +199,9 @@ reflashed while the script was open, exit it and start it again first.
 - [ ] 2 Radio, Learn arm switch: flip the arm switch when asked. It
       asks you to switch it off, and only then accepts OK. The plane
       must not arm during this.
+- [ ] 3 Flight modes, Check mode switch: flip the mode switch through
+      all three positions. The popup follows it (`Ch6 Low: MANUAL`,
+      `Middle: ACRO`, `High: FBWA`). Exit closes it.
 - [ ] 1 Calibration, Detect orientation: level then nose up. It reports
       the board orientation you expect for how the board is mounted.
 

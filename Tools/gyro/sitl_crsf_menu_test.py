@@ -181,6 +181,28 @@ try:
           (get_param("FLTMODE1"), get_param("FLTMODE2")))
     c.write_entry(low, [entries[low]["options"].index("MANUAL")])
 
+    # 4b. the mode switch is set up in Radio; Flight modes shows it live
+    mode_sw = find("Mode switch")
+    check("mode switch is in Radio", entries[entries[mode_sw]["parent"]]["name"] == "2 Radio",
+          entries[entries[mode_sw]["parent"]]["name"])
+    high = find("High")
+    c.write_entry(high, [entries[high]["options"].index("FBWA")])
+    c.channels[5] = 2000                                  # the mode follows switch moves
+    time.sleep(1)
+    c.channels[5] = 988
+    time.sleep(1)
+    check_mode = find("Check mode switch", "3 Flight modes")
+    state = command(check_mode, CMD_START)
+    check("mode check shows Low", state is not None and state == (CMD_PROGRESS, "Ch6 Low: MANUAL"), state)
+    c.channels[5] = 2000
+    time.sleep(1)
+    state = command(check_mode, CMD_POLL)
+    check("mode check follows the switch", state is not None and state == (CMD_PROGRESS, "Ch6 High: FBWA"), state)
+    state = command(check_mode, CMD_CANCEL)
+    check("Exit closes the mode check", state is not None and state[0] == CMD_READY, state)
+    c.channels[5] = 988
+    time.sleep(1)
+
     # 5. calibration popup flow
     first, final = run_command(find("Calibrate gyros"))
     check("calibration asks to keep still", first is not None and first[0] == CMD_CONFIRMATION_NEEDED, first)
@@ -265,6 +287,9 @@ try:
     state = command(find("Calibrate level"), CMD_START)
     check("calibration refused while armed", state is not None and state[1] == "Disarm first", state)
     command(find("Calibrate level"), CMD_CONFIRM)
+    state = command(check_mode, CMD_START)
+    check("mode check works armed", state is not None and state[0] == CMD_PROGRESS and "Ch6" in state[1], state)
+    command(check_mode, CMD_CANCEL)
     c.channels[4] = 988
     time.sleep(2)
     check("disarmed via ch5", is_armed() is False)
