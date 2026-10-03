@@ -128,6 +128,14 @@ class CrsfClient:
             time.sleep(0.005)
         return None
 
+    def pop_frame(self):
+        """oldest received frame (type, payload) or None, for consumers that
+        process every frame in order, like a radio script"""
+        with self.lock:
+            if self.frames:
+                return self.frames.pop(0)
+        return None
+
     def purge(self, param_id):
         """drop late replies for an entry, e.g. to polls sent while the
         flight controller was busy, so the next answer is the fresh one"""

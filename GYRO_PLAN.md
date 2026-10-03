@@ -230,6 +230,13 @@ Differences from the design below:
   issue, not in gyro builds).
 - After reflashing, the ExpressLRS script must be restarted: it caches
   the entry count from its first device ping.
+- The ExpressLRS script (r15) keeps no folder history: Back from any
+  folder, however deep, returns to the device's top level, so leaving
+  "5 Outputs > Output 5" lands outside Gyro Setup. Found with
+  `Tools/gyro/sitl_elrs_lua_test.py`, which runs the real script on the
+  PC against SITL (`Tools/gyro/edgetx_sim.py` stands in for EdgeTX).
+  Possible fix, not done: put the numbered folders at the top level
+  instead of under Gyro Setup.
 
 Design:
 

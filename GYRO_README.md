@@ -515,11 +515,22 @@ parameter screens, CRSF menu engine on):
 python3 Tools/gyro/sitl_gyro_test.py        # arming, trims, gain knob, failsafe, RTL guard, logging
 python3 Tools/gyro/sitl_menu_test.py        # menu builds; calibration requests complete
 python3 Tools/gyro/sitl_crsf_menu_test.py   # the menu over CRSF, driven like the ExpressLRS script
+ELRS_LUA=/path/to/elrsV3.lua python3 Tools/gyro/sitl_elrs_lua_test.py   # the real ExpressLRS script
 ```
 
 All need pymavlink. `sitl_crsf_menu_test.py` uses
 `Tools/gyro/crsf_menu_client.py`, a small CRSF receiver and radio
 emulator that loads the menu exactly as the ExpressLRS script does.
+
+`sitl_elrs_lua_test.py` runs the ExpressLRS script itself on the PC
+(`Tools/gyro/edgetx_sim.py` provides the parts of the EdgeTX Lua API it
+uses) and walks the menu with key presses: opening folders, editing a
+number and a selection, the calibration and stick-learning popups, and
+the no-GPS Failsafe page. Every screen is saved as text and PNG in
+`/tmp/gyro_sitl_elrs/screens`. It also needs lupa and Pillow
+(`pip install lupa pillow`). The script is not in this repository:
+copy `SCRIPTS/TOOLS/elrsV3.lua` from the radio's SD card, or get it
+from the ExpressLRS repository.
 
 ---
 
