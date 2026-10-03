@@ -111,6 +111,9 @@ try:
     # 1. the whole menu loads
     info = c.ping(timeout=15)
     check("device answers ping", info is not None, info)
+    with open(os.path.join(ROOT, "Tools/gyro/sitl-gyro.hwdef")) as hw:
+        expected = [ln.split('"')[1] for ln in hw if ln.startswith("define AP_CRSF_DEVICE_NAME")][0]
+    check("device name", info is not None and info["name"] == expected, info["name"] if info else None)
     entries, missing = cm.load_device(c, info["field_count"])
     check("all entries load", not missing and len(entries) == info["field_count"],
           "%d of %d, missing %s" % (len(entries), info["field_count"], missing))

@@ -261,7 +261,7 @@ commands with OK/Cancel popups; values refresh when a menu is reopened):
 ```
 Gyro Setup
 ├─ Status                   DISARMED · FBWA · GPS: none      (info)
-├─ 1 Frame ▸
+├─ 1 Config ▸
 │   ├─ Wing type            Normal / Flying wing / V-tail
 │   └─ Apply template       [Run]  confirm: "Sets outputs 1-4 functions"
 ├─ 2 Sensors ▸

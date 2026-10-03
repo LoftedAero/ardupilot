@@ -327,7 +327,7 @@ With a u-blox GPS on SERIAL1:
 ## 10. Transmitter setup menu
 
 The firmware serves a "Gyro Setup" menu over CRSF. On an ELRS radio open
-the ExpressLRS Lua script, go to Other Devices and select ArduPlane; on
+the ExpressLRS Lua script, go to Other Devices and select Gyro; on
 TBS radios use Agent Lite. No script needs to be installed on the
 flight controller.
 
@@ -342,7 +342,7 @@ saved to ArduPilot parameters immediately.
 | Folder | Entries |
 |---|---|
 | Status | armed state, flight mode, GPS state |
-| 1 Frame | Wing type, Apply template |
+| 1 Config | Wing type, Apply template |
 | 2 Sensors | Orientation, Detect orientation, Calibrate level, Calibrate gyros |
 | 3 Radio | Learn sticks; Arm switch, RTL switch, Autotune switch, Gain knob, each with a Learn command |
 | 4 Flight modes | Mode channel and Learn; Low, Middle and High positions: MANUAL, ACRO, FBWA or AUTOTUNE |

@@ -100,7 +100,7 @@ sticks.
 Wrong direction: fix it in the transmitter menu under 5 Outputs, the
 output's Reversed entry (or `SERVOn_REVERSED` in the ground station),
 **not** by reversing in the radio. For elevons or a V-tail, set the
-wing type first (1 Frame: Wing type, then Apply template), then fix
+wing type first (1 Config: Wing type, then Apply template), then fix
 directions.
 
 ## 5. Stabilization direction in FBWA
@@ -177,10 +177,10 @@ neutrals back.
 ## 11. Transmitter menu
 
 On the radio, open the ExpressLRS Lua script, go to Other Devices and
-select ArduPlane, then Gyro Setup. TBS Agent Lite works too. If you
+select Gyro, then Gyro Setup. TBS Agent Lite works too. If you
 reflashed while the script was open, exit it and start it again first.
 
-- [ ] Gyro Setup shows Status, then 1 Frame to 7 Tuning, then Tools,
+- [ ] Gyro Setup shows Status, then 1 Config to 7 Tuning, then Tools,
       and every folder has entries (give it about 20 seconds to load).
 - [ ] Status reads `DISARMED`, the current mode and the GPS state.
 - [ ] 7 Tuning: change ACRO roll rate, then read `ACRO_ROLL_RATE` in
@@ -201,7 +201,7 @@ reflashed while the script was open, exit it and start it again first.
 - [ ] 2 Sensors, Detect orientation: level then nose up. It reports
       the board orientation you expect for how the board is mounted.
 
-If ArduPlane is not listed, check that both receiver wires are
+If Gyro is not listed, check that both receiver wires are
 connected and that ELRS telemetry is on.
 
 ## 12. GPS and RTL (optional)
