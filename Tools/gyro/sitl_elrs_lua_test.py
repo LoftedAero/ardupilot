@@ -3,7 +3,7 @@
 AP_FLAKE8_CLEAN
 
 Run the real ExpressLRS Lua script (elrsV3.lua) on the PC against SITL and
-walk the Gyro Setup menu the way a pilot would, saving every screen as
+walk the gyro setup menu the way a pilot would, saving every screen as
 text and PNG.
 
 The ExpressLRS script is not part of this repository. Get it from the
@@ -147,11 +147,12 @@ try:
             raise EntryMissing("entry '%s' not found on screen:\n%s" % (label, sim.text()))
         sim.press("enter")
 
-    def back_to_setup():
+    def back():
         # the ExpressLRS script keeps no folder history: Back from any
-        # folder, however deep, returns to the device's top level
+        # folder, however deep, returns to the device's top level, which
+        # is why the menu's folders sit there
         sim.press("exit")
-        open_entry("Gyro Setup")
+        return sim.contains("1 Config") and sim.contains("Tools")
 
     # 1. root and device list
     sim.idle(3)
@@ -162,13 +163,11 @@ try:
     shot("other_devices")
     check("device listed as Gyro", sim.contains("[Gyro]"), sim.text())
 
-    # 2. open the device and Gyro Setup
+    # 2. open the device: Status and the folders are its top level
     open_entry("Gyro")
-    check("device loads", sim.wait_for("Gyro Setup", 30))
-    open_entry("Gyro Setup")
     # entries arrive one by one; the last top-level folder is Tools
     check("all folders load", sim.wait_for("Tools", 60))
-    shot("gyro_setup")
+    shot("top_level")
     for folder in ("1 Config", "2 Sensors", "3 Radio", "4 Flight modes", "5 Outputs", "6 Failsafe",
                    "7 Tuning", "Tools"):
         check("folder %s shown" % folder, sim.contains(folder))
@@ -191,7 +190,7 @@ try:
     sim.press("enter")
     sim.idle(1)
     check("number edit back", get_param("ACRO_ROLL_RATE") == before)
-    back_to_setup()
+    check("back returns to the folders", back(), sim.text())
 
     # 4. edit a selection: Output 5 function None -> Aileron and back
     open_entry("5 Outputs")
@@ -209,7 +208,7 @@ try:
     sim.press("enter")
     sim.idle(1)
     check("selection edit back", get_param("SERVO5_FUNCTION") == 0)
-    back_to_setup()
+    check("back from Output 5 returns to the folders", back(), sim.text())
 
     # 5. command popups: calibrate gyros
     open_entry("2 Sensors")
@@ -222,7 +221,7 @@ try:
     sim.press("enter")              # dismiss
     sim.idle(1)
     check("popup closed", sim.popup is None)
-    back_to_setup()
+    back()
 
     # 6. stick learning with a TAER radio, cancelled at the summary
     open_entry("3 Radio")
@@ -241,7 +240,7 @@ try:
     sim.press("exit")               # cancel
     sim.idle(1)
     check("cancel keeps channel map", get_param("RCMAP_ROLL") == 1)
-    back_to_setup()
+    back()
 
     # 7. no GPS: RTL settings hidden, explanation shown
     open_entry("6 Failsafe")

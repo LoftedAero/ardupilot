@@ -177,11 +177,12 @@ neutrals back.
 ## 11. Transmitter menu
 
 On the radio, open the ExpressLRS Lua script, go to Other Devices and
-select Gyro, then Gyro Setup. TBS Agent Lite works too. If you
+select Gyro. TBS Agent Lite works too. If you
 reflashed while the script was open, exit it and start it again first.
 
-- [ ] Gyro Setup shows Status, then 1 Config to 7 Tuning, then Tools,
-      and every folder has entries (give it about 20 seconds to load).
+- [ ] Gyro shows Status, then 1 Config to 7 Tuning, then Tools, and
+      every folder has entries (give it about 20 seconds to load).
+- [ ] Back from 5 Outputs > Output 1 returns to that list.
 - [ ] Status reads `DISARMED`, the current mode and the GPS state.
 - [ ] 7 Tuning: change ACRO roll rate, then read `ACRO_ROLL_RATE` in
       the ground station: it matches. Set it back.

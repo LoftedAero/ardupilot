@@ -2,7 +2,7 @@
 """
 AP_FLAKE8_CLEAN
 
-Minimal CRSF receiver + radio emulator for testing the Gyro Setup menu in
+Minimal CRSF receiver + radio emulator for testing the gyro setup menu in
 SITL. It connects to a SITL serial port exposed over TCP (for example
 --serial5=tcp:5765 with SERIAL5_PROTOCOL 23), streams RC channel frames so
 ArduPilot detects a CRSF receiver, and talks the CRSF parameter protocol

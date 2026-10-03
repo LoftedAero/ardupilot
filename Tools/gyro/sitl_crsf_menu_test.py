@@ -2,7 +2,7 @@
 """
 AP_FLAKE8_CLEAN
 
-End-to-end SITL test of the Gyro Setup menu over CRSF, driven the way the
+End-to-end SITL test of the gyro setup menu over CRSF, driven the way the
 ExpressLRS Lua script drives it (see crsf_menu_client.py).
 
 Build first, with the gyro-like SITL configuration:
@@ -120,6 +120,10 @@ try:
     folders = {pid for pid, e in entries.items() if e["type"] == "FOLDER"}
     bad_parent = [pid for pid, e in entries.items() if e["parent"] != 0 and e["parent"] not in folders]
     check("every parent is a folder", not bad_parent, bad_parent)
+    top = [e["name"] for pid, e in sorted(entries.items()) if e["parent"] == 0]
+    check("top level is Status then the folders",
+          top == ["Status", "1 Config", "2 Sensors", "3 Radio", "4 Flight modes", "5 Outputs", "6 Failsafe",
+                  "7 Tuning", "Tools"], top)
 
     def find(name, parent_name=None):
         for pid, e in sorted(entries.items()):

@@ -231,12 +231,12 @@ Differences from the design below:
 - After reflashing, the ExpressLRS script must be restarted: it caches
   the entry count from its first device ping.
 - The ExpressLRS script (r15) keeps no folder history: Back from any
-  folder, however deep, returns to the device's top level, so leaving
-  "5 Outputs > Output 5" lands outside Gyro Setup. Found with
+  folder, however deep, returns to the device's top level. Found with
   `Tools/gyro/sitl_elrs_lua_test.py`, which runs the real script on the
   PC against SITL (`Tools/gyro/edgetx_sim.py` stands in for EdgeTX).
-  Possible fix, not done: put the numbered folders at the top level
-  instead of under Gyro Setup.
+  So there is no "Gyro Setup" folder: Status and the numbered folders
+  are the device's top level (AP_CRSF_Telem now serves entries added
+  to its root menu).
 
 Design:
 
@@ -266,7 +266,7 @@ Menu (ELRS Lua shows folders, numbers, selections, info lines and
 commands with OK/Cancel popups; values refresh when a menu is reopened):
 
 ```
-Gyro Setup
+Gyro (device top level)
 ├─ Status                   DISARMED · FBWA · GPS: none      (info)
 ├─ 1 Config ▸
 │   ├─ Wing type            Normal / Flying wing / V-tail

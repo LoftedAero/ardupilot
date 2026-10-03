@@ -63,7 +63,7 @@ Added on top of ArduPlane, all in one module (`ArduPlane/gyro.cpp`):
   position is known
 - A throttle-based logging gate for setups that do not arm (off by
   default)
-- A "Gyro Setup" transmitter menu over CRSF (`ArduPlane/gyro_menu.cpp`)
+- A transmitter setup menu over CRSF (`ArduPlane/gyro_menu.cpp`)
 
 ---
 
@@ -326,10 +326,10 @@ With a u-blox GPS on SERIAL1:
 
 ## 10. Transmitter setup menu
 
-The firmware serves a "Gyro Setup" menu over CRSF. On an ELRS radio open
-the ExpressLRS Lua script, go to Other Devices and select Gyro; on
-TBS radios use Agent Lite. No script needs to be installed on the
-flight controller.
+The firmware serves a setup menu over CRSF. On an ELRS radio open the
+ExpressLRS Lua script, go to Other Devices and select Gyro; on TBS
+radios use Agent Lite. No script needs to be installed on the flight
+controller.
 
 After flashing new firmware, exit the ExpressLRS script and start it
 again. The script remembers how many entries the flight controller had
@@ -337,7 +337,9 @@ when it first saw it, and with a stale count part of the menu stays
 empty.
 
 The menu follows the Loft GCS setup order. Values are read from and
-saved to ArduPilot parameters immediately.
+saved to ArduPilot parameters immediately. Status and the folders sit
+at the device's top level: the ExpressLRS script returns there on Back
+from any folder, including from an output inside 5 Outputs.
 
 | Folder | Entries |
 |---|---|
@@ -500,7 +502,7 @@ Source of the customization:
 | `ArduPlane/gyro_menu.h`, `ArduPlane/gyro_menu.cpp` | The transmitter setup menu |
 | `ArduPlane/mode_rtl.cpp`, `ArduPlane/events.cpp` | RTL refused without home; failsafe falls back to FBWA |
 | `libraries/APM_Control/AP_FW_Controller.*`, `AP_YawController.*` | Gain scale hook in the rate controllers |
-| `libraries/AP_RCTelemetry/AP_CRSF_Telem.*` | CRSF menus without the OSD, numbered the way ExpressLRS expects |
+| `libraries/AP_RCTelemetry/AP_CRSF_Telem.*` | CRSF menus without the OSD, numbered the way ExpressLRS expects, with top-level entries |
 | `Tools/gyro/` | SITL tests, CRSF radio emulator, SITL build defines |
 
 Porting to another board takes two files: a hwdef that includes the base
