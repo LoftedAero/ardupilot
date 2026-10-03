@@ -309,7 +309,9 @@ float AP_YawController::get_rate_out(float desired_rate, float scaler, bool disa
     float old_I = rate_pid.get_i();
 
     if (!_ahrs.airspeed_EAS(aspeed)) {
-        aspeed = 0;
+        // no airspeed available: use average of min and max, as the
+        // pitch controller does, so the integrator and autotune work
+        aspeed = 0.5f*(float(aparm.airspeed_min) + float(aparm.airspeed_max));
     }
     bool underspeed = aspeed <= float(aparm.airspeed_min);
     if (underspeed) {
