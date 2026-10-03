@@ -1,7 +1,7 @@
 #pragma once
 
 /*
-  "Gyro Setup": a transmitter setup menu served over CRSF to ELRS and
+  The gyro setup menu: a transmitter menu served over CRSF to ELRS and
   TBS radios (ExpressLRS Lua "Other Devices", TBS Agent Lite).
 
   It is built natively on AP_CRSF_Telem's scripted-menu structures, so

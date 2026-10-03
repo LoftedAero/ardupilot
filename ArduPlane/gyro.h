@@ -14,7 +14,7 @@
      which otherwise log continuously from boot
    - a calibration request parameter (GYRO_CAL) so gyro and level
      calibration run on the main thread when requested from a menu
-   - the "Gyro Setup" transmitter menu over CRSF (gyro_menu.cpp)
+   - the transmitter setup menu over CRSF (gyro_menu.cpp)
 
   Everything is off by default; stock ArduPlane behaviour is unchanged
   until a GYRO_ parameter enables it.

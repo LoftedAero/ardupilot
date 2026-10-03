@@ -419,10 +419,9 @@ bool PlaneGyroMenu::build()
     if (crsf == nullptr) {
         return false;
     }
-    AP_CRSF_Telem::ScriptedMenu *root = crsf->add_menu("Gyro Setup");
-    if (root == nullptr) {
-        return false;
-    }
+    // the ExpressLRS script returns to the top level on Back from any
+    // folder, so the folders sit at the top level rather than in one menu
+    AP_CRSF_Telem::ScriptedMenu *root = &crsf->scripted_menus;
     wing_choice = detect_wing();
 
     add(root, Handler::STATUS, 0, "Status");
