@@ -35,7 +35,7 @@ private:
         FIRMWARE,       // info: firmware version
         NO_GPS_INFO,    // info shown in place of RTL settings without a GPS
         WING_TYPE,      // select: template to apply
-        WING_APPLY,     // command: set outputs 1-4 from the template
+        WING_APPLY,     // command: set output channels 1-4 from the template
         ORIENT,         // select: AHRS_ORIENTATION
         ORIENT_DETECT,  // command: detect orientation (level, then nose up)
         CAL_LEVEL,      // command: level (simple accel) calibration

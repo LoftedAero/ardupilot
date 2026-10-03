@@ -348,7 +348,7 @@ from any folder, including from an output inside 5 Outputs.
 | 2 Sensors | Orientation, Detect orientation, Calibrate level, Calibrate gyros |
 | 3 Radio | Learn sticks; Arm switch, RTL switch, Autotune switch, Gain knob, each with a Learn command |
 | 4 Flight modes | Mode channel and Learn; Low, Middle and High positions: MANUAL, ACRO, FBWA or AUTOTUNE |
-| 5 Outputs | Output 1 to 8, each with Function, Min, Trim, Max, Reversed |
+| 5 Outputs | Channel 1 to 8 (servo outputs), each with Function, Min, Trim, Max, Reversed |
 | 6 Failsafe | Link loss (FBWA glide or RTL if GPS), RTL altitude |
 | 7 Tuning | Gain knob min and max, ACRO roll and pitch rates, FBWA bank and pitch limits, Autotune level, Trim capture |
 | Tools | Firmware version, Reset to defaults |
@@ -357,17 +357,17 @@ Commands (the entries that start something) open a popup on the radio.
 They all need the arm switch off and answer "Disarm first" otherwise.
 Each ends with a result the pilot dismisses with OK; Exit cancels.
 
-- **Apply template** sets the functions of outputs 1 to 4 for the wing
+- **Apply template** sets the functions of output channels 1 to 4 for the wing
   type chosen above it:
 
-  | Wing type | Output 1 | Output 2 | Output 3 | Output 4 |
+  | Wing type | Channel 1 | Channel 2 | Channel 3 | Channel 4 |
   |---|---|---|---|---|
   | Normal | Aileron | Elevator | Throttle | Rudder |
   | Flying wing | Elevon left | Elevon right | Throttle | Rudder |
   | V-tail | Aileron | V-tail left | Throttle | V-tail right |
 
   Min, trim, max and reversing are left alone. Check every surface
-  direction afterwards and flip the output's Reversed entry where
+  direction afterwards and flip the channel's Reversed entry where
   needed; the servo moves as soon as the value changes.
 - **Detect orientation**: hold the model level with the nose forward
   and press OK, then raise the nose about 45 degrees and press OK. The

@@ -16,7 +16,7 @@ Checks: every entry 1..count loads with a valid parent; selection, number
 and mode-position writes reach the parameters; calibration runs as a
 confirm -> progress -> result popup; stick learning detects a TAER radio
 and a reversed elevator; the arm switch is only assigned while it is off;
-the wing template sets outputs 1-4; commands are refused while armed.
+the wing template sets output channels 1-4; commands are refused while armed.
 """
 import os
 import socket
@@ -159,7 +159,7 @@ try:
         return first, state
 
     # 2. selection write: output 5 function
-    out5_func = find("Function", "Output 5")
+    out5_func = find("Function", "Channel 5")
     opts = entries[out5_func]["options"]
     r = c.write_entry(out5_func, [opts.index("Aileron")])
     check("select write: output 5 = Aileron", r is not None and get_param("SERVO5_FUNCTION") == 4,

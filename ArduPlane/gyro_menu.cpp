@@ -452,7 +452,7 @@ bool PlaneGyroMenu::build()
 
     m = submenu(root, "5 Outputs");
     static const char *const output_names[NUM_OUTPUTS] = {
-        "Output 1", "Output 2", "Output 3", "Output 4", "Output 5", "Output 6", "Output 7", "Output 8",
+        "Channel 1", "Channel 2", "Channel 3", "Channel 4", "Channel 5", "Channel 6", "Channel 7", "Channel 8",
     };
     for (uint8_t n = 1; n <= NUM_OUTPUTS; n++) {
         AP_CRSF_Telem::ScriptedMenu *o = submenu(m, output_names[n - 1]);
@@ -854,7 +854,7 @@ void PlaneGyroMenu::command_start(uint8_t index)
             return;
         }
         cmd.stage = Stage::CONFIRM;
-        command_prompt(CMD_CONFIRMATION_NEEDED, "Set outputs 1-4 for %s?", wing_labels[wing_choice]);
+        command_prompt(CMD_CONFIRMATION_NEEDED, "Set channels 1-4 for %s?", wing_labels[wing_choice]);
         break;
     case Handler::ORIENT_DETECT:
         cmd.stage = Stage::ORIENT_LEVEL;
@@ -931,7 +931,7 @@ void PlaneGyroMenu::command_confirm()
         switch (item.handler) {
         case Handler::WING_APPLY:
             apply_wing(wing_choice);
-            command_finish("Outputs 1-4 set for %s", wing_labels[wing_choice]);
+            command_finish("Channels 1-4 set for %s", wing_labels[wing_choice]);
             break;
         case Handler::CAL_LEVEL:
         case Handler::CAL_GYRO:

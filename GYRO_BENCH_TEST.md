@@ -182,11 +182,11 @@ reflashed while the script was open, exit it and start it again first.
 
 - [ ] Gyro shows Status, then 1 Config to 7 Tuning, then Tools, and
       every folder has entries (give it about 20 seconds to load).
-- [ ] Back from 5 Outputs > Output 1 returns to that list.
+- [ ] Back from 5 Outputs > Channel 1 returns to that list.
 - [ ] Status reads `DISARMED`, the current mode and the GPS state.
 - [ ] 7 Tuning: change ACRO roll rate, then read `ACRO_ROLL_RATE` in
       the ground station: it matches. Set it back.
-- [ ] 5 Outputs, Output 1: change Trim by one step and watch the
+- [ ] 5 Outputs, Channel 1: change Trim by one step and watch the
       surface move; set it back.
 - [ ] 2 Sensors, Calibrate level, disarmed, model at its level flight
       attitude: `Hold model at level attitude`, OK, `Calibrating`, then

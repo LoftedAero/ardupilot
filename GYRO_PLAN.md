@@ -270,7 +270,7 @@ Gyro (device top level)
 ├─ Status                   DISARMED · FBWA · GPS: none      (info)
 ├─ 1 Config ▸
 │   ├─ Wing type            Normal / Flying wing / V-tail
-│   └─ Apply template       [Run]  confirm: "Sets outputs 1-4 functions"
+│   └─ Apply template       [Run]  confirm: "Set channels 1-4 for <wing>?"
 ├─ 2 Sensors ▸
 │   ├─ Board orientation    current value          [Detect]: level, then nose up
 │   ├─ Level calibration    [Run]                  (GYRO_CAL 2)
@@ -287,7 +287,7 @@ Gyro (device top level)
 │   └─ Low / Mid / High     MANUAL / ACRO / FBWA / AUTOTUNE
 ├─ 5 Outputs ▸
 │   ├─ Check directions     [Start]  yes/no per surface, flips Reversed
-│   └─ Output 1..N ▸        Function, Min, Trim, Max, Reversed
+│   └─ Channel 1..N ▸       Function, Min, Trim, Max, Reversed
 ├─ 6 Failsafe ▸
 │   ├─ Link loss            FBWA glide / RTL       (RTL only with a GPS)
 │   └─ RTL altitude         m                      (only with a GPS)

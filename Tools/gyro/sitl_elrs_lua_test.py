@@ -192,9 +192,9 @@ try:
     check("number edit back", get_param("ACRO_ROLL_RATE") == before)
     check("back returns to the folders", back(), sim.text())
 
-    # 4. edit a selection: Output 5 function None -> Aileron and back
+    # 4. edit a selection: Channel 5 function None -> Aileron and back
     open_entry("5 Outputs")
-    open_entry("Output 5")
+    open_entry("Channel 5")
     shot("output5")
     sim.select("None")
     sim.press("enter")
@@ -208,7 +208,7 @@ try:
     sim.press("enter")
     sim.idle(1)
     check("selection edit back", get_param("SERVO5_FUNCTION") == 0)
-    check("back from Output 5 returns to the folders", back(), sim.text())
+    check("back from Channel 5 returns to the folders", back(), sim.text())
 
     # 5. command popups: calibrate gyros
     open_entry("2 Sensors")
