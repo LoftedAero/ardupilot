@@ -6,7 +6,7 @@ SITL check of the gyro-build behaviours (ArduPlane/gyro.cpp and the RTL guard)
 with the arm-switch channel layout used by the Kakute defaults:
   ch5 arm, ch6 mode (MANUAL/ACRO/FBWA), ch7 RTL, ch8 gain knob.
 
-Build first:  ./waf configure --board sitl && ./waf plane
+Build first:  ./waf configure --board sitl --extra-hwdef=Tools/gyro/sitl-gyro.hwdef && ./waf plane
 Run:          python3 Tools/gyro/sitl_gyro_test.py
 Needs pymavlink. Scratch files and the dataflash log go to $GYRO_TEST_DIR (default /tmp/gyro_sitl_test).
 

@@ -1,0 +1,7 @@
+# Extra defines for SITL so it serves CRSF menus like the gyro boards:
+# no OSD parameter screens (menu ids start at 1, as on hardware) and the
+# CRSF menu engine on. Lua scripting stays on in SITL for test probes.
+#   ./waf configure --board sitl --extra-hwdef=Tools/gyro/sitl-gyro.hwdef
+define OSD_PARAM_ENABLED 0
+define HAL_CRSF_TELEM_TEXT_SELECTION_ENABLED 1
+define AP_CRSF_SCRIPTING_ENABLED 1

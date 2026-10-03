@@ -2,10 +2,11 @@
 """
 AP_FLAKE8_CLEAN
 
-SITL checks for the transmitter setup menu (gyro_menu.lua), in two runs:
+SITL checks for the transmitter setup menu (ArduPlane/gyro_menu.cpp), in
+two runs:
 
-1. Menu run, with the simulated CRSF receiver on SERIAL5: the applet
-   loads and builds its CRSF menus without Lua errors.
+1. Menu run, with the simulated CRSF receiver on SERIAL5: the native menu
+   builds once the receiver is talking.
 2. Calibration run, without the CRSF simulator: a Lua probe requests
    calibrations through GYRO_CAL exactly as the menu does, and the gyro
    module runs them without stalling the vehicle.
@@ -18,7 +19,7 @@ is a limitation of the simulator's serial device, not of the firmware.
 The radio-side menu interaction itself is not simulated; test that on a
 real ELRS transmitter.
 
-Build first:  ./waf configure --board sitl && ./waf plane
+Build first:  ./waf configure --board sitl --extra-hwdef=Tools/gyro/sitl-gyro.hwdef && ./waf plane
 Run:          python3 Tools/gyro/sitl_menu_test.py
 Needs pymavlink.
 """
@@ -141,12 +142,9 @@ def lua_errors(texts):
 
 
 # 1. menu builds over the simulated CRSF link
-with open(os.path.join(ROOT, "libraries/AP_Scripting/applets/gyro_menu.lua")) as f:
-    menu_lua = f.read()
-texts, _ = run_sitl("menu", True, {"gyro_menu.lua": menu_lua}, "Built menu", timeout_s=40)
-check("menu built", any("Built menu 'Gyro Setup'" in t for t in texts))
-errors = lua_errors(texts)
-check("no Lua errors (menu run)", not errors, "; ".join(errors))
+texts, _ = run_sitl("menu", True, {}, "setup menu ready", timeout_s=40)
+ready = [t for t in texts if "setup menu ready" in t]
+check("menu built", bool(ready), ready[0] if ready else "")
 
 # 2. calibration requests serviced by the gyro module
 texts, max_hb_gap = run_sitl("calibration", False, {"cal_probe.lua": CAL_PROBE}, "PROBE")
