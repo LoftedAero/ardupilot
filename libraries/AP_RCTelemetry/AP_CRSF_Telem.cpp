@@ -1305,6 +1305,9 @@ void AP_CRSF_Telem::calc_parameter() {
 #if OSD_PARAM_ENABLED
             _telem.ext.param_entry.payload[idx++] = PARAMETER_MENU_ID; // root parameter screen ardupilot menu
 #endif
+            for (uint8_t i = 0; i < scripted_menus.num_params; i++) {
+                _telem.ext.param_entry.payload[idx++] = scripted_menus.params[i].id;   // root parameters
+            }
             for (ScriptedMenu* m = scripted_menus.next_menu; m != nullptr; m = m->next_menu) {
                 if (m->parent_id == 0) {
                     _telem.ext.param_entry.payload[idx++] = m->id;   // scripted menus
@@ -1921,8 +1924,9 @@ bool AP_CRSF_Telem::send_response()
 
 AP_CRSF_Telem::ScriptedParameter* AP_CRSF_Telem::ScriptedMenu::find_parameter(uint8_t param_num)
 {
-    // This function is called on the root, so loop through all menus.
-    for (ScriptedMenu* m = next_menu; m != nullptr; m = m->next_menu) {
+    // This function is called on the root, so loop through all menus,
+    // starting with the root's own parameters.
+    for (ScriptedMenu* m = this; m != nullptr; m = m->next_menu) {
         // Search all parameters within the current menu 'm'.
         for (uint8_t i = 0; i < m->num_params; i++) {
             if (m->params[i].id == param_num) {
@@ -2156,6 +2160,14 @@ void AP_CRSF_Telem::clear_menus()
         m = next;
     }
     scripted_menus.next_menu = nullptr;
+    if (scripted_menus.params != nullptr) {
+        for (uint8_t i = 0; i < scripted_menus.num_params; i++) {
+            free((char*)scripted_menus.params[i].data);
+        }
+        free(scripted_menus.params);
+        scripted_menus.params = nullptr;
+    }
+    scripted_menus.num_params = 0;
     next_scripted_id = SCRIPTED_MENU_START_ID;
 }
 
