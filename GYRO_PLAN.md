@@ -88,8 +88,12 @@ matching parameter is set, so stock behavior is unchanged by default.
    `GYRO_GAIN_MAX`. The knob is read each cycle; knob centre is always
    1.0, low end maps to MIN, high end to MAX. The scale is pushed into
    `AP_FW_Controller` (roll, pitch) and `AP_YawController` via a new
-   `set_gain_scale()`, applied to the P, I and D outputs only. FF is
-   untouched so ACRO stick authority is unchanged. Held at 1.0 during
+   `set_gain_scale()`, passed to AC_PID's `update_all()` as `pd_scale`
+   and `i_scale`: P and D scale directly, I scales its build-up rate so
+   a knob change never steps the I output (scaling the I output instead
+   wound up the integrator at low gain and kicked when the knob was
+   raised). The yaw damper scales D only. FF is untouched so ACRO stick
+   authority is unchanged. Held at 1.0 during
    RC failsafe and while autotune is running. Logged as `GYRO.Gain`.
 3. **Gyro-style trims.** `GYRO_TRIM_CAP 1` calls the existing
    `trim_radio()` at the moment of arming in MANUAL (like a gyro learning

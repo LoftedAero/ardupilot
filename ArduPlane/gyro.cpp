@@ -7,14 +7,14 @@ const AP_Param::GroupInfo PlaneGyro::var_info[] = {
 
     // @Param: GAIN_CH
     // @DisplayName: Gyro master gain channel
-    // @Description: RC input channel used as a master gain knob for the roll, pitch and yaw rate controllers, like the gain setting on a consumer RC gyro. The knob scales the P, I and D terms of the rate controllers. Feedforward is not scaled, so stick authority in ACRO is unchanged. Knob centre gives a scale of 1.0 (the tuned gains), the low end gives GYRO_GAIN_MIN and the high end gives GYRO_GAIN_MAX. The scale is held at 1.0 during RC failsafe and while autotune is running. Set to 0 to disable.
+    // @Description: RC input channel used as a master gain knob for the roll, pitch and yaw rate controllers, like the gain setting on a consumer RC gyro. The knob scales the P and D terms of the rate controllers and how fast the I term builds up, so turning it never steps the I output. Feedforward is not scaled, so stick authority in ACRO is unchanged. Knob centre gives a scale of 1.0 (the tuned gains), the low end gives GYRO_GAIN_MIN and the high end gives GYRO_GAIN_MAX. The scale is held at 1.0 during RC failsafe and while autotune is running. Set to 0 to disable.
     // @Values: 0:Disabled,5:Chan5,6:Chan6,7:Chan7,8:Chan8,9:Chan9,10:Chan10,11:Chan11,12:Chan12,13:Chan13,14:Chan14,15:Chan15,16:Chan16
     // @User: Standard
     AP_GROUPINFO("GAIN_CH", 1, PlaneGyro, gain_ch, 0),
 
     // @Param: GAIN_MIN
     // @DisplayName: Gyro master gain at knob minimum
-    // @Description: Rate controller gain scale when the GYRO_GAIN_CH knob is at its low end. 0 removes all rate correction (feedforward only).
+    // @Description: Rate controller gain scale when the GYRO_GAIN_CH knob is at its low end. 0 removes the P and D correction and holds the I term at its current value, leaving feedforward.
     // @Range: 0 1
     // @Increment: 0.05
     // @User: Standard

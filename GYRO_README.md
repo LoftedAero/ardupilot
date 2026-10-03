@@ -264,14 +264,22 @@ setting on a gyro.
 
 | Knob | Scale |
 |---|---|
-| Fully low | GYRO_GAIN_MIN (default 0.0, no correction at all) |
+| Fully low | GYRO_GAIN_MIN (default 0.0, feedforward only: no P or D correction, I held) |
 | Centre | 1.0, the tuned gains |
 | Fully high | GYRO_GAIN_MAX (default 1.5) |
 
-The knob scales only the correction terms (P, I and D). The
-feedforward term that moves the surface with the stick is not scaled,
-so stick authority in ACRO stays the same at any knob position. Knob
-centre is always exactly 1.0, whatever the min and max are set to.
+The knob scales only the correction terms: P and D directly, and the
+I term by how fast it builds up. What the I term has already built up
+is never rescaled, so turning the knob up in flight adds no sudden
+correction. The feedforward term that moves the surface with the stick
+is not scaled, so stick authority in ACRO stays the same at any knob
+position. Knob centre is always exactly 1.0, whatever the min and max
+are set to.
+
+At the bottom of the knob the plane flies on feedforward alone, which is
+not the same as gyro off: the sticks still command a rate, nothing
+corrects gusts, and FBWA still steers toward level without damping.
+MANUAL is the true gyro-off mode.
 
 The scale is held at 1.0 during an RC failsafe and while autotune is
 running. Its value is recorded in the log as `GYRO.Gain`.

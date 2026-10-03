@@ -6,7 +6,8 @@
   station:
 
    - a transmitter master gain knob that scales the roll, pitch and yaw
-     rate controllers (P, I and D only, feedforward is untouched)
+     rate controllers (P and D, and the I build-up rate; feedforward is
+     untouched)
    - automatic trim capture on arming in MANUAL and on the MANUAL ->
      ACRO/FBWA transition, so transmitter trims applied in MANUAL
      become the neutral for the stabilised modes
