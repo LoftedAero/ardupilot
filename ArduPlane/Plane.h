@@ -193,6 +193,7 @@ public:
 #endif
 #if AP_PLANE_GYRO_ENABLED
     friend class PlaneGyro;
+    friend class PlaneGyroMenu;
 #endif
 
     Plane(void);

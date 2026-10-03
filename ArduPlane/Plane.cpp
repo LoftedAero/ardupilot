@@ -119,6 +119,9 @@ const AP_Scheduler::Task Plane::scheduler_tasks[] = {
     SCHED_TASK(update_logging10,        10,    300, 120),
 #if AP_PLANE_GYRO_ENABLED
     SCHED_TASK_CLASS(PlaneGyro, &plane.g2.gyro, update, 10, 100, 121),
+#if AP_PLANE_GYRO_MENU_ENABLED
+    SCHED_TASK_CLASS(PlaneGyro, &plane.g2.gyro, menu_update, 50, 150, 121),
+#endif
 #endif
     SCHED_TASK(update_logging25,        25,    300, 123),
 #endif
