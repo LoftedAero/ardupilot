@@ -324,6 +324,18 @@ Notes:
   channel detection) and orientation detection (accelerometer), in the
   gyro module, triggered from the menu like GYRO_CAL.
 
+## Autotune without an airspeed estimate (2026-10-03)
+
+Stock AP_RollController and the yaw rate controller assume 0 airspeed
+when there is no estimate (no airspeed sensor, no GPS fix). That counts
+as underspeed: the integrator is locked and autotune skips the axis.
+The pitch controller assumes the middle of AIRSPEED_MIN/MAX instead.
+Roll and yaw rate now do the same. Verified with
+`Tools/gyro/sitl_autotune_test.py` (MANUAL takeoff, FBWA climb,
+AUTOTUNE on the mode switch, ARSPD_TYPE 0, no GPS): before the change
+roll never finished in 300 s and RLL_RATE_P stayed put while pitch
+tuned; after it both axes finish in under a minute.
+
 ## Considered and rejected
 
 - **Assumed airspeed for DCM centripetal correction without GPS**

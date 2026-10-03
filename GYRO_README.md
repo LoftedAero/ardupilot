@@ -406,10 +406,16 @@ instead. The firmware refuses RTL without a home position in any case.
 
 ## 11. Autotune
 
-ArduPlane's fixed-wing autotune works in this build. It is not on the
-mode switch, so assign the "fixed wing autotune" function (option 107)
-to a spare channel from a ground station, or switch to AUTOTUNE mode
-from the ground station.
+ArduPlane's fixed-wing autotune works in this build, with or without a
+GPS or airspeed sensor. Put AUTOTUNE on a mode switch position or assign
+an autotune switch in the transmitter menu (3 Flight modes, 2 Radio).
+
+Without an airspeed estimate (no airspeed sensor and no GPS fix) stock
+ArduPlane locked the roll integrator and skipped roll autotune; pitch
+was unaffected. The roll and yaw rate controllers now assume the middle
+of AIRSPEED_MIN and AIRSPEED_MAX in that case, as the pitch controller
+already did. `Tools/gyro/sitl_autotune_test.py` flies a no-GPS,
+no-airspeed autotune in SITL and checks both axes tune.
 
 Procedure:
 
@@ -422,6 +428,19 @@ Procedure:
 
 The knob then scales the tuned gains. GYRO_GAIN_MAX above 1.5 is rarely
 useful after a good autotune.
+
+Speed scaling. ArduPlane also scales the gains with speed, and autotune
+tunes against that scaling:
+
+- Without an airspeed estimate it scales by throttle while armed:
+  gains are as tuned at 45% throttle, higher at low throttle (up to
+  2.8 times P, I and D at idle) and lower at high throttle. Watch for
+  oscillation in fast descents at idle.
+- With a GPS fix it uses an airspeed estimate from GPS speed and wind:
+  gains are as tuned at SCALING_SPEED. Set SCALING_SPEED to the airspeed
+  the plane flies at about 45% throttle so both methods agree and gains
+  tuned without a GPS still fit after one is added. The wind estimate
+  needs a few turns to settle.
 
 ---
 
@@ -529,6 +548,7 @@ python3 Tools/gyro/sitl_gyro_test.py        # arming, trims, gain knob, failsafe
 python3 Tools/gyro/sitl_menu_test.py        # menu builds; calibration requests complete
 python3 Tools/gyro/sitl_crsf_menu_test.py   # the menu over CRSF, driven like the ExpressLRS script
 ELRS_LUA=/path/to/elrsV3.lua python3 Tools/gyro/sitl_elrs_lua_test.py   # the real ExpressLRS script
+python3 Tools/gyro/sitl_autotune_test.py    # autotune flight with no GPS or airspeed sensor
 ```
 
 All need pymavlink. `sitl_crsf_menu_test.py` uses
@@ -577,9 +597,11 @@ add `--gps` to fit one.
 - **No EKF.** DCM is used for attitude. It is adequate for
   stabilization and GPS return home but less precise than the EKF in
   turbulent flight and does not use a compass.
-- **The gain knob at very low settings** leaves the integrator
-  accumulating at full rate while its output is scaled down. Gains at
-  knob centre are unaffected.
+- **Take off in MANUAL or ACRO without a GPS.** Without GPS or airspeed
+  the attitude estimate cannot tell the takeoff run's acceleration
+  from a pitch change. In SITL an FBWA runway takeoff without GPS
+  reported the nose 10-15 degrees low and did not get airborne. Not yet
+  checked on a real model or with a hand launch.
 - **Trim capture writes parameters** each time it changes something.
   In normal use that is a handful of writes per flight.
 - **Missions and AUTO mode are still compiled in** because ArduPlane
