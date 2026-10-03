@@ -534,6 +534,15 @@ the no-GPS Failsafe page. Every screen is saved as text and PNG in
 copy `SCRIPTS/TOOLS/elrsV3.lua` from the radio's SD card, or get it
 from the ExpressLRS repository.
 
+To try the menu by hand, run
+`ELRS_LUA=/path/to/elrsV3.lua python3 Tools/gyro/elrs_menu_playground.py`
+and open http://localhost:8765 (from Windows too when running in
+WSL2). The page shows the radio screen with Up, Down, Enter and Back
+(arrow keys, Enter and Esc work too) and sliders for channels 1 to 8,
+so the arm switch, mode switch and stick learning can be tried. The
+simulated plane starts with the KakuteF4-Wing gyro defaults and no GPS;
+add `--gps` to fit one.
+
 ---
 
 ## 16. Known limitations and untested items

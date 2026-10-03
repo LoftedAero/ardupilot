@@ -174,10 +174,12 @@ end
 
     # ----- driving the script ---------------------------------------------
     def step(self, key=None):
+        """run the script once; returns its result (non-zero: the script exited)"""
         self._popup_this_frame = False
-        self.script.run(EVENTS[key] if key else 0)
+        result = self.script.run(EVENTS[key] if key else 0)
         if not self._popup_this_frame:
             self.popup = None
+        return result
 
     def idle(self, seconds):
         t0 = time.time()
@@ -257,6 +259,7 @@ end
         return False
 
     def save_png(self, path):
+        """render the screen; path is a file name or a binary file object"""
         from PIL import Image, ImageDraw, ImageFont
         img = Image.new("RGB", (self.width, self.height), (255, 255, 255))
         d = ImageDraw.Draw(img)
@@ -293,4 +296,4 @@ end
             d.rectangle(box, fill=(240, 240, 240), outline=(0, 0, 0))
             d.text((box[0] + 12, box[1] + 18), self.popup[0], fill=(0, 0, 0), font=bold)
             d.text((box[0] + 12, box[1] + 48), self.popup[1], fill=(0, 0, 0), font=font)
-        img.save(path)
+        img.save(path, format="PNG")
