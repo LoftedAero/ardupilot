@@ -95,7 +95,9 @@ matching parameter is set, so stock behavior is unchanged by default.
    raised). The yaw damper scales D only. FF is untouched so ACRO stick
    authority is unchanged. Held at 1.0 during
    RC failsafe and while autotune is running. Logged as `GYRO.Gain`.
-3. **Gyro-style trims.** `GYRO_TRIM_CAP 1` calls the existing
+3. **Gyro-style trims (removed 2026-10-03: it also captured any stick
+   held at that moment; trims now work the standard ArduPilot way).**
+   `GYRO_TRIM_CAP 1` called the existing
    `trim_radio()` at the moment of arming in MANUAL (like a gyro learning
    stick centre at power-up) and on MANUAL -> ACRO/FBWA, when roll and
    pitch sticks are within 20% of centre, rotation is under 30 deg/s and
@@ -220,8 +222,8 @@ Differences from the design below:
 - No guided "Check directions" step: ExpressLRS closes a popup on Exit,
   so a chain of yes/no questions cannot continue after a "no". Each
   output's Reversed entry applies immediately instead.
-- No "Capture trims" command: trim capture already runs on arming in
-  MANUAL and on MANUAL -> ACRO/FBWA.
+- No trim capture: removed 2026-10-03. Servo trims are set per channel
+  (4 Outputs, Channel N, Trim).
 - Command results are shown as a confirmation the pilot dismisses,
   because ExpressLRS closes a popup as soon as a command reports ready.
 - The arm function is only assigned (by Learn or by the channel
@@ -299,8 +301,7 @@ Gyro (device top level)
 │   ├─ Gain knob min / max
 │   ├─ ACRO roll / pitch rate
 │   ├─ FBWA bank / pitch limits
-│   ├─ Autotune level
-│   └─ Trim capture         On / Off
+│   └─ Autotune level
 └─ Tools ▸
     ├─ Firmware             version, board          (info)
     └─ Reset to defaults    [Run]  confirm

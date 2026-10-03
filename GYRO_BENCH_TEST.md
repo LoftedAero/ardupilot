@@ -140,25 +140,20 @@ In ACRO or FBWA, repeat step 5 or 6 at three knob positions.
 - [ ] Throttle stick now drives the motor.
 - [ ] Arm switch low: DISARMED, motor stops.
 
-## 9. Trim capture
+## 9. Trims
 
-Mode switch low, sticks centered, disarmed.
+Mode switch low, sticks centered.
 
-1. Add several clicks of aileron trim on the transmitter so the
-   ailerons visibly move.
-2. Arm.
-   - [ ] Message `trim complete`.
-   - [ ] In the ground station, `RC1_TRIM` has moved away from its
-         previous value.
-3. Hold the model level and switch to FBWA, then ACRO.
-   - [ ] The ailerons stay at the trimmed position; they do not jump
-         back to the old, untrimmed neutral.
-4. Back in MANUAL, add a few more clicks, then switch to ACRO.
-   - [ ] Another `trim complete`.
+- [ ] A few clicks of aileron trim on the transmitter move the
+      ailerons in MANUAL. Center the trim again afterwards.
+- [ ] In the ground station, `RC1_TRIM`, `RC2_TRIM` and `RC4_TRIM` are
+      at the stick centers (about 1500). Earlier builds could have
+      moved them; if not, run 2 Radio, Learn sticks.
+- [ ] Arm and switch to ACRO: no `trim complete` message, and
+      `RC1_TRIM` is unchanged. Disarm.
 
-To undo afterwards: zero the transmitter trims, then disarm and arm
-again in MANUAL with the sticks centered; the capture moves the
-neutrals back.
+Set surface neutrals with 4 Outputs, Channel N, Trim (section 11), not
+with the transmitter trims.
 
 ## 10. Link loss
 

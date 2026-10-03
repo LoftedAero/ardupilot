@@ -57,8 +57,6 @@ behavior simple:
 Added on top of ArduPlane, all in one module (`ArduPlane/gyro.cpp`):
 
 - A master gain knob on a transmitter channel
-- Automatic trim capture so transmitter trims work like they do on a
-  gyro
 - Return to launch is refused, with a glide fallback, when no home
   position is known
 - A throttle-based logging gate for setups that do not arm (off by
@@ -182,8 +180,6 @@ Arming (switch high):
 - All optional pre-arm checks are skipped, so a board with no GPS will
   arm. The transmitter must be on with a valid link.
 - Logging starts.
-- If the mode switch is in MANUAL and the sticks are centered, the
-  current transmitter trims are captured (see [Trims](#6-trims)).
 - If a GPS has a fix, the home position is locked at the arming
   location.
 
@@ -223,37 +219,32 @@ levels itself.
 
 ## 6. Trims
 
-On a gyro, transmitter trims move the servos in every mode. On an
-autopilot, stabilized modes normally treat a trim click as a small stick
-input, which turns into a slow roll or a few degrees of bank. This build
-handles it the gyro way.
+Trims work the standard ArduPilot way:
 
 - **MANUAL**: transmitter trims pass straight through, as on any
   receiver.
-- **Arming in MANUAL**, and **switching from MANUAL to ACRO or FBWA**:
-  the current trims are captured. The servo neutral positions are set to
-  where the trims put the surfaces, and the stick center is set to the
-  current stick position. The stabilized mode then starts with no
-  demand and holds the trimmed surface positions. The message
-  "trim complete" is sent to the ground station link when this happens.
-- **FBWA**: the built-in servo auto-trim keeps refining the servo
-  neutrals from the controller's integrators while flying straight and
-  level.
+- **ACRO and FBWA**: a transmitter trim click is a small stick input. In
+  ACRO it becomes a slow roll or pitch rate, in FBWA a small bank or
+  pitch angle.
 
-The capture is skipped silently when the roll or pitch stick is more
-than 20 percent from center, the airframe is rotating faster than
-30 degrees per second, or the RC link is in failsafe. Trim clicks made
-while in ACRO or FBWA take effect the next time you pass through
-MANUAL and back.
+So set the surface neutrals with the servo trims, not the transmitter
+trims: keep the transmitter trims centered and set each surface's
+neutral in the transmitter menu (4 Outputs, Channel N, Trim) or from a
+ground station (`SERVOn_TRIM`). If the model needs trim in MANUAL,
+move that trim into the servo trims and center the transmitter trims
+again.
 
-Recommended workflow: fly in MANUAL, trim until the model flies hands
-off, then flip to ACRO or FBWA. The trims follow.
+In flight, the I term of the rate controllers holds the model against a
+small trim error in ACRO and FBWA. The built-in servo auto-trim
+(`SERVO_AUTO_TRIM 1`) moves that correction into the servo trims while
+flying level in FBWA, but only when both ground speed and airspeed read
+at least 8 m/s, which needs a GPS fix. Without a GPS it does nothing.
 
-The captured values are stored in the RC trim and servo trim
-parameters. To start over, zero the transmitter trims, then arm in
-MANUAL with the sticks centered: the capture runs again and moves the
-neutrals back. The servo trims can also be set directly in the
-transmitter menu (4 Outputs, Trim) or from a ground station.
+Earlier builds captured the transmitter trims automatically on arming
+and on MANUAL to ACRO/FBWA (`GYRO_TRIM_CAP`). That was removed: it also
+captured any stick held at that moment, up to 20 percent of the throw.
+On a board that ran it, check that `RC1_TRIM`, `RC2_TRIM` and
+`RC4_TRIM` are at the stick centers (2 Radio, Learn sticks sets them).
 
 ---
 
@@ -357,7 +348,7 @@ from any folder, including from a channel inside 4 Outputs.
 | 3 Flight modes | Check mode switch; Low, Middle and High positions: MANUAL, ACRO, FBWA or AUTOTUNE |
 | 4 Outputs | Wing type and Apply template; Channel 1 to 8 (servo outputs), each with Function, Min, Trim, Max, Reversed |
 | 5 Failsafe | Link loss (FBWA glide or RTL if GPS), RTL altitude |
-| 6 Tuning | Gain knob min and max, ACRO roll and pitch rates, FBWA bank and pitch limits, Autotune level, Trim capture |
+| 6 Tuning | Gain knob min and max, ACRO roll and pitch rates, FBWA bank and pitch limits, Autotune level |
 | Tools | Firmware version, Reset to defaults |
 
 Commands (the entries that start something) open a popup on the radio.
@@ -457,7 +448,6 @@ Besides the standard ArduPlane messages, the `GYRO` message records at
 |---|---|
 | Gain | Master gain scale applied to the rate controllers |
 | LogOK | Logging gate state (always 1 with the arm switch) |
-| TrimN | Number of automatic trim captures since boot |
 
 ---
 
@@ -483,7 +473,6 @@ Parameters added by this build:
 | GYRO_GAIN_CH | 8 | RC channel for the gain knob, 0 to disable |
 | GYRO_GAIN_MIN | 0.0 | Scale at knob minimum |
 | GYRO_GAIN_MAX | 1.5 | Scale at knob maximum |
-| GYRO_TRIM_CAP | 1 | Capture trims on arming and MANUAL to ACRO/FBWA |
 | GYRO_LOG_THR | 0 | Throttle percent that starts logging when ARMING_REQUIRE is 0; unused with the arm switch |
 | GYRO_CAL | 0 | Calibration request used by the transmitter menu: 1 = gyros, 2 = level. Reads back 0 when done, -1 when failed or refused. Reset at boot. |
 
@@ -503,7 +492,7 @@ Standard ArduPlane parameters set by the defaults:
 | AHRS_EKF_TYPE | 0 | DCM attitude estimation |
 | COMPASS_ENABLE | 0 | No compass |
 | ARSPD_TYPE | 0 | No airspeed sensor |
-| SERVO_AUTO_TRIM | 1 | Servo auto-trim in FBWA |
+| SERVO_AUTO_TRIM | 1 | Servo auto-trim in FBWA (needs a GPS fix) |
 | STICK_MIXING | 0 | No stick mixing in automatic modes |
 | THR_FAILSAFE | 1 | RC failsafe enabled |
 | FS_SHORT_ACTN | 2 | Short failsafe: FBWA at zero throttle |
@@ -528,7 +517,7 @@ Source of the customization:
 | `libraries/AP_HAL_ChibiOS/hwdef/include/gyro.inc` | Feature profile. Include it after any base board hwdef to make a gyro build of that board. |
 | `libraries/AP_HAL_ChibiOS/hwdef/KakuteF4-Wing-gyro/` | Kakute variant: hwdef and defaults |
 | `libraries/AP_HAL_ChibiOS/hwdef/TBS_LUCID_H7_WING-gyro/` | Lucid H7 Wing variant, same layout |
-| `ArduPlane/gyro.h`, `ArduPlane/gyro.cpp` | The gyro module: gain knob, trim capture, logging gate, calibration requests, GYRO_ parameters |
+| `ArduPlane/gyro.h`, `ArduPlane/gyro.cpp` | The gyro module: gain knob, logging gate, calibration requests, GYRO_ parameters |
 | `ArduPlane/gyro_menu.h`, `ArduPlane/gyro_menu.cpp` | The transmitter setup menu |
 | `ArduPlane/mode_rtl.cpp`, `ArduPlane/events.cpp` | RTL refused without home; failsafe falls back to FBWA |
 | `libraries/APM_Control/AP_FW_Controller.*`, `AP_YawController.*` | Gain scale hook in the rate controllers |
@@ -544,7 +533,7 @@ parameter screens, CRSF menu engine on):
 ```
 ./waf configure --board sitl --extra-hwdef=Tools/gyro/sitl-gyro.hwdef
 ./waf plane
-python3 Tools/gyro/sitl_gyro_test.py        # arming, trims, gain knob, failsafe, RTL guard, logging
+python3 Tools/gyro/sitl_gyro_test.py        # arming, no trim capture, gain knob, failsafe, RTL guard, logging
 python3 Tools/gyro/sitl_menu_test.py        # menu builds; calibration requests complete
 python3 Tools/gyro/sitl_crsf_menu_test.py   # the menu over CRSF, driven like the ExpressLRS script
 ELRS_LUA=/path/to/elrsV3.lua python3 Tools/gyro/sitl_elrs_lua_test.py   # the real ExpressLRS script
@@ -581,7 +570,7 @@ add `--gps` to fit one.
 - **Not flight tested.** Everything above has been verified in the
   simulator only. Bench test on the Kakute first: surface directions in
   MANUAL, correct stabilization direction in FBWA when tilting the
-  model, arm switch, trim capture, gain knob response, and the menu.
+  model, arm switch, gain knob response, and the menu.
 - **Transmitter menu partly verified on hardware.** On a KakuteF4-Wing
   with a RadioMaster AX12 (ELRS Lua r15) the whole menu loads and shows
   live values. Writes and the command popups (calibration, learning,
@@ -602,8 +591,6 @@ add `--gps` to fit one.
   from a pitch change. In SITL an FBWA runway takeoff without GPS
   reported the nose 10-15 degrees low and did not get airborne. Not yet
   checked on a real model or with a hand launch.
-- **Trim capture writes parameters** each time it changes something.
-  In normal use that is a handful of writes per flight.
 - **Missions and AUTO mode are still compiled in** because ArduPlane
   cannot be built without them. They are simply not on any switch.
 - **Powered planes only.** Gliders, quadplanes and helicopters are out

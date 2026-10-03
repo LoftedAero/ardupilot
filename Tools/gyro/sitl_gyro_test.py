@@ -12,11 +12,11 @@ Needs pymavlink. Scratch files and the dataflash log go to $GYRO_TEST_DIR (defau
 
 Checks:
   A. RTL refused with no home (disarmed and armed)
-  B. trim capture on arming in MANUAL, and again on MANUAL -> ACRO
+  B. arming and MANUAL -> ACRO leave the trims alone (no trim capture)
   F. nothing logged before arming, log starts on arming
   C. long RC failsafe falls back to FBWA when RTL is refused
   D. RTL accepted once GPS gives a home
-  E. GYRO.Gain in the dataflash log follows the knob; TrimN counts both captures
+  E. GYRO.Gain in the dataflash log follows the knob
   G. a GYRO_CAL calibration request is refused while armed
 """
 import glob
@@ -53,7 +53,6 @@ FLTMODE4 4
 FLTMODE5 5
 FLTMODE6 5
 RC7_OPTION 4
-GYRO_TRIM_CAP 1
 GYRO_GAIN_CH 8
 GYRO_GAIN_MIN 0
 GYRO_GAIN_MAX 1.5
@@ -165,30 +164,27 @@ try:
           state["mode"] == MANUAL and any("RTL refused" in t for t in texts),
           f"mode={state['mode']}")
 
-    # F/B. arm with trims offset: log starts, trims captured
+    # F/B. arm with the sticks off centre: log starts, trims untouched
     check("F: nothing logged before arming", log_bytes() == 0, f"bytes={log_bytes()}")
+    trims_before = (get_param("RC1_TRIM"), get_param("RC2_TRIM"))
     rc[0], rc[1] = 1530, 1480
     pump(2)
     texts.clear()
     rc[4] = 2000  # arm switch
     pump(4)
     check("B: armed via channel 5", state["armed"] is True)
-    check("B: trims captured on arming", any("trim complete" in t for t in texts))
-    r1, r2 = get_param("RC1_TRIM"), get_param("RC2_TRIM")
-    check("B: RC1_TRIM captured", r1 == 1530, f"RC1_TRIM={r1}")
-    check("B: RC2_TRIM captured", r2 == 1480, f"RC2_TRIM={r2}")
     check("F: log started on arming", log_bytes() > 0, f"bytes={log_bytes()}")
 
-    # B2. new trim offset in MANUAL, then MANUAL -> ACRO captures again
+    # B2. MANUAL -> ACRO with the sticks off centre: trims still untouched
     rc[0], rc[1] = 1470, 1520
     pump(2)
-    texts.clear()
     rc[5] = 1500  # mode switch mid = ACRO
     pump(3)
     check("B2: ACRO entered", state["mode"] == ACRO, f"mode={state['mode']}")
-    check("B2: trims captured on MANUAL->ACRO", any("trim complete" in t for t in texts))
-    r1 = get_param("RC1_TRIM")
-    check("B2: RC1_TRIM updated", r1 == 1470, f"RC1_TRIM={r1}")
+    trims_after = (get_param("RC1_TRIM"), get_param("RC2_TRIM"))
+    check("B: no trim capture", trims_after == trims_before and not any("trim complete" in t for t in texts),
+          f"before={trims_before} after={trims_after}")
+    rc[0], rc[1] = 1500, 1500
 
     # G. calibration request is refused while armed
     texts.clear()
@@ -260,7 +256,6 @@ if not logs:
 else:
     from pymavlink import DFReader
     gains = []
-    trimn = 0
     d = DFReader.DFReader_binary(logs[-1])
     while True:
         msg = d.recv_msg()
@@ -268,12 +263,10 @@ else:
             break
         if msg.get_type() == "GYRO":
             gains.append(round(msg.Gain, 2))
-            trimn = max(trimn, msg.TrimN)
     check("E: GYRO messages logged", len(gains) > 0, f"n={len(gains)}")
     check("E: gain reached 1.5 at knob high", 1.5 in gains, f"max={max(gains) if gains else None}")
     check("E: gain reached 0.0 at knob low", 0.0 in gains, f"min={min(gains) if gains else None}")
     check("E: gain 1.0 at knob centre", 1.0 in gains)
-    check("E: TrimN counts both captures", trimn >= 2, f"TrimN={trimn}")
 
 print()
 fails = [r for r in results if not r[1]]
