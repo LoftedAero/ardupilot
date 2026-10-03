@@ -273,8 +273,14 @@ def run(args, proc):
                         client.frames = []
                     sim[0] = EdgeTxSim(args.lua, client)
                     action = None
-                if sim[0].step(action):
-                    # the pilot chose EXIT: reopen the script, as from the radio's tools list
+                try:
+                    exited = sim[0].step(action)
+                except Exception as e:
+                    with state_lock:
+                        state["messages"].append("radio script failed and was restarted: %s" % e)
+                    exited = True
+                if exited:
+                    # EXIT chosen (or a failure): reopen the script, as from the radio's tools list
                     sim[0] = EdgeTxSim(args.lua, client)
             time.sleep(0.02)
 

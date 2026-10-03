@@ -248,6 +248,15 @@ try:
     check("RTL altitude hidden", not sim.contains("RTL altitude"))
     check("needs a GPS shown", sim.contains("needs a GPS"))
 
+    # 8. Back at the device's top level switches to the TX module page;
+    # moving from a low line there must not hang the script
+    back()
+    open_entry("Tools")
+    back()
+    sim.press("exit")
+    sim.press("next")
+    check("keys work after leaving the device", sim.contains("Other Devices"), sim.text())
+
     c.close()
 except EntryMissing as e:
     check("navigation", False, e)

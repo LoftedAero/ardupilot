@@ -42,6 +42,12 @@ CHAR_W = 9          # pixels per character as reported by lcd.sizeText
 TEXT_H = 20         # text line height for the colour layout
 
 ADDR_TX_MODULE = 0xEE
+# entries reported by the fake TX module. A real ELRS module has about
+# this many; the script keeps its cursor line when Back switches from a
+# device to the module, and with fewer module entries than that line
+# its next Up or Down never finds a line (an endless loop). Only the
+# first entry is shown; the rest are hidden.
+TX_MODULE_FIELDS = 24
 
 
 class EdgeTxSim:
@@ -62,6 +68,17 @@ class EdgeTxSim:
         with open(script_path) as f:
             self.script = self.lua.execute(f.read())
         self.script.init()
+        # a radio script that loops forever would hang the caller: stop
+        # any single run after far more instructions than a run needs
+        self._run = self.lua.eval("""function(run)
+  return function(event)
+    debug.sethook(function() error("script stuck in a loop") end, "", 50000000)
+    local ok, result = pcall(run, event)
+    debug.sethook()
+    if not ok then error(result, 0) end
+    return result
+  end
+end""")(self.script.run)
 
     # ----- EdgeTX API ------------------------------------------------------
     def _install_api(self):
@@ -138,16 +155,20 @@ end
         payload = [int(data[i]) for i in range(1, len(data) + 1)]
         self._log("TX", cmd, payload)
         if cmd == cm.T_PING:
-            # the radio's own ELRS module answers a ping. Fake one with a single
-            # info entry: the script only sets up its entry list for a device
+            # the radio's own ELRS module answers a ping. Fake one with info
+            # entries: the script only sets up its entry list for a device
             # that reports at least one entry
             name = self.tx_name.encode() + b"\0"
-            info = bytes([0xEA, ADDR_TX_MODULE]) + name + b"SIMU" + bytes(8) + bytes([1, 0])
+            info = bytes([0xEA, ADDR_TX_MODULE]) + name + b"SIMU" + bytes(8) + bytes([TX_MODULE_FIELDS, 0])
             self.local_frames.append((cm.T_DEVICE_INFO, info))
         if len(payload) > 0 and payload[0] == ADDR_TX_MODULE:
-            if cmd == cm.T_READ and len(payload) >= 3 and payload[2] == 1:
-                entry = bytes([0xEA, ADDR_TX_MODULE, 1, 0, 0, 12]) + b"Module\0PC simulator\0"
-                self.local_frames.append((cm.T_ENTRY, entry))
+            if cmd == cm.T_READ and len(payload) >= 3 and 1 <= payload[2] <= TX_MODULE_FIELDS:
+                field_id = payload[2]
+                if field_id == 1:
+                    entry = bytes([0, 12]) + b"Module\0PC simulator\0"
+                else:
+                    entry = bytes([0, 12 | 0x80]) + b"Spare\0-\0"     # hidden
+                self.local_frames.append((cm.T_ENTRY, bytes([0xEA, ADDR_TX_MODULE, field_id, 0]) + entry))
             return True
         self.client.send(cmd, payload)
         return True
@@ -174,9 +195,10 @@ end
 
     # ----- driving the script ---------------------------------------------
     def step(self, key=None):
-        """run the script once; returns its result (non-zero: the script exited)"""
+        """run the script once; returns its result (non-zero: the script
+        exited). Raises lupa.LuaError if the script fails or gets stuck"""
         self._popup_this_frame = False
-        result = self.script.run(EVENTS[key] if key else 0)
+        result = self._run(EVENTS[key] if key else 0)
         if not self._popup_this_frame:
             self.popup = None
         return result
