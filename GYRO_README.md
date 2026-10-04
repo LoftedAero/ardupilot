@@ -135,7 +135,10 @@ ArduPlane, flash the stock firmware for the board the same way.
 
 The defaults assume an ELRS receiver on the board's RC port (SERIAL3 on
 the Kakute, SERIAL6 on the Lucid) with the standard CRSF channel
-endpoints (988 to 2012 us) and the usual AETR order.
+endpoints (988 to 2012 us on channels 1 to 16) and the usual AETR order.
+2 Radio, Learn sticks and Learn gain knob measure the real order,
+directions and endpoints. Switch channels need no range: switches are
+read at fixed thresholds (below 1200 us low, above 1800 us high).
 
 | Channel | Function | Notes |
 |---|---|---|
@@ -254,9 +257,9 @@ at least 8 m/s, which needs a GPS fix. Without a GPS it does nothing.
 Earlier builds captured the transmitter trims automatically on arming
 and on MANUAL to ACRO/FBWA (`GYRO_TRIM_CAP`). That was removed: it also
 captured any stick held at that moment, up to 20 percent of the throw.
-On a board that ran it, check that `RC1_TRIM`, `RC2_TRIM` and
-`RC4_TRIM` are at the stick centers (about 1500) and set them from a
-ground station if not; the menu does not change stick trims.
+On a board that ran it, check that the stick trims are at the stick
+centers (about 1500), or run 2 Radio, Learn sticks with the transmitter
+trims centered: it measures them again.
 
 ---
 
@@ -398,16 +401,31 @@ Each ends with a result the pilot dismisses with OK; Exit cancels.
 - **Calibrate level** and **Calibrate gyros** run on the main loop
   like a ground station calibration. The flight controller pauses for
   a second or two, so the radio may briefly report lost telemetry.
-- **Learn sticks**: center the sticks with the throttle low, start,
-  then move each stick as asked (aileron right, elevator back, rudder
-  right, throttle full). The firmware works out the channel order and
-  which channels are reversed and shows it, for example
-  `A2 E3 R4 T1 Save?`. If the channel order changed, the flight
-  controller restarts to apply it.
-- **Learn** for a switch: flip the switch or turn the knob when asked.
-  A channel already used by another of these functions is refused.
-  The arm switch is only assigned once it is in its off position,
-  because assigning it while on would arm the plane.
+- **Learn sticks** measures the sticks: channel order, direction and
+  endpoints.
+  1. `Center sticks & trims, throttle low`: OK takes each stick's
+     center (and the throttle's low end) here, so center the
+     transmitter trims first.
+  2. Move each stick as asked: aileron right, elevator back, rudder
+     right, throttle full.
+  3. `Move sticks to all corners, then OK`: the furthest each stick
+     went becomes its endpoints. A stick that moved less than 600 us
+     is asked for again; a center more than 5 percent off the middle
+     of its travel stops the learning (`Ch1 not centred at start`).
+  4. The order, for example `A2 E3 R4 T1 Save?`: OK saves `RCMAP_*`
+     and, for the four stick channels, `RCn_REVERSED`, `RCn_MIN`,
+     `RCn_MAX` and `RCn_TRIM`. If the channel order changed, the
+     flight controller restarts to apply it.
+- **Learn** for a switch: flip the switch when asked. A channel already
+  used by another of these functions is refused. The arm switch is only
+  assigned once it is in its off position, because assigning it while
+  on would arm the plane.
+- **Learn gain knob**: turn the knob so it is found, then
+  `Knob to LOW gain end, OK` and `Knob to HIGH gain end, then OK`. The
+  two ends become the channel's `RCn_MIN` and `RCn_MAX` (trim halfway),
+  and `RCn_REVERSED` is set when the low gain end reads the higher
+  value, so the knob turns the way you expect. Ends less than 600 us
+  apart are asked for again.
 - **Check mode switch** shows the mode switch live while it is open,
   for example `Ch6 High: FBWA`. When the plane is flying another mode
   (the RTL switch or a failsafe), it says so: `Ch6 High: FBWA, now RTL`.

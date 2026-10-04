@@ -274,6 +274,8 @@ try:
     c.channels[:4] = [988, 1500, 1500, 1500]          # throttle on ch1, low
     time.sleep(0.5)
     state = command(learn, CMD_START)
+    check("stick learning asks to center", state is not None and "Center sticks" in state[1], state)
+    state = command(learn, CMD_CONFIRM)
     check("stick learning asks for aileron", state is not None and "AILERON" in state[1], state)
     # aileron ch2 right, elevator ch3 back (reversed), rudder ch4 right, throttle ch1 full
     moves = [(1, 2000), (2, 1000), (3, 2000), (0, 2000)]
@@ -284,26 +286,86 @@ try:
         c.channels[ch] = 988 if ch == 0 else 1500
         time.sleep(0.4)
         state = command(learn, CMD_POLL)
+    check("stick learning asks for the corners", state is not None and "all corners" in state[1], state)
+    state = command(learn, CMD_CONFIRM)                   # each stick only moved one way
+    check("one-way travel is refused", state is not None and "both ends" in state[1], state)
+
+    def sweep(channels, centre):
+        for ch in channels:
+            for value in (988, 2012):
+                c.channels[ch] = value
+                time.sleep(0.3)
+            c.channels[ch] = centre[ch]
+            time.sleep(0.3)
+
+    sweep(range(4), [988, 1500, 1500, 1500])
+    state = command(learn, CMD_CONFIRM)
     check("stick learning detects TAER", state is not None and state[1] == "A2 E3 R4 T1 Save?", state)
     command(learn, CMD_CANCEL)
     check("cancel leaves channel map alone", get_param("RCMAP_ROLL") == 1)
 
-    # 8. learning on an AETR radio saves reversals without a restart
-    c.channels[:4] = [1500, 1500, 988, 1500]
-    time.sleep(0.5)
-    command(learn, CMD_START)
-    for ch, value in [(0, 2000), (1, 1000), (3, 2000), (2, 2000)]:
-        c.channels[ch] = value
-        time.sleep(0.4)
-        command(learn, CMD_POLL)
-        c.channels[ch] = 988 if ch == 2 else 1500
-        time.sleep(0.4)
-        state = command(learn, CMD_POLL)
+    # 8. learning on an AETR radio saves reversals and endpoints without a restart
+    def learn_aetr(roll_centre):
+        c.channels[:4] = [roll_centre, 1500, 988, 1500]
+        time.sleep(0.5)
+        command(learn, CMD_START)
+        command(learn, CMD_CONFIRM)
+        for ch, value in [(0, 2000), (1, 1000), (3, 2000), (2, 2000)]:
+            c.channels[ch] = value
+            time.sleep(0.4)
+            command(learn, CMD_POLL)
+            c.channels[ch] = 988 if ch == 2 else (roll_centre if ch == 0 else 1500)
+            time.sleep(0.4)
+            command(learn, CMD_POLL)
+        sweep(range(4), [roll_centre, 1500, 988, 1500])
+        return command(learn, CMD_CONFIRM)
+
+    state = learn_aetr(1600)                               # roll stick held off centre
+    check("off-centre stick is refused", state is not None and "not centred" in state[1], state)
+    command(learn, CMD_CONFIRM)
+    state = learn_aetr(1500)
+    check("AETR summary", state is not None and state[1] == "A1 E2 R4 T3 Save?", state)
     state = command(learn, CMD_CONFIRM)
     check("AETR learning saves", state is not None and state[1] == "Sticks saved", state)
     check("elevator reversal saved", get_param("RC2_REVERSED") == 1, get_param("RC2_REVERSED"))
+    ends = [(get_param("RC%d_MIN" % ch), get_param("RC%d_TRIM" % ch), get_param("RC%d_MAX" % ch)) for ch in (1, 3)]
+    check("stick endpoints saved", abs(ends[0][0] - 988) <= 4 and abs(ends[0][2] - 2012) <= 4
+          and abs(ends[0][1] - 1500) <= 4, ends[0])
+    check("throttle trim saved at low", abs(ends[1][1] - ends[1][0]) <= 4 and abs(ends[1][2] - 2012) <= 4, ends[1])
     c.write_entry(learn, [CMD_CONFIRM])
     set_param("RC2_REVERSED", 0)
+
+    # 8b. gain knob learning: its ends set the range and the direction
+    learn_knob = find("Learn gain knob")
+    state = command(learn_knob, CMD_START)
+    check("knob learning prompts", state is not None and "gain knob" in state[1], state)
+    c.channels[9] = 2000                                  # turn ch10
+    time.sleep(0.5)
+    state = command(learn_knob, CMD_POLL)
+    check("knob found, asks for the low end", state is not None and "Ch10" in state[1] and "LOW" in state[1], state)
+    c.channels[9] = 2012                                  # this knob's low gain end reads high
+    time.sleep(0.4)
+    state = command(learn_knob, CMD_CONFIRM)
+    check("knob asks for the high end", state is not None and "HIGH" in state[1], state)
+    c.channels[9] = 1700                                  # not turned far enough
+    time.sleep(0.4)
+    state = command(learn_knob, CMD_CONFIRM)
+    check("short knob travel is refused", state is not None and "further" in state[1], state)
+    c.channels[9] = 2012
+    time.sleep(0.4)
+    command(learn_knob, CMD_CONFIRM)
+    c.channels[9] = 988
+    time.sleep(0.4)
+    state = command(learn_knob, CMD_CONFIRM)
+    knob = [get_param(n) for n in ("GYRO_GAIN_CH", "RC10_MIN", "RC10_TRIM", "RC10_MAX", "RC10_REVERSED")]
+    check("knob learned reversed", state is not None and state[1] == "Gain knob: Ch10, reversed", state)
+    check("knob range and direction saved", knob[0] == 10 and abs(knob[1] - 988) <= 4 and abs(knob[2] - 1500) <= 4
+          and abs(knob[3] - 2012) <= 4 and knob[4] == 1, knob)
+    command(learn_knob, CMD_CONFIRM)
+    c.channels[9] = 1500
+    set_param("GYRO_GAIN_CH", 0)
+    set_param("RC10_REVERSED", 0)
+    time.sleep(1)
 
     # 9. arm switch learning: only assigned once the switch is off
     learn_arm = find("Learn arm switch")

@@ -154,8 +154,8 @@ Mode switch low, sticks centered.
       and rudder channels are at the stick centers (about 1500):
       `RC1_TRIM`, `RC2_TRIM`, `RC4_TRIM` with AETR channel order,
       `RC2_TRIM`, `RC3_TRIM`, `RC4_TRIM` with TAER (`RCMAP_*` gives the
-      order). Earlier builds could have moved them; if not, set them
-      back in the ground station.
+      order). Earlier builds could have moved them; if not, run 2
+      Radio, Learn sticks with the transmitter trims centered.
 - [ ] Arm and switch to ACRO: no `trim complete` message, and the
       aileron channel's stick trim is unchanged. Disarm.
 - [ ] Back in MANUAL, add a few clicks of aileron trim, then run 4
@@ -207,9 +207,18 @@ reflashed while the script was open, exit it and start it again first.
       `Calibration done`. The radio may briefly report lost telemetry
       while it runs; that is expected.
 - [ ] Same with the arm switch on: `Disarm first`.
-- [ ] 2 Radio, Learn sticks: follow the prompts. The summary (for
-      example `A1 E2 R4 T3 Save?`) matches your radio's channel order.
-      Cancel with Exit unless something needs fixing.
+- [ ] 2 Radio, Learn sticks: transmitter trims centered, OK at
+      `Center sticks & trims, throttle low`, follow the stick prompts,
+      move both sticks to every corner, OK. The summary (for example
+      `A1 E2 R4 T3 Save?`) matches your radio's channel order. OK
+      saves; afterwards the stick channels' `RCn_MIN` and `RCn_MAX`
+      match the radio's endpoints (988 and 2011 on ELRS) and `RCn_TRIM`
+      the centers.
+- [ ] 2 Radio, Learn gain knob: turn the knob, then OK at its low gain
+      end and again at its high gain end. `Gain knob: ChN` (with
+      `, reversed` when the low end reads high). Turning the knob from
+      low to high then raises the gain from GYRO_GAIN_MIN to
+      GYRO_GAIN_MAX, center 1.0.
 - [ ] 2 Radio, Learn arm switch: flip the arm switch when asked. It
       asks you to switch it off, and only then accepts OK. The plane
       must not arm during this.

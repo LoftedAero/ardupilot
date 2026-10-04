@@ -248,6 +248,8 @@ try:
     c.channels[:4] = [988, 1500, 1500, 1500]
     sim.idle(0.5)
     open_entry("Learn sticks")
+    check("asks to center the sticks", sim.wait_for("Center sticks", 5), sim.popup)
+    sim.press("enter")
     check("asks for aileron", sim.wait_for("AILERON", 5))
     shot("learn_aileron")
     for ch, value in [(1, 2000), (2, 1000), (3, 2000), (0, 2000)]:
@@ -255,6 +257,14 @@ try:
         sim.idle(1.0)
         c.channels[ch] = 988 if ch == 0 else 1500
         sim.idle(1.0)
+    check("asks for the corners", sim.wait_for("all corners", 5), sim.popup)
+    for ch in range(4):
+        for value in (988, 2012):
+            c.channels[ch] = value
+            sim.idle(0.5)
+        c.channels[ch] = 988 if ch == 0 else 1500
+        sim.idle(0.5)
+    sim.press("enter")
     check("summary shows TAER", sim.wait_for("A2 E3 R4 T1", 5), sim.popup)
     shot("learn_summary")
     sim.press("exit")               # cancel
