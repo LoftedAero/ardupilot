@@ -384,8 +384,10 @@ Each ends with a result the pilot dismisses with OK; Exit cancels.
   1. `Trims set? Hands off sticks`: OK. Every surface output's current
      position becomes its servo trim. A stick more than 15 percent off
      center is refused as a held stick.
-  2. `Now center the TX trims, then OK`: center them; the surfaces stay
-     where they are. OK checks they are centered (`Ch1 trim not
+  2. `Now center the TX trims, then OK`: until you do, the copied trim
+     and the transmitter trim add up, so the surfaces deflect about
+     twice as far; centering the transmitter trims brings them back to
+     the trimmed position. OK checks they are centered (`Ch1 trim not
      centred` otherwise), then shows `Trims copied to N outputs`.
 
   Exit before the last OK undoes the copy.
