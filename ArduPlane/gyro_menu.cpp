@@ -33,6 +33,10 @@ constexpr uint8_t CMD_POLL_INTERVAL = 25;
 constexpr int16_t LEARN_STICK_DELTA = 350;
 constexpr int16_t LEARN_RELEASE_DELTA = 150;
 constexpr int16_t LEARN_SWITCH_DELTA = 300;
+// learned stick and knob endpoints must be at least this far apart (us)
+constexpr int16_t LEARN_MIN_SPAN = 600;
+// a learned stick centre may be this far (percent of travel) from the middle
+constexpr int16_t STICK_CENTRE_TOL_PCT = 5;
 // trim copy: stick offsets above this (percent of throw) are a held stick
 constexpr int16_t TRIM_COPY_MAX_PCT = 15;
 // trim copy: TX trims count as centred within this
@@ -974,8 +978,9 @@ void PlaneGyroMenu::command_start(uint8_t index)
             cmd.base[ch] = RC_Channels::get_radio_in(ch);
         }
         if (item.handler == Handler::LEARN_STICKS) {
-            cmd.stage = Stage::STICK_MOVE;
-            stick_prompt();
+            // the centres are taken at the OK: stick trims become RCn_TRIM
+            cmd.stage = Stage::STICK_CENTER;
+            command_prompt(CMD_CONFIRMATION_NEEDED, "Center sticks & trims, throttle low");
         } else {
             if (item.arg == AUX_ARM) {
                 // flipping the arm switch while it is assigned would arm
@@ -1041,6 +1046,17 @@ void PlaneGyroMenu::mode_watch_prompt()
 void PlaneGyroMenu::stick_prompt()
 {
     command_prompt(CMD_PROGRESS, "%s", stick_prompts[cmd.stick]);
+}
+
+void PlaneGyroMenu::track_sticks()
+{
+    for (uint8_t i = 0; i < 4; i++) {
+        const uint16_t v = RC_Channels::get_radio_in(i);
+        if (v > RC_Channel::RC_MIN_LIMIT_PWM && v < RC_Channel::RC_MAX_LIMIT_PWM) {
+            cmd.lo[i] = MIN(cmd.lo[i], v);
+            cmd.hi[i] = MAX(cmd.hi[i], v);
+        }
+    }
 }
 
 void PlaneGyroMenu::command_confirm()
@@ -1161,16 +1177,62 @@ void PlaneGyroMenu::command_confirm()
         break;
     }
 
+    case Stage::STICK_CENTER:
+        for (uint8_t ch = 0; ch < ARRAY_SIZE(cmd.base); ch++) {
+            cmd.base[ch] = RC_Channels::get_radio_in(ch);
+        }
+        for (uint8_t i = 0; i < 4; i++) {
+            cmd.lo[i] = cmd.hi[i] = cmd.base[i];
+        }
+        cmd.start_ms = AP_HAL::millis();
+        cmd.stage = Stage::STICK_MOVE;
+        stick_prompt();
+        break;
+
+    case Stage::STICK_CORNERS: {
+        for (uint8_t s = 0; s < 4; s++) {
+            const uint8_t i = cmd.stick_ch[s] - 1;
+            if (cmd.hi[i] - cmd.lo[i] < LEARN_MIN_SPAN) {
+                command_prompt(CMD_CONFIRMATION_NEEDED, "Ch%u: move it to both ends, then OK", unsigned(i + 1));
+                return;
+            }
+        }
+        for (uint8_t s = 0; s < 3; s++) {
+            // roll, pitch and yaw centre: where the stick sat at the start
+            const uint8_t i = cmd.stick_ch[s] - 1;
+            const int32_t mid = (int32_t(cmd.lo[i]) + cmd.hi[i]) / 2;
+            if (abs(int32_t(cmd.base[i]) - mid) * 100 > STICK_CENTRE_TOL_PCT * (cmd.hi[i] - cmd.lo[i])) {
+                command_finish("Ch%u not centred at start, retry", unsigned(i + 1));
+                return;
+            }
+        }
+        cmd.stage = Stage::STICK_CONFIRM;
+        command_prompt(CMD_CONFIRMATION_NEEDED, "%c%u %c%u %c%u %c%u Save?",
+                       stick_letters[0], unsigned(cmd.stick_ch[0]),
+                       stick_letters[1], unsigned(cmd.stick_ch[1]),
+                       stick_letters[2], unsigned(cmd.stick_ch[2]),
+                       stick_letters[3], unsigned(cmd.stick_ch[3]));
+        break;
+    }
+
     case Stage::STICK_CONFIRM: {
         bool remapped = false;
         for (uint8_t s = 0; s < 4; s++) {
-            if (uint8_t(param_get(rcmap_params[s])) != cmd.stick_ch[s]) {
+            const uint8_t ch = cmd.stick_ch[s];
+            if (uint8_t(param_get(rcmap_params[s])) != ch) {
                 remapped = true;
             }
-            param_set(rcmap_params[s], cmd.stick_ch[s]);
+            param_set(rcmap_params[s], ch);
             char name[17];
-            hal.util->snprintf(name, sizeof(name), "RC%u_REVERSED", unsigned(cmd.stick_ch[s]));
+            hal.util->snprintf(name, sizeof(name), "RC%u_REVERSED", unsigned(ch));
             param_set(name, cmd.stick_reversed[s] ? 1 : 0);
+            // endpoints as moved; centre (throttle: low) as held at the start
+            hal.util->snprintf(name, sizeof(name), "RC%u_MIN", unsigned(ch));
+            param_set(name, cmd.lo[ch - 1]);
+            hal.util->snprintf(name, sizeof(name), "RC%u_MAX", unsigned(ch));
+            param_set(name, cmd.hi[ch - 1]);
+            hal.util->snprintf(name, sizeof(name), "RC%u_TRIM", unsigned(ch));
+            param_set(name, cmd.base[ch - 1]);
         }
         if (remapped) {
             // a new channel order only takes effect after a restart
@@ -1193,6 +1255,36 @@ void PlaneGyroMenu::command_confirm()
         cmd.saved_arm_ch = 0;
         command_finish("%s: Ch%u", aux_specs[item.arg].label, unsigned(cmd.aux_ch));
         break;
+
+    case Stage::KNOB_LOW:
+        cmd.knob_low = RC_Channels::get_radio_in(cmd.aux_ch - 1);
+        cmd.stage = Stage::KNOB_HIGH;
+        command_prompt(CMD_CONFIRMATION_NEEDED, "Knob to HIGH gain end, then OK");
+        break;
+
+    case Stage::KNOB_HIGH: {
+        const uint16_t high = RC_Channels::get_radio_in(cmd.aux_ch - 1);
+        if (abs(int32_t(high) - cmd.knob_low) < LEARN_MIN_SPAN) {
+            cmd.stage = Stage::KNOB_LOW;
+            command_prompt(CMD_CONFIRMATION_NEEDED, "Turn further. LOW end, then OK");
+            break;
+        }
+        // the knob's ends become the channel's range; low gain at the low
+        // end whichever way the knob turns
+        const uint8_t ch = cmd.aux_ch;
+        char name[17];
+        hal.util->snprintf(name, sizeof(name), "RC%u_MIN", unsigned(ch));
+        param_set(name, MIN(high, cmd.knob_low));
+        hal.util->snprintf(name, sizeof(name), "RC%u_MAX", unsigned(ch));
+        param_set(name, MAX(high, cmd.knob_low));
+        hal.util->snprintf(name, sizeof(name), "RC%u_TRIM", unsigned(ch));
+        param_set(name, (uint32_t(high) + cmd.knob_low) / 2);
+        hal.util->snprintf(name, sizeof(name), "RC%u_REVERSED", unsigned(ch));
+        param_set(name, high < cmd.knob_low ? 1 : 0);
+        set_aux_channel(AUX_GAIN, ch);
+        command_finish("Gain knob: Ch%u%s", unsigned(ch), high < cmd.knob_low ? ", reversed" : "");
+        break;
+    }
 
     default:
         break;
@@ -1258,12 +1350,8 @@ void PlaneGyroMenu::command_poll()
                 cmd.stage = Stage::STICK_MOVE;
                 stick_prompt();
             } else {
-                cmd.stage = Stage::STICK_CONFIRM;
-                command_prompt(CMD_CONFIRMATION_NEEDED, "%c%u %c%u %c%u %c%u Save?",
-                               stick_letters[0], unsigned(cmd.stick_ch[0]),
-                               stick_letters[1], unsigned(cmd.stick_ch[1]),
-                               stick_letters[2], unsigned(cmd.stick_ch[2]),
-                               stick_letters[3], unsigned(cmd.stick_ch[3]));
+                cmd.stage = Stage::STICK_CORNERS;
+                command_prompt(CMD_CONFIRMATION_NEEDED, "Move sticks to all corners, then OK");
             }
         }
         break;
@@ -1298,6 +1386,12 @@ void PlaneGyroMenu::command_poll()
             break;
         }
         cmd.aux_ch = best_ch;
+        if (item.arg == AUX_GAIN) {
+            // learn the knob's ends too: they set its range and direction
+            cmd.stage = Stage::KNOB_LOW;
+            command_prompt(CMD_CONFIRMATION_NEEDED, "Ch%u. Knob to LOW gain end, OK", unsigned(best_ch));
+            break;
+        }
         cmd.stage = Stage::AUX_CONFIRM;
         if (item.arg == AUX_ARM) {
             command_prompt(CMD_CONFIRMATION_NEEDED, "Ch%u: switch it off, then OK", unsigned(best_ch));
@@ -1362,6 +1456,12 @@ void PlaneGyroMenu::update()
 
     if (reboot_at_ms != 0 && AP_HAL::millis() > reboot_at_ms && !armed()) {
         hal.scheduler->reboot(false);
+    }
+
+    // track stick travel while learning: the radio stops polling while a
+    // confirmation is on screen, so this cannot wait for a poll
+    if (cmd.stage == Stage::STICK_MOVE || cmd.stage == Stage::STICK_RELEASE || cmd.stage == Stage::STICK_CORNERS) {
+        track_sticks();
     }
 
     // finish restoring an arm switch once it has been turned off
