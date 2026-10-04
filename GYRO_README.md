@@ -402,20 +402,26 @@ Each ends with a result the pilot dismisses with OK; Exit cancels.
   like a ground station calibration. The flight controller pauses for
   a second or two, so the radio may briefly report lost telemetry.
 - **Learn sticks** measures the sticks: channel order, direction and
-  endpoints.
+  endpoints, in the same steps as the Loft GCS radio calibration.
   1. `Center sticks & trims, throttle low`: OK takes each stick's
      center (and the throttle's low end) here, so center the
      transmitter trims first.
-  2. Move each stick as asked: aileron right, elevator back, rudder
-     right, throttle full.
-  3. `Move sticks to all corners, then OK`: the furthest each stick
-     went becomes its endpoints. A stick that moved less than 600 us
-     is asked for again; a center more than 5 percent off the middle
-     of its travel stops the learning (`Ch1 not centred at start`).
-  4. The order, for example `A2 E3 R4 T1 Save?`: OK saves `RCMAP_*`
+  2. Eight moves, each to the end of the stick's travel and held there
+     for half a second; the next prompt follows on its own: throttle
+     up, rudder right, rudder left (throttle still up), throttle down,
+     aileron right, aileron left, elevator back, elevator forward. The
+     first move of a stick finds its channel (at least 180 us of
+     movement and 90 us more than any other stick) and direction; the
+     second confirms it. The furthest each stick goes becomes its
+     endpoints.
+  3. The order, for example `A2 E3 R4 T1 Save?`: OK saves `RCMAP_*`
      and, for the four stick channels, `RCn_REVERSED`, `RCn_MIN`,
-     `RCn_MAX` and `RCn_TRIM`. If the channel order changed, the
-     flight controller restarts to apply it.
+     `RCn_MAX` and `RCn_TRIM` (the throttle's trim is its low end). If
+     the channel order changed, the flight controller restarts to
+     apply it. A stick that travelled less than 600 us
+     (`Ch1 travel too short, retry`) or whose center is more than 5
+     percent off the middle of its travel
+     (`Ch1 not centred at start, retry`) ends the learning instead.
 - **Learn** for a switch: flip the switch when asked. A channel already
   used by another of these functions is refused. The arm switch is only
   assigned once it is in its off position, because assigning it while

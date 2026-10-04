@@ -208,12 +208,15 @@ reflashed while the script was open, exit it and start it again first.
       while it runs; that is expected.
 - [ ] Same with the arm switch on: `Disarm first`.
 - [ ] 2 Radio, Learn sticks: transmitter trims centered, OK at
-      `Center sticks & trims, throttle low`, follow the stick prompts,
-      move both sticks to every corner, OK. The summary (for example
-      `A1 E2 R4 T3 Save?`) matches your radio's channel order. OK
-      saves; afterwards the stick channels' `RCn_MIN` and `RCn_MAX`
-      match the radio's endpoints (988 and 2011 on ELRS) and `RCn_TRIM`
-      the centers.
+      `Center sticks & trims, throttle low`. Follow the eight prompts,
+      holding each stick at the end until the next prompt appears. The
+      summary (for example `A1 E2 R4 T3 Save?`) matches your radio's
+      channel order. OK saves; afterwards the stick channels' `RCn_MIN`
+      and `RCn_MAX` match the radio's endpoints (988 and 2011 on ELRS)
+      and `RCn_TRIM` the centers (the throttle's: its low end).
+- [ ] Learn sticks again, but hold the aileron stick slightly to one
+      side at the first OK: it ends with `Ch2 not centred at start,
+      retry` (your aileron channel) and saves nothing.
 - [ ] 2 Radio, Learn gain knob: turn the knob, then OK at its low gain
       end and again at its high gain end. `Gain knob: ChN` (with
       `, reversed` when the low end reads high). Turning the knob from

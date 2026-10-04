@@ -250,21 +250,13 @@ try:
     open_entry("Learn sticks")
     check("asks to center the sticks", sim.wait_for("Center sticks", 5), sim.popup)
     sim.press("enter")
-    check("asks for aileron", sim.wait_for("AILERON", 5))
-    shot("learn_aileron")
-    for ch, value in [(1, 2000), (2, 1000), (3, 2000), (0, 2000)]:
+    check("asks for throttle up", sim.wait_for("THROTTLE all the way up", 5), sim.popup)
+    shot("learn_throttle")
+    # TAER: throttle ch1, aileron ch2, elevator ch3 (back reads low), rudder ch4
+    for ch, value in [(0, 2012), (3, 2012), (3, 988), (3, 1500), (0, 988),
+                      (1, 2012), (1, 988), (1, 1500), (2, 988), (2, 2012), (2, 1500)]:
         c.channels[ch] = value
         sim.idle(1.0)
-        c.channels[ch] = 988 if ch == 0 else 1500
-        sim.idle(1.0)
-    check("asks for the corners", sim.wait_for("all corners", 5), sim.popup)
-    for ch in range(4):
-        for value in (988, 2012):
-            c.channels[ch] = value
-            sim.idle(0.5)
-        c.channels[ch] = 988 if ch == 0 else 1500
-        sim.idle(0.5)
-    sim.press("enter")
     check("summary shows TAER", sim.wait_for("A2 E3 R4 T1", 5), sim.popup)
     shot("learn_summary")
     sim.press("exit")               # cancel

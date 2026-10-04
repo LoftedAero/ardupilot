@@ -271,59 +271,49 @@ try:
 
     # 7. stick learning on a TAER radio with a reversed elevator
     learn = find("Learn sticks")
-    c.channels[:4] = [988, 1500, 1500, 1500]          # throttle on ch1, low
+
+    def moves(seq, hold=0.9):
+        # each step completes once its stick is held at the end
+        for ch, value in seq:
+            c.channels[ch] = value
+            time.sleep(hold)
+        return command(learn, CMD_POLL)
+
+    def learn_run(order, centre, ail=(2012, 988), short=False):
+        """order: channel index of (aileron, elevator, rudder, throttle)"""
+        a, e, r, t = order
+        c.channels[:4] = [0, 0, 0, 0]
+        for i, v in zip(order, centre):
+            c.channels[i] = v
+        time.sleep(0.5)
+        command(learn, CMD_START)
+        state = command(learn, CMD_CONFIRM)
+        if short:
+            ail = (1750, 1250)
+        state2 = moves([(t, 2012), (r, 2012), (r, 988), (r, 1500), (t, 988),
+                        (a, ail[0]), (a, ail[1]), (a, centre[0]),
+                        (e, 988), (e, 2012), (e, 1500)])
+        return state, state2
+
+    # 7. TAER radio: elevator back reads low (reversed)
+    c.channels[:4] = [988, 1500, 1500, 1500]
     time.sleep(0.5)
     state = command(learn, CMD_START)
     check("stick learning asks to center", state is not None and "Center sticks" in state[1], state)
-    state = command(learn, CMD_CONFIRM)
-    check("stick learning asks for aileron", state is not None and "AILERON" in state[1], state)
-    # aileron ch2 right, elevator ch3 back (reversed), rudder ch4 right, throttle ch1 full
-    moves = [(1, 2000), (2, 1000), (3, 2000), (0, 2000)]
-    for ch, value in moves:
-        c.channels[ch] = value
-        time.sleep(0.4)
-        state = command(learn, CMD_POLL)
-        c.channels[ch] = 988 if ch == 0 else 1500
-        time.sleep(0.4)
-        state = command(learn, CMD_POLL)
-    check("stick learning asks for the corners", state is not None and "all corners" in state[1], state)
-    state = command(learn, CMD_CONFIRM)                   # each stick only moved one way
-    check("one-way travel is refused", state is not None and "both ends" in state[1], state)
-
-    def sweep(channels, centre):
-        for ch in channels:
-            for value in (988, 2012):
-                c.channels[ch] = value
-                time.sleep(0.3)
-            c.channels[ch] = centre[ch]
-            time.sleep(0.3)
-
-    sweep(range(4), [988, 1500, 1500, 1500])
-    state = command(learn, CMD_CONFIRM)
+    first, state = learn_run((1, 2, 3, 0), (1500, 1500, 1500, 988))
+    check("stick learning starts with the throttle", first is not None and "THROTTLE all the way up" in first[1], first)
     check("stick learning detects TAER", state is not None and state[1] == "A2 E3 R4 T1 Save?", state)
     command(learn, CMD_CANCEL)
     check("cancel leaves channel map alone", get_param("RCMAP_ROLL") == 1)
 
-    # 8. learning on an AETR radio saves reversals and endpoints without a restart
-    def learn_aetr(roll_centre):
-        c.channels[:4] = [roll_centre, 1500, 988, 1500]
-        time.sleep(0.5)
-        command(learn, CMD_START)
-        command(learn, CMD_CONFIRM)
-        for ch, value in [(0, 2000), (1, 1000), (3, 2000), (2, 2000)]:
-            c.channels[ch] = value
-            time.sleep(0.4)
-            command(learn, CMD_POLL)
-            c.channels[ch] = 988 if ch == 2 else (roll_centre if ch == 0 else 1500)
-            time.sleep(0.4)
-            command(learn, CMD_POLL)
-        sweep(range(4), [roll_centre, 1500, 988, 1500])
-        return command(learn, CMD_CONFIRM)
-
-    state = learn_aetr(1600)                               # roll stick held off centre
-    check("off-centre stick is refused", state is not None and "not centred" in state[1], state)
+    # 8. AETR radio: refusals, then a save with endpoints
+    _, state = learn_run((0, 1, 3, 2), (1600, 1500, 1500, 988))   # roll stick held off centre
+    check("off-centre stick is refused", state is not None and state[1] == "Ch1 not centred at start, retry", state)
     command(learn, CMD_CONFIRM)
-    state = learn_aetr(1500)
+    _, state = learn_run((0, 1, 3, 2), (1500, 1500, 1500, 988), short=True)
+    check("short travel is refused", state is not None and state[1] == "Ch1 travel too short, retry", state)
+    command(learn, CMD_CONFIRM)
+    _, state = learn_run((0, 1, 3, 2), (1500, 1500, 1500, 988))
     check("AETR summary", state is not None and state[1] == "A1 E2 R4 T3 Save?", state)
     state = command(learn, CMD_CONFIRM)
     check("AETR learning saves", state is not None and state[1] == "Sticks saved", state)
