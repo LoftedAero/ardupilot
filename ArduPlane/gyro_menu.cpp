@@ -30,8 +30,13 @@ constexpr uint8_t CMD_POLL = 6;
 constexpr uint8_t CMD_POLL_INTERVAL = 25;
 
 // how far (us) a channel must move to count while learning
-constexpr int16_t LEARN_STICK_DELTA = 350;
-constexpr int16_t LEARN_RELEASE_DELTA = 150;
+// stick learning, as the Loft GCS radio calibration: a stick counts once it
+// is this far from its centre and this much further than any other stick,
+// and a step completes once it is held there
+constexpr int16_t STICK_DETECT_US = 180;
+constexpr int16_t STICK_MARGIN_US = 90;
+constexpr int16_t STICK_HOLD_US = 10;
+constexpr uint32_t STICK_HOLD_MS = 500;
 constexpr int16_t LEARN_SWITCH_DELTA = 300;
 // learned stick and knob endpoints must be at least this far apart (us)
 constexpr int16_t LEARN_MIN_SPAN = 600;
@@ -125,14 +130,27 @@ const AuxSpec aux_specs[] = {
     {"Gain knob", "Learn gain knob", "Turn the gain knob", -1},
 };
 
-// stick learning order: roll, pitch, yaw, throttle
-const char *const stick_prompts[] = {
-    "Move AILERON stick right",
-    "Pull ELEVATOR stick back",
-    "Move RUDDER stick right",
-    "Move THROTTLE to full",
-};
+// sticks: 0 roll, 1 pitch, 2 yaw, 3 throttle
 const char *const rcmap_params[] = {"RCMAP_ROLL", "RCMAP_PITCH", "RCMAP_YAW", "RCMAP_THROTTLE"};
+// stick learning steps, in the Loft GCS order: the first move of a stick
+// finds its channel and direction (right, back and full throttle raise
+// the value unless reversed), the second confirms it. The throttle stays
+// up for the rudder steps.
+struct StickStep {
+    uint8_t stick;
+    bool first;
+    const char *prompt;
+};
+const StickStep stick_steps[] = {
+    {3, true, "THROTTLE all the way up, hold"},
+    {2, true, "Throttle up. RUDDER right, hold"},
+    {2, false, "Throttle up. RUDDER left, hold"},
+    {3, false, "THROTTLE all the way down, hold"},
+    {0, true, "AILERON right, hold"},
+    {0, false, "AILERON left, hold"},
+    {1, true, "ELEVATOR back (toward you), hold"},
+    {1, false, "ELEVATOR forward, hold"},
+};
 const char stick_letters[] = {'A', 'E', 'R', 'T'};
 
 // control surface outputs: the ones a trim copy sets
@@ -1043,9 +1061,105 @@ void PlaneGyroMenu::mode_watch_prompt()
     }
 }
 
-void PlaneGyroMenu::stick_prompt()
+void PlaneGyroMenu::step_prompt()
 {
-    command_prompt(CMD_PROGRESS, "%s", stick_prompts[cmd.stick]);
+    command_prompt(CMD_PROGRESS, "%s", stick_steps[cmd.step].prompt);
+}
+
+void PlaneGyroMenu::learn_sticks_step()
+{
+    const uint32_t now = AP_HAL::millis();
+    if (now - cmd.start_ms > LEARN_TIMEOUT_MS) {
+        command_finish("Timed out");
+        return;
+    }
+    // how long each channel has been held where it is
+    int16_t delta[4];
+    for (uint8_t i = 0; i < 4; i++) {
+        const uint16_t v = RC_Channels::get_radio_in(i);
+        if (abs(int32_t(v) - cmd.held_val[i]) > STICK_HOLD_US) {
+            cmd.held_val[i] = v;
+            cmd.held_ms[i] = now;
+        }
+        delta[i] = int16_t(v) - int16_t(cmd.base[i]);
+    }
+
+    const StickStep &step = stick_steps[cmd.step];
+    uint8_t ch = 0;
+    if (step.first) {
+        // the stick channel not yet learned that moved furthest, clearly ahead of the rest
+        int16_t best = 0, second = 0;
+        for (uint8_t c = 1; c <= 4; c++) {
+            bool used = false;
+            for (const StickStep &done : stick_steps) {
+                if (&done == &step) {
+                    break;
+                }
+                used |= done.first && cmd.stick_ch[done.stick] == c;
+            }
+            const int16_t d = abs(delta[c - 1]);
+            if (used) {
+                continue;
+            }
+            if (d > best) {
+                second = best;
+                best = d;
+                ch = c;
+            } else if (d > second) {
+                second = d;
+            }
+        }
+        if (ch == 0 || best < STICK_DETECT_US || best - second < STICK_MARGIN_US) {
+            return;
+        }
+    } else {
+        // the learned channel, back past its centre the other way (the
+        // throttle: back near its low end)
+        ch = cmd.stick_ch[step.stick];
+        const int16_t d = delta[ch - 1];
+        const int16_t span = int16_t(cmd.hi[ch - 1]) - int16_t(cmd.lo[ch - 1]);
+        const bool first_up = !cmd.stick_reversed[step.stick];
+        const bool back = step.stick == 3 ? abs(d) * 5 <= span : (first_up ? d <= -STICK_DETECT_US : d >= STICK_DETECT_US);
+        if (!back) {
+            return;
+        }
+    }
+    if (now - cmd.held_ms[ch - 1] < STICK_HOLD_MS) {
+        return;
+    }
+    if (step.first) {
+        cmd.stick_ch[step.stick] = ch;
+        cmd.stick_reversed[step.stick] = delta[ch - 1] < 0;
+    }
+    cmd.start_ms = now;
+    if (++cmd.step < ARRAY_SIZE(stick_steps)) {
+        step_prompt();
+        return;
+    }
+
+    // all steps done: check the travel and centres before offering to save
+    for (uint8_t s = 0; s < 4; s++) {
+        const uint8_t i = cmd.stick_ch[s] - 1;
+        if (cmd.hi[i] - cmd.lo[i] < LEARN_MIN_SPAN) {
+            command_finish("Ch%u travel too short, retry", unsigned(i + 1));
+            return;
+        }
+    }
+    for (uint8_t s = 0; s < 3; s++) {
+        // roll, pitch and yaw centre: where the stick sat at the start
+        const uint8_t i = cmd.stick_ch[s] - 1;
+        const int32_t mid = (int32_t(cmd.lo[i]) + cmd.hi[i]) / 2;
+        if (abs(int32_t(cmd.base[i]) - mid) * 100 > STICK_CENTRE_TOL_PCT * (cmd.hi[i] - cmd.lo[i])) {
+            command_finish("Ch%u not centred at start, retry", unsigned(i + 1));
+            return;
+        }
+    }
+    cmd.stage = Stage::STICK_CONFIRM;
+    command_prompt(CMD_CONFIRMATION_NEEDED, "%c%u %c%u %c%u %c%u Save?",
+                   stick_letters[0], unsigned(cmd.stick_ch[0]),
+                   stick_letters[1], unsigned(cmd.stick_ch[1]),
+                   stick_letters[2], unsigned(cmd.stick_ch[2]),
+                   stick_letters[3], unsigned(cmd.stick_ch[3]));
 }
 
 void PlaneGyroMenu::track_sticks()
@@ -1182,38 +1296,14 @@ void PlaneGyroMenu::command_confirm()
             cmd.base[ch] = RC_Channels::get_radio_in(ch);
         }
         for (uint8_t i = 0; i < 4; i++) {
-            cmd.lo[i] = cmd.hi[i] = cmd.base[i];
+            cmd.lo[i] = cmd.hi[i] = cmd.held_val[i] = cmd.base[i];
+            cmd.held_ms[i] = AP_HAL::millis();
         }
         cmd.start_ms = AP_HAL::millis();
-        cmd.stage = Stage::STICK_MOVE;
-        stick_prompt();
+        cmd.step = 0;
+        cmd.stage = Stage::STICK_STEP;
+        step_prompt();
         break;
-
-    case Stage::STICK_CORNERS: {
-        for (uint8_t s = 0; s < 4; s++) {
-            const uint8_t i = cmd.stick_ch[s] - 1;
-            if (cmd.hi[i] - cmd.lo[i] < LEARN_MIN_SPAN) {
-                command_prompt(CMD_CONFIRMATION_NEEDED, "Ch%u: move it to both ends, then OK", unsigned(i + 1));
-                return;
-            }
-        }
-        for (uint8_t s = 0; s < 3; s++) {
-            // roll, pitch and yaw centre: where the stick sat at the start
-            const uint8_t i = cmd.stick_ch[s] - 1;
-            const int32_t mid = (int32_t(cmd.lo[i]) + cmd.hi[i]) / 2;
-            if (abs(int32_t(cmd.base[i]) - mid) * 100 > STICK_CENTRE_TOL_PCT * (cmd.hi[i] - cmd.lo[i])) {
-                command_finish("Ch%u not centred at start, retry", unsigned(i + 1));
-                return;
-            }
-        }
-        cmd.stage = Stage::STICK_CONFIRM;
-        command_prompt(CMD_CONFIRMATION_NEEDED, "%c%u %c%u %c%u %c%u Save?",
-                       stick_letters[0], unsigned(cmd.stick_ch[0]),
-                       stick_letters[1], unsigned(cmd.stick_ch[1]),
-                       stick_letters[2], unsigned(cmd.stick_ch[2]),
-                       stick_letters[3], unsigned(cmd.stick_ch[3]));
-        break;
-    }
 
     case Stage::STICK_CONFIRM: {
         bool remapped = false;
@@ -1303,56 +1393,6 @@ void PlaneGyroMenu::command_poll()
             command_finish("Calibration done");
         } else if (state < 0) {
             command_finish("Calibration failed");
-        }
-        break;
-    }
-
-    case Stage::STICK_MOVE: {
-        if (now - cmd.start_ms > LEARN_TIMEOUT_MS) {
-            command_finish("Timed out");
-            break;
-        }
-        // the stick channel that moved furthest, among channels 1-4 not yet learned
-        int16_t best_delta = 0;
-        uint8_t best_ch = 0;
-        for (uint8_t ch = 1; ch <= 4; ch++) {
-            bool used = false;
-            for (uint8_t s = 0; s < cmd.stick; s++) {
-                used |= cmd.stick_ch[s] == ch;
-            }
-            if (used) {
-                continue;
-            }
-            const int16_t delta = int16_t(RC_Channels::get_radio_in(ch - 1)) - int16_t(cmd.base[ch - 1]);
-            if (abs(delta) > abs(best_delta)) {
-                best_delta = delta;
-                best_ch = ch;
-            }
-        }
-        if (abs(best_delta) >= LEARN_STICK_DELTA) {
-            cmd.stick_ch[cmd.stick] = best_ch;
-            // right, back (nose up) and full throttle should all raise the value
-            cmd.stick_reversed[cmd.stick] = best_delta < 0;
-            cmd.stage = Stage::STICK_RELEASE;
-            command_prompt(CMD_PROGRESS, "Ch%u. Now release the stick", unsigned(best_ch));
-        }
-        break;
-    }
-
-    case Stage::STICK_RELEASE: {
-        const uint8_t ch = cmd.stick_ch[cmd.stick];
-        const int16_t delta = int16_t(RC_Channels::get_radio_in(ch - 1)) - int16_t(cmd.base[ch - 1]);
-        // throttle is learned last: no need to wait for it to come back
-        if (abs(delta) <= LEARN_RELEASE_DELTA || cmd.stick == 3) {
-            cmd.stick++;
-            cmd.start_ms = now;
-            if (cmd.stick < 4) {
-                cmd.stage = Stage::STICK_MOVE;
-                stick_prompt();
-            } else {
-                cmd.stage = Stage::STICK_CORNERS;
-                command_prompt(CMD_CONFIRMATION_NEEDED, "Move sticks to all corners, then OK");
-            }
         }
         break;
     }
@@ -1460,8 +1500,11 @@ void PlaneGyroMenu::update()
 
     // track stick travel while learning: the radio stops polling while a
     // confirmation is on screen, so this cannot wait for a poll
-    if (cmd.stage == Stage::STICK_MOVE || cmd.stage == Stage::STICK_RELEASE || cmd.stage == Stage::STICK_CORNERS) {
+    if (cmd.stage == Stage::STICK_STEP || cmd.stage == Stage::STICK_CONFIRM) {
         track_sticks();
+    }
+    if (cmd.stage == Stage::STICK_STEP) {
+        learn_sticks_step();
     }
 
     // finish restoring an arm switch once it has been turned off

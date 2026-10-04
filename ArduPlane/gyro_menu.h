@@ -81,9 +81,7 @@ private:
         ORIENT_LEVEL,       // waiting for OK with the model level
         ORIENT_NOSE_UP,     // waiting for OK with the nose raised
         STICK_CENTER,       // waiting for OK with sticks and trims centred
-        STICK_MOVE,         // waiting for a stick to move
-        STICK_RELEASE,      // waiting for the stick to return
-        STICK_CORNERS,      // waiting for OK after moving the sticks to every corner
+        STICK_STEP,         // waiting for the stick move of the current step
         STICK_CONFIRM,      // learned all sticks, waiting for OK to save
         AUX_MOVE,           // waiting for a switch to move
         AUX_CONFIRM,        // learned a switch, waiting for OK to save
@@ -113,10 +111,12 @@ private:
         uint8_t status;             // CRSF command status to report
         // stick learning
         uint16_t base[16];          // channel values when learning started
-        uint8_t stick;              // 0 roll, 1 pitch, 2 yaw, 3 throttle
+        uint8_t step;               // index into the stick learning steps
         uint8_t stick_ch[4];
         bool stick_reversed[4];
         uint16_t lo[4], hi[4];      // travel seen on channels 1-4 while learning
+        uint16_t held_val[4];       // channels 1-4: value being held, and since when
+        uint32_t held_ms[4];
         // switch learning
         uint8_t aux_ch;
         uint16_t knob_low;          // gain knob value at its low gain end
@@ -149,9 +149,11 @@ private:
     void command_finish(const char *fmt, ...) FMT_PRINTF(2, 3);
     void command_close();
     void command_prompt(uint8_t status, const char *fmt, ...) FMT_PRINTF(3, 4);
-    void stick_prompt();
+    void step_prompt();
     // widen the travel seen on channels 1-4 while learning sticks
     void track_sticks();
+    // complete the current stick learning step once its move is held
+    void learn_sticks_step();
     void mode_watch_prompt();
     void restore_arm_switch();
     // undo a trim copy that was not confirmed
