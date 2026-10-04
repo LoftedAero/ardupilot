@@ -1154,12 +1154,21 @@ void PlaneGyroMenu::learn_sticks_step()
             return;
         }
     }
-    cmd.stage = Stage::STICK_CONFIRM;
-    command_prompt(CMD_CONFIRMATION_NEEDED, "%c%u %c%u %c%u %c%u Save?",
-                   stick_letters[0], unsigned(cmd.stick_ch[0]),
-                   stick_letters[1], unsigned(cmd.stick_ch[1]),
-                   stick_letters[2], unsigned(cmd.stick_ch[2]),
-                   stick_letters[3], unsigned(cmd.stick_ch[3]));
+    // show the endpoints before offering to save
+    cmd.stage = Stage::STICK_REVIEW;
+    cmd.step = 0;
+    review_prompt();
+}
+
+// two sticks' endpoints per page: aileron and elevator, then rudder and throttle
+void PlaneGyroMenu::review_prompt()
+{
+    const uint8_t s = cmd.step * 2;
+    const uint8_t a = cmd.stick_ch[s] - 1;
+    const uint8_t b = cmd.stick_ch[s + 1] - 1;
+    command_prompt(CMD_CONFIRMATION_NEEDED, "Ends %c %u-%u %c %u-%u",
+                   stick_letters[s], unsigned(cmd.lo[a]), unsigned(cmd.hi[a]),
+                   stick_letters[s + 1], unsigned(cmd.lo[b]), unsigned(cmd.hi[b]));
 }
 
 void PlaneGyroMenu::track_sticks()
@@ -1305,6 +1314,19 @@ void PlaneGyroMenu::command_confirm()
         step_prompt();
         break;
 
+    case Stage::STICK_REVIEW:
+        if (++cmd.step < 2) {
+            review_prompt();
+            break;
+        }
+        cmd.stage = Stage::STICK_CONFIRM;
+        command_prompt(CMD_CONFIRMATION_NEEDED, "%c%u %c%u %c%u %c%u Save?",
+                       stick_letters[0], unsigned(cmd.stick_ch[0]),
+                       stick_letters[1], unsigned(cmd.stick_ch[1]),
+                       stick_letters[2], unsigned(cmd.stick_ch[2]),
+                       stick_letters[3], unsigned(cmd.stick_ch[3]));
+        break;
+
     case Stage::STICK_CONFIRM: {
         bool remapped = false;
         for (uint8_t s = 0; s < 4; s++) {
@@ -1372,7 +1394,8 @@ void PlaneGyroMenu::command_confirm()
         hal.util->snprintf(name, sizeof(name), "RC%u_REVERSED", unsigned(ch));
         param_set(name, high < cmd.knob_low ? 1 : 0);
         set_aux_channel(AUX_GAIN, ch);
-        command_finish("Gain knob: Ch%u%s", unsigned(ch), high < cmd.knob_low ? ", reversed" : "");
+        command_finish("Gain knob: Ch%u %u-%u%s", unsigned(ch), unsigned(MIN(high, cmd.knob_low)),
+                       unsigned(MAX(high, cmd.knob_low)), high < cmd.knob_low ? ", reversed" : "");
         break;
     }
 
@@ -1500,7 +1523,7 @@ void PlaneGyroMenu::update()
 
     // track stick travel while learning: the radio stops polling while a
     // confirmation is on screen, so this cannot wait for a poll
-    if (cmd.stage == Stage::STICK_STEP || cmd.stage == Stage::STICK_CONFIRM) {
+    if (cmd.stage == Stage::STICK_STEP) {
         track_sticks();
     }
     if (cmd.stage == Stage::STICK_STEP) {

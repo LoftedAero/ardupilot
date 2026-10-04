@@ -82,6 +82,7 @@ private:
         ORIENT_NOSE_UP,     // waiting for OK with the nose raised
         STICK_CENTER,       // waiting for OK with sticks and trims centred
         STICK_STEP,         // waiting for the stick move of the current step
+        STICK_REVIEW,       // showing the learned endpoints, waiting for OK
         STICK_CONFIRM,      // learned all sticks, waiting for OK to save
         AUX_MOVE,           // waiting for a switch to move
         AUX_CONFIRM,        // learned a switch, waiting for OK to save
@@ -111,7 +112,7 @@ private:
         uint8_t status;             // CRSF command status to report
         // stick learning
         uint16_t base[16];          // channel values when learning started
-        uint8_t step;               // index into the stick learning steps
+        uint8_t step;               // index into the stick learning steps, then the review page
         uint8_t stick_ch[4];
         bool stick_reversed[4];
         uint16_t lo[4], hi[4];      // travel seen on channels 1-4 while learning
@@ -154,6 +155,7 @@ private:
     void track_sticks();
     // complete the current stick learning step once its move is held
     void learn_sticks_step();
+    void review_prompt();
     void mode_watch_prompt();
     void restore_arm_switch();
     // undo a trim copy that was not confirmed
