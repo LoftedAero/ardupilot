@@ -302,6 +302,12 @@ try:
     check("stick learning asks to center", state is not None and "Center sticks" in state[1], state)
     first, state = learn_run((1, 2, 3, 0), (1500, 1500, 1500, 988))
     check("stick learning starts with the throttle", first is not None and "THROTTLE all the way up" in first[1], first)
+    check("review shows aileron and elevator ends", state is not None and state[1] == "Ends A 988-2011 E 988-2011",
+          state)
+    state = command(learn, CMD_CONFIRM)
+    check("review shows rudder and throttle ends", state is not None and state[1] == "Ends R 988-2011 T 988-2011",
+          state)
+    state = command(learn, CMD_CONFIRM)
     check("stick learning detects TAER", state is not None and state[1] == "A2 E3 R4 T1 Save?", state)
     command(learn, CMD_CANCEL)
     check("cancel leaves channel map alone", get_param("RCMAP_ROLL") == 1)
@@ -314,6 +320,8 @@ try:
     check("short travel is refused", state is not None and state[1] == "Ch1 travel too short, retry", state)
     command(learn, CMD_CONFIRM)
     _, state = learn_run((0, 1, 3, 2), (1500, 1500, 1500, 988))
+    command(learn, CMD_CONFIRM)
+    state = command(learn, CMD_CONFIRM)
     check("AETR summary", state is not None and state[1] == "A1 E2 R4 T3 Save?", state)
     state = command(learn, CMD_CONFIRM)
     check("AETR learning saves", state is not None and state[1] == "Sticks saved", state)
@@ -348,7 +356,7 @@ try:
     time.sleep(0.4)
     state = command(learn_knob, CMD_CONFIRM)
     knob = [get_param(n) for n in ("GYRO_GAIN_CH", "RC10_MIN", "RC10_TRIM", "RC10_MAX", "RC10_REVERSED")]
-    check("knob learned reversed", state is not None and state[1] == "Gain knob: Ch10, reversed", state)
+    check("knob learned reversed", state is not None and state[1] == "Gain knob: Ch10 988-2011, reversed", state)
     check("knob range and direction saved", knob[0] == 10 and abs(knob[1] - 988) <= 4 and abs(knob[2] - 1500) <= 4
           and abs(knob[3] - 2012) <= 4 and knob[4] == 1, knob)
     command(learn_knob, CMD_CONFIRM)

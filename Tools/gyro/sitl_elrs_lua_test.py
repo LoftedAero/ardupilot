@@ -257,6 +257,11 @@ try:
                       (1, 2012), (1, 988), (1, 1500), (2, 988), (2, 2012), (2, 1500)]:
         c.channels[ch] = value
         sim.idle(1.0)
+    check("review shows stick ends", sim.wait_for("Ends A", 5), sim.popup)
+    shot("learn_review")
+    sim.press("enter")
+    check("review shows the other ends", sim.wait_for("Ends R", 5), sim.popup)
+    sim.press("enter")
     check("summary shows TAER", sim.wait_for("A2 E3 R4 T1", 5), sim.popup)
     shot("learn_summary")
     sim.press("exit")               # cancel

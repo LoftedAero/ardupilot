@@ -414,7 +414,10 @@ Each ends with a result the pilot dismisses with OK; Exit cancels.
      movement and 90 us more than any other stick) and direction; the
      second confirms it. The furthest each stick goes becomes its
      endpoints.
-  3. The order, for example `A2 E3 R4 T1 Save?`: OK saves `RCMAP_*`
+  3. The measured endpoints, two sticks per screen, for example
+     `Ends A 987-2011 E 987-2011`, then `Ends R ... T ...`: OK to go
+     on, Exit to cancel without saving.
+  4. The order, for example `A2 E3 R4 T1 Save?`: OK saves `RCMAP_*`
      and, for the four stick channels, `RCn_REVERSED`, `RCn_MIN`,
      `RCn_MAX` and `RCn_TRIM` (the throttle's trim is its low end). If
      the channel order changed, the flight controller restarts to
@@ -430,8 +433,9 @@ Each ends with a result the pilot dismisses with OK; Exit cancels.
   `Knob to LOW gain end, OK` and `Knob to HIGH gain end, then OK`. The
   two ends become the channel's `RCn_MIN` and `RCn_MAX` (trim halfway),
   and `RCn_REVERSED` is set when the low gain end reads the higher
-  value, so the knob turns the way you expect. Ends less than 600 us
-  apart are asked for again.
+  value, so the knob turns the way you expect. The result shows the
+  range, for example `Gain knob: Ch9 987-2011` (`, reversed` added when
+  it applies). Ends less than 600 us apart are asked for again.
 - **Check mode switch** shows the mode switch live while it is open,
   for example `Ch6 High: FBWA`. When the plane is flying another mode
   (the RTL switch or a failsafe), it says so: `Ch6 High: FBWA, now RTL`.

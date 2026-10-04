@@ -210,7 +210,9 @@ reflashed while the script was open, exit it and start it again first.
 - [ ] 2 Radio, Learn sticks: transmitter trims centered, OK at
       `Center sticks & trims, throttle low`. Follow the eight prompts,
       holding each stick at the end until the next prompt appears. The
-      summary (for example `A1 E2 R4 T3 Save?`) matches your radio's
+      two `Ends` screens show your radio's endpoints (987-2011 on ELRS);
+      OK through them. The summary (for example `A1 E2 R4 T3 Save?`)
+      matches your radio's
       channel order. OK saves; afterwards the stick channels' `RCn_MIN`
       and `RCn_MAX` match the radio's endpoints (988 and 2011 on ELRS)
       and `RCn_TRIM` the centers (the throttle's: its low end).
@@ -218,8 +220,8 @@ reflashed while the script was open, exit it and start it again first.
       side at the first OK: it ends with `Ch2 not centred at start,
       retry` (your aileron channel) and saves nothing.
 - [ ] 2 Radio, Learn gain knob: turn the knob, then OK at its low gain
-      end and again at its high gain end. `Gain knob: ChN` (with
-      `, reversed` when the low end reads high). Turning the knob from
+      end and again at its high gain end. `Gain knob: ChN 987-2011`
+      (with `, reversed` when the low end reads high). Turning the knob from
       low to high then raises the gain from GYRO_GAIN_MIN to
       GYRO_GAIN_MAX, center 1.0.
 - [ ] 2 Radio, Learn arm switch: flip the arm switch when asked. It
