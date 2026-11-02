@@ -16,6 +16,8 @@
 -- luacheck: only 0
 
 local RUN_INTERVAL_MS = 50            -- main loop period (20 Hz)
+local ERROR_RETRY_MS = 1000           -- loop period after a runtime error (limits error spam)
+local MAV_SEVERITY_ERROR = 3
 local MAV_SEVERITY_INFO = 6
 local MAV_SEVERITY_WARNING = 4
 local MODE_REASON_SCRIPTING = 32      -- ModeReason::SCRIPTING (libraries/AP_Vehicle/ModeReason.h)
@@ -117,7 +119,9 @@ do
                       75/76 = vectored left/right). The script reads this output's PWM
                       (1000..2000) to know when the nacelles are stowed forward and it is safe
                       to close the doors. Watch the TILT_POS telemetry (now the tilt PWM) to
-                      confirm the right function and the fully-forward value.
+                      confirm the right function and the fully-forward value. 0 = no tilt
+                      reading, so the doors never close (function 0 is held by every unused
+                      output, so it can't be read as "unassigned").
       DOOR_TILT_FWD : tilt-output PWM that marks nacelles fully forward (doors may close).
                       Direction is auto-detected: if this is >= 1500 the forward end is high
                       PWM (nacelles fwd when TILT_POS >= this); if < 1500 the forward end is
@@ -167,13 +171,14 @@ local LATCH_PERSIST_MS = 750         -- a partial<->full change must hold this l
 -- runtime state
 local door_last_pos = nil            -- last acted-on selector position (edge trigger)
 local pending_vtol_target = nil      -- VTOL mode awaiting the door-open delay (nil = none)
+local pending_from_mode = nil        -- flight mode when the pending entry began (a change cancels it)
 local door_entry_start = nil         -- millis() when the doors were commanded open for a pending entry
 local vtol_door_partial = false      -- directional-band latch: true when the reduced (partial) opening is selected
 local latch_want_since = nil         -- millis() when the opposite band state first appeared (persistence filter)
 local vtol_reached_full = false      -- true once the doors have opened fully in the current VTOL session
 local door_last_state = nil          -- for edge-triggered gcs:send_text
 local door_warned_nonscript = false
-local door_tilt_pos = 0              -- last read nacelle tilt (0=VTOL .. 1000=forward), for telemetry
+local door_tilt_pos = 0              -- last read nacelle-tilt output PWM (0 = no reading), for telemetry
 local door_lift_pwm = 0              -- last read dedicated lift-motor output PWM, for telemetry
 local door_aspd = nil                -- last airspeed estimate (m/s) this cycle
 local dbg_mode = 0                   -- snapshot of current mode for debug output
@@ -189,6 +194,12 @@ end
 local function door_selected_mode()
    local ch = math.floor(doors.MODE_CH:get() or 0)
    if ch <= 0 then
+      return nil, nil
+   end
+   -- get_pwm returns the raw channel value without checking the link: 0 before the receiver
+   -- connects (= position 1) and receiver-preset values during an RC failsafe. Ignore the
+   -- selector until the input is valid.
+   if not rc:has_valid_input() then
       return nil, nil
    end
    local pwm = rc:get_pwm(ch)
@@ -293,11 +304,17 @@ local function doors_update()
    -- and is independent of Q_ASSIST. "Forward" (doors may close) is the end matching your
    -- firmware: direction is inferred from where DOOR_TILT_FWD sits relative to mid-stick (1500),
    -- so it works whether forward is the high-PWM or the low-PWM end.
-   door_tilt_pos = SRV_Channels:get_output_pwm(math.floor(doors.TILT_FN:get())) or 0
+   -- DOOR_TILT_FN 0 must not be read: function 0 is held by every unused output, so it would
+   -- return a spare channel's PWM, which could look like "forward".
+   local tilt_fn = math.floor(doors.TILT_FN:get())
+   door_tilt_pos = 0
+   if tilt_fn > 0 then
+      door_tilt_pos = SRV_Channels:get_output_pwm(tilt_fn) or 0
+   end
    local tfwd = doors.TILT_FWD:get()
    local nacelles_fwd
    if door_tilt_pos <= 0 then
-      nacelles_fwd = false                       -- no reading (function unassigned): fail-safe open
+      nacelles_fwd = false                       -- no reading (0 or unassigned): fail-safe open
    elseif tfwd >= 1500 then
       nacelles_fwd = door_tilt_pos >= tfwd       -- forward is the high-PWM end
    else
@@ -351,6 +368,7 @@ local function doors_update()
             else
                -- coming from fixed wing: open doors to operating clearance, then enter VTOL
                pending_vtol_target = target
+               pending_from_mode = current
                door_entry_start = now
                dbg("inbound %d: opening doors %.1fs", target, doors.ENTRY_MS:get()/1000.0)
             end
@@ -367,6 +385,13 @@ local function doors_update()
    -- when fast); once they have had DOOR_ENTRY_MS to reach clearance, VTOL is entered - it is
    -- the VTOL mode that then decelerates the aircraft, and the doors open fully later (below)
    -- once airspeed has dropped through DOOR_FULL_AS.
+   -- Any mode change while waiting (MANUAL override, failsafe, GCS) cancels the entry, so the
+   -- script never switches the aircraft out of a mode it didn't set. The pilot re-selects to
+   -- retry.
+   if pending_vtol_target ~= nil and current ~= pending_from_mode then
+      pending_vtol_target = nil
+      gcs:send_text(MAV_SEVERITY_WARNING, "F35B: mode changed, VTOL entry cancelled")
+   end
    if pending_vtol_target ~= nil then
       local pwm = vtol_active_door_pwm(in_vtol)
       door_output(pwm)
@@ -415,7 +440,7 @@ local telem_count = 0
 local DBG_HEARTBEAT_MS = 2000        -- when DOOR_DEBUG > 0, print a status line this often
 local dbg_hb_ms = uint32_t(0)
 
-function update()
+local function update()
    if doors.ENABLE:get() > 0 then
       local state, pwm, delay = doors_update()
       telem_count = telem_count + 1
@@ -435,8 +460,28 @@ function update()
             "F35B hb st=%d t=%d l=%d as=%.1f", state, door_tilt_pos, door_lift_pwm, door_aspd or -1))
       end
    end
-   return update, RUN_INTERVAL_MS
+end
+
+-- After a runtime error, open the doors if VTOL hardware may be in use, so a lift motor
+-- never spins against doors frozen closed. Protected itself: the error may come from a
+-- binding this calls.
+local function error_fallback()
+   if doors.ENABLE:get() > 0 and (quadplane:in_vtol_mode() or quadplane:in_assisted_flight()) then
+      door_output(doors.OPEN:get())
+   end
+end
+
+-- A runtime error would otherwise stop the script and freeze the door output. Report it,
+-- apply the fallback, and keep retrying at a slower rate.
+local function protected_wrapper()
+   local ok, err = pcall(update)
+   if not ok then
+      gcs:send_text(MAV_SEVERITY_ERROR, "F35B: Internal Error: " .. tostring(err))
+      pcall(error_fallback)
+      return protected_wrapper, ERROR_RETRY_MS
+   end
+   return protected_wrapper, RUN_INTERVAL_MS
 end
 
 gcs:send_text(MAV_SEVERITY_INFO, "F35B: script loaded")
-return update()
+return protected_wrapper()

@@ -8,8 +8,9 @@ work, so the context survives between sessions.
 
 - **Preliminary.** Only the DOORS subsystem exists. It has been exercised in SITL, but no
   test results were recorded, so which `F35B_TESTPLAN.md` items pass is unknown.
-- **Not flight-tested.** Fix the safety findings below and work through the test plan
-  before flying it.
+- **Not flight-tested.** Review findings 1–4 were fixed on 2026-11-01 and pass the offline
+  tests, but not yet in SITL. Run the SITL test plan, at least 7f, 8e and 10f, and settle
+  finding 5 before flying it.
 - Developed around July 2026 (files dated 2026-07-05) and committed here on 2026-09-12.
   The original design discussion was not preserved; `F35B.md` and `F35B_TESTPLAN.md` are
   the design record.
@@ -50,15 +51,19 @@ directory, syntax-checks `F35B.lua` with it, then runs `harness.lua`. The harnes
 bindings and drives the script's scheduler through scenarios using the test-plan
 parameters. It exits non-zero if any scenario fails.
 
-**Expected today: 1/4 pass.** The three failures are findings 1 and 2 below. After those
-fixes it should pass 4/4. Add a scenario for each new fix or behavior.
+**Expected: 6/6 pass.** Scenarios 2–6 cover findings 1–4. Each one failed against the
+unfixed script (commit `fe69b53045`: 1/6 pass) and passes after the fixes. Add a scenario for
+each new fix or behavior. To check a different copy of the script, pass its path:
+`run.sh path/to/F35B.lua`.
 
 ArduPilot's Lua strips `print`, `loadfile`, `dofile`, `select` and `os`, so the harness
 uses `io.write`, `io.open` + `load`, and `error()` for the exit status.
 
 ## Review findings (2026-11-01)
 
-### Safety-relevant — fix before flight
+### Safety-relevant
+
+Findings 1–4 were **fixed on 2026-11-01**. Each fix is described under its finding.
 
 1. **A pending VTOL entry overrides a later mode change.** Once an inbound entry is
    pending, `F35B.lua` calls `set_mode(target)` after `DOOR_ENTRY_MS` regardless of what
@@ -66,28 +71,36 @@ uses `io.write`, `io.open` + `load`, and `error()` for the exit status.
    failsafe or GCS changes the mode during the delay, the script switches back into VTOL
    anyway. This breaks the documented "MANUAL is a hard lockout" and "external changes
    are respected" guarantees. *Reproduced by harness scenarios 2 and 3.*
-   Fix: remember the mode when the entry starts, and cancel the pending entry if the
-   current mode differs (or the mode reason is no longer `SCRIPTING`).
+   **Fixed:** the mode at the start of the entry is recorded (`pending_from_mode`), and any
+   change cancels the entry with "mode changed, VTOL entry cancelled". The pilot re-selects
+   to retry. Harness scenarios 2–3; SITL tests 7f, 8e.
 
 2. **The selector is acted on before RC is valid.** `rc:get_pwm()` returns the raw
    channel value and doesn't check for a valid signal. Before the receiver connects it
    reads 0 µs, which is position 1. With the test parameters, the script commands
    QSTABILIZE on its own at boot. *Reproduced by harness scenario 4.* The same gap lets a
    receiver's preset failsafe outputs move the selector during an RC failsafe.
-   Fix: skip selector handling while `rc:has_valid_input()` is false.
+   **Fixed:** the selector is ignored while `rc:has_valid_input()` is false. In ArduPlane
+   that covers RC failsafe, including throttle-detected failsafe, so preset receiver values
+   are ignored too. Harness scenario 4; SITL test 10f. Still to confirm in SITL:
+   `has_valid_input()` is false at boot before any RC has been received.
 
 3. **`DOOR_TILT_FN = 0` is not "unassigned".** Function 0 is held by every unused servo
    output, so `SRV_Channels:get_output_pwm(0)` returns a spare channel's PWM, not nil.
    With forward at the low PWM end (`DOOR_TILT_FWD < 1500`), a spare channel sitting at
    or below `DOOR_TILT_FWD` reads as "nacelles forward", and the doors could close.
-   Found from `SRV_Channels::find_channel` / `update_aux_servo_function`; not covered by the
-   harness yet. Fix: treat `DOOR_TILT_FN <= 0` as no reading, as `DOOR_LIFT_FN` already
-   is.
+   Found from `SRV_Channels::find_channel` / `update_aux_servo_function`.
+   **Fixed:** `DOOR_TILT_FN <= 0` is treated as no reading (doors never close), matching
+   `DOOR_LIFT_FN`. Harness scenario 5; SITL test 10d.
 
 4. **No error protection.** A runtime error stops the script, and the doors hold their
    last PWM. If they're closed and VTOL is later entered reactively (Q_ASSIST, failsafe
-   QLAND/QRTL), the lift motors spin against closed doors. Fix: wrap `update()` in
-   `pcall`, as upstream applets do, so an error is reported and the loop keeps running.
+   QLAND/QRTL), the lift motors spin against closed doors.
+   **Fixed:** `update()` now runs inside `protected_wrapper()` (the `pcall` pattern from
+   upstream applets such as `RockBlock.lua`). An error is reported as "F35B: Internal
+   Error: …" and the loop retries every 1 s. If VTOL is in play (`in_vtol_mode` or
+   `in_assisted_flight`), the doors are driven open, so a persistent error can't hold them
+   closed. Harness scenario 6.
 
 5. **RTL/AUTO auto-transition opens the doors reactively.** Already documented in
    `F35B.md` as unresolved; still open.
@@ -101,8 +114,6 @@ uses `io.write`, `io.open` + `load`, and `error()` for the exit status.
 - After a non-script mode change within VTOL (e.g. a failsafe QLAND from QLOITER), the
   script still sends "VTOL entered externally - opening doors", although the doors are
   already open.
-- Stale comment at the `door_tilt_pos` declaration: it says 0..1000, but the value is now
-  the tilt PWM.
 
 ### Documentation drift
 
@@ -111,11 +122,8 @@ uses `io.write`, `io.open` + `load`, and `error()` for the exit status.
   … immediately", 10e "F35B[dbg]:". The script prints "inbound M: opening doors X.Xs",
   "FW M now", "full latch reset", "VTOL->VTOL M now", with the prefix "F35B ". Section 0
   of the `.md` already lists the current strings.
-- `F35B_TESTPLAN.html` predates the `.md` (its section 0 still has the old strings).
-  Regenerate it from the `.md` or delete it.
-- Test 10d expects `TILT_POS = 0` with `DOOR_TILT_FN = 0`; see finding 3.
-- `F35B.md` behavior row 18 and test 10b say RC loss makes `rc:get_pwm` return nil. It
-  doesn't; see finding 2.
+- `F35B_TESTPLAN.html` predates the `.md`: its section 0 still has the old strings, and it
+  lacks tests 7f, 8e and 10f. Regenerate it from the `.md` or delete it.
 - `F35B.md` Notes say the script "assumes higher scaled tilt = more forward". The script
   auto-detects direction from `DOOR_TILT_FWD`.
 - The test plan has no place to record results. Add a results column, or a dated log
@@ -128,7 +136,8 @@ uses `io.write`, `io.open` + `load`, and `error()` for the exit status.
 
 ## Next steps
 
-1. Fix findings 1–4; `run.sh` should then pass 4/4. Add a harness scenario for finding 3.
+1. Run the SITL test plan with `F35B_TESTPLAN.param` and record the results. Start with
+   7f, 8e, 10d and 10f, which check the 2026-11-01 fixes.
 2. Fix the documentation drift and regenerate or delete the HTML test plan.
-3. Run the SITL test plan with `F35B_TESTPLAN.param` and record the results.
-4. Decide the RTL/AUTO auto-transition mitigation (finding 5) before real flight.
+3. Decide the RTL/AUTO auto-transition mitigation (finding 5) before real flight.
+4. Consider the minor findings, especially checking `set_mode()` return values.

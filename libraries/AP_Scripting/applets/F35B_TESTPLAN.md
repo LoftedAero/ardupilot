@@ -45,7 +45,8 @@ the MANUAL override.
 - `F35B hb st=S t=T l=L as=A` — ~2 s heartbeat (t/l = tilt/lift PWM)
 
 Production (always on): `doors opening…`, `doors open - entering VTOL`, `doors closed`,
-`VTOL entered externally…`, `MANUAL override active - selector ignored`.
+`VTOL entered externally…`, `MANUAL override active - selector ignored`,
+`mode changed, VTOL entry cancelled`, `Internal Error: …`.
 
 ---
 
@@ -121,6 +122,7 @@ Production (always on): `doors opening…`, `doors open - entering VTOL`, `doors
 | 7c | Override back to rest (→FBWA), then select QLOITER. | Selector works again → QLOITER via the normal gate. |
 | 7d | FBWA → override MANUAL. | MANUAL; doors stay closed. |
 | 7e | `param set DOOR_ENABLE 0` (or stop script), flip override to MANUAL. | MANUAL still engages (script-independent). Doors hold last PWM. Re-enable after. |
+| 7f | From FBWA select QLOITER, then flip override to MANUAL before `DOOR_ENTRY_MS` elapses. | `mode changed, VTOL entry cancelled`; **stays MANUAL** — no VTOL entry when the delay would have ended. |
 
 ---
 
@@ -132,6 +134,7 @@ Production (always on): `doors opening…`, `doors open - entering VTOL`, `doors
 | 8b | In QLOITER (selector on QLOITER), `mode FBWA` from GCS. | Mode goes FBWA and **stays** — script does not drag it back. Doors follow the transition. |
 | 8c | AUTO mission with VTOL_TAKEOFF / VTOL_LAND. | Doors track phase; external-VTOL warning on the VTOL legs (reactive, documented). |
 | 8d | RTL that auto-transitions to a VTOL land. | Doors open reactively during the back-transition + warning (known limitation). |
+| 8e | From FBWA select QLOITER, then `mode RTL` from GCS before `DOOR_ENTRY_MS` elapses. | `mode changed, VTOL entry cancelled`; **stays RTL**. |
 
 ---
 
@@ -155,9 +158,10 @@ Production (always on): `doors opening…`, `doors open - entering VTOL`, `doors
 | 10c | Rapidly sweep the selector across all positions. | No stuck/oscillating state, no runaway mode commands. |
 | 10d | `param set DOOR_TILT_FN 0` momentarily. | `TILT_POS`=0 → treated as "deployed" → doors stay open (fail-safe). Restore after. |
 | 10e | `param set DOOR_DEBUG 0`. | Verbose `F35B[dbg]:` messages stop; production event messages remain. |
+| 10f | Start SITL with RC failsafe active (`param set SIM_RC_FAIL 1`, reboot), selector on a VTOL position; then clear it (`SIM_RC_FAIL 0`). | No mode command while RC is invalid. Once RC is valid, the selector acts only when it next **changes** position. |
 
 ---
 
 ## Priority subset (if short on time)
-**1a–1c, 2a, 3a, 3c, 4c, 5a, 5b, 6a, 7a, 7b, 9b** — covers the safety-critical gating (entry
+**1a–1c, 2a, 3a, 3c, 4c, 5a, 5b, 6a, 7a, 7b, 7f, 9b** — covers the safety-critical gating (entry
 delay, both close gates), the edge-trigger and latch fixes, and override independence.

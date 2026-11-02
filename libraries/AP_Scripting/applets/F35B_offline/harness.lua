@@ -30,6 +30,7 @@ local REASON_SCRIPTING = 32
 
 local S       -- simulated vehicle state for the current scenario
 local update  -- the script's scheduled function
+local delay   -- ms until update is due, as returned by the script
 
 -- Fresh vehicle + bindings, then load the applet. Defaults are the
 -- F35B_TESTPLAN.param SITL values: 3-position selector on RC8
@@ -38,7 +39,7 @@ local update  -- the script's scheduled function
 local function new_world(overrides)
    S = {
       now = 0, mode = 5, reason = REASON_RC_COMMAND, in_vtol = false, assisted = false,
-      armed = true, aspd = 20.0, rc = { [8] = 2000 },
+      armed = true, aspd = 20.0, rc = { [8] = 2000 }, rc_valid = true, aspd_error = false,
       srv = { [41] = 1000, [35] = 1000 },
       set_mode_calls = 0, door_pwm = nil,
       P = {
@@ -71,8 +72,16 @@ local function new_world(overrides)
       in_assisted_flight = function() return S.assisted end,
    }
    arming = { is_armed = function() return S.armed end }
-   ahrs = { airspeed_estimate = function() return S.aspd end }
-   rc = { get_pwm = function(_, ch) return S.rc[ch] end }
+   ahrs = {
+      airspeed_estimate = function()
+         if S.aspd_error then error("injected airspeed fault") end
+         return S.aspd
+      end,
+   }
+   rc = {
+      get_pwm = function(_, ch) return S.rc[ch] end,
+      has_valid_input = function() return S.rc_valid end,
+   }
    SRV_Channels = {
       get_output_pwm = function(_, fn) return S.srv[fn] end,
       set_output_pwm = function(_, fn, pwm) if fn == S.P.DOOR_FUNC then S.door_pwm = pwm end end,
@@ -92,15 +101,16 @@ local function new_world(overrides)
       end,
    }
 
-   -- the applet's trailing `return update()` runs its first cycle
-   update = assert(load(SRC, "@F35B.lua"))()
+   -- the applet's trailing `return protected_wrapper()` runs its first cycle
+   update, delay = assert(load(SRC, "@F35B.lua"))()
 end
 
 local function run_until(t_ms)
-   while S.now < t_ms do
-      S.now = S.now + 50
-      update = update()
+   while S.now + delay <= t_ms do
+      S.now = S.now + delay
+      update, delay = update()
    end
+   S.now = t_ms
 end
 
 local function external_mode(m, reason, label)
@@ -149,9 +159,38 @@ local scenarios = {
       name = "boot before the receiver connects commands no mode",
       run = function()
          -- before RC arrives the selector channel reads 0us (= position 1)
-         new_world({ armed = false, aspd = 0, rc = { [8] = 0 } })
+         new_world({ armed = false, aspd = 0, rc = { [8] = 0 }, rc_valid = false })
          run_until(5000)
          return S.set_mode_calls == 0, "no set_mode before valid RC"
+      end,
+   },
+   {
+      name = "DOOR_TILT_FN 0 never reads as nacelles forward",
+      run = function()
+         -- every unused output holds function 0; this spare one sits at the forward end
+         new_world()
+         S.P.DOOR_TILT_FN = 0
+         S.srv[0] = 1000
+         run_until(3000)
+         return S.door_pwm ~= S.P.DOOR_CLOSED, "doors not closed"
+      end,
+   },
+   {
+      name = "runtime error with VTOL in play opens doors and keeps running",
+      run = function()
+         new_world()
+         run_until(1000)
+         local was_closed = (S.door_pwm == S.P.DOOR_CLOSED)
+         external_mode(18, REASON_RC_COMMAND, "GCS")
+         S.aspd_error = true
+         out("    [t=%5.2fs] airspeed binding starts faulting", S.now / 1000)
+         run_until(3000)
+         local opened = (S.door_pwm == S.P.DOOR_OPEN)
+         S.aspd_error = false
+         S.aspd = 3.0
+         run_until(5000)
+         return was_closed and opened and S.door_pwm == S.P.DOOR_OPEN,
+                "doors closed -> open on fault, still open after recovery"
       end,
    },
 }
@@ -159,7 +198,11 @@ local scenarios = {
 local failed = 0
 for i, sc in ipairs(scenarios) do
    out("[%d] %s", i, sc.name)
-   local ok, expect = sc.run()
+   local ran, ok, expect = pcall(sc.run)
+   if not ran then
+      out("    script crashed: %s", tostring(ok))
+      ok, expect = false, "no crash"
+   end
    out("    %s (expected: %s; got %s)", ok and "PASS" or "FAIL", expect, mode_name(S.mode))
    if not ok then failed = failed + 1 end
 end
