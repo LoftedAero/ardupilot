@@ -158,7 +158,7 @@ Production (always on): `doors opening…`, `doors open - entering VTOL`, `doors
 | 10c | Rapidly sweep the selector across all positions. | No stuck/oscillating state, no runaway mode commands. |
 | 10d | `param set DOOR_TILT_FN 0` momentarily. | `TILT_POS`=0 → treated as "deployed" → doors stay open (fail-safe). Restore after. |
 | 10e | `param set DOOR_DEBUG 0`. | Verbose `F35B[dbg]:` messages stop; production event messages remain. |
-| 10f | Start SITL with RC failsafe active (`param set SIM_RC_FAIL 1`, reboot), selector on a VTOL position; then clear it (`SIM_RC_FAIL 0`). | No mode command while RC is invalid. Once RC is valid, the selector acts only when it next **changes** position. |
+| 10f | Start SITL with RC failsafe active (`param set SIM_RC_FAIL 1`, reboot), selector on a VTOL position; then clear it (`SIM_RC_FAIL 0`). | No mode command while RC is invalid. Once RC is valid, the selector position is acted on through the normal gate (as in 9d). |
 
 ---
 

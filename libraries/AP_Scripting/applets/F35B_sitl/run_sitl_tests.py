@@ -1,0 +1,1323 @@
+#!/usr/bin/env python3
+"""
+Automated SITL tests for F35B.lua (DOORS subsystem).
+
+Runs the F35B_TESTPLAN.md checks unattended on the stock quadplane-tilttri
+SITL model (see tilttri.parm for why it stands in for the F-35B). The runner
+launches SITL, sets the DOOR_ parameters, drives the mode selector (RC8),
+the emergency override (RC5) and the sticks with RC overrides, and checks
+flight mode, script messages, door telemetry and the raw servo outputs.
+
+Throughout the run it also checks the core safety rule against the raw
+outputs: the doors are never closed while the nacelles are not forward or the
+lift motor is still powered, and the VTOL hardware never moves while an
+inbound entry is pending. VTOL entries the script cannot withhold (GCS
+command, RTL auto-transition) are reported with the measured door lag
+instead, as the documented limitation.
+
+Results are printed and written to last_results.md next to this file.
+
+usage: run_sitl_tests.py [--speedup N] [--script PATH] [--results FILE]
+                         [--ground-only] [--keep]
+
+Needs a SITL build of this branch: ./waf configure --board sitl && ./waf plane
+"""
+
+import argparse
+import datetime
+import os
+import re
+import shutil
+import subprocess
+import sys
+import tempfile
+import time
+import traceback
+from pathlib import Path
+
+os.environ.setdefault("MAVLINK20", "1")    # servo outputs 9-16 are MAVLink2 extension fields
+from pymavlink import mavutil              # noqa: E402
+
+HERE = Path(__file__).resolve().parent
+APPLETS = HERE.parent
+REPO = APPLETS.parents[2]
+ARDUPLANE = REPO / "build" / "sitl" / "bin" / "arduplane"
+DEFAULTS = [
+    REPO / "Tools" / "autotest" / "default_params" / "quadplane.parm",
+    REPO / "Tools" / "autotest" / "default_params" / "quadplane-tilttri.parm",
+    HERE / "tilttri.parm",
+]
+HOME = "-35.363261,149.165230,584,353"
+MAV_URL = "tcp:127.0.0.1:5760"
+
+# Script parameters, set over MAVLink once the script has created them.
+# The selector mapping matches F35B_TESTPLAN.param: 1000 = QSTABILIZE,
+# 1500 = QLOITER, 2000 = FBWA. TILT_FWD and LIFT_OFF are calibrated at run time.
+DOOR_PARAMS = {
+    "DOOR_ENABLE": 1, "DOOR_MODE_CH": 8,
+    "DOOR_MODE1": 17, "DOOR_MODE2": 17, "DOOR_MODE3": 19, "DOOR_MODE4": 19,
+    "DOOR_MODE5": 5, "DOOR_MODE6": 5,
+    "DOOR_FUNC": 94, "DOOR_CLOSED": 1000, "DOOR_PART": 1500, "DOOR_OPEN": 2000,
+    "DOOR_ENTRY_MS": 3000, "DOOR_PART_AS": 7, "DOOR_FULL_AS": 15,
+    "DOOR_TILT_FN": 41, "DOOR_LIFT_FN": 36, "DOOR_DEBUG": 1,
+}
+
+SEL = {"QSTABILIZE": 1000, "QLOITER": 1500, "FBWA": 2000}
+OVR_REST, OVR_MANUAL = 2000, 1000
+VTOL_MODES = {"QSTABILIZE", "QHOVER", "QLOITER", "QLAND", "QRTL", "QAUTOTUNE", "QACRO", "LOITERALTQLAND"}
+MODE_NAMES = dict(mavutil.mode_mapping_apm)                      # number -> name (ArduPlane)
+MODE_NUMBERS = {name: num for num, name in MODE_NAMES.items()}
+DOOR_ST_NAME = {0: "CLOSED", 1: "PARTIAL", 2: "OPEN", 3: "OPENING"}
+PWM_TOL = 30
+
+
+class TestFail(Exception):
+    pass
+
+
+class Skip(Exception):
+    pass
+
+
+class Abort(Exception):
+    """The flight sequence can't continue (e.g. altitude lost)."""
+
+
+# ---------------------------------------------------------------------------
+# SITL process
+# ---------------------------------------------------------------------------
+class Sitl:
+    def __init__(self, script, speedup, keep):
+        self.speedup = speedup
+        self.keep = keep
+        self.rundir = Path(tempfile.mkdtemp(prefix="f35b_sitl_"))
+        (self.rundir / "scripts").mkdir()
+        shutil.copy(script, self.rundir / "scripts" / "F35B.lua")
+        self.proc = None
+        self.logf = None
+
+    def start(self):
+        if not ARDUPLANE.exists():
+            sys.exit(f"SITL binary not found: {ARDUPLANE}\n"
+                     "Build it first: ./waf configure --board sitl && ./waf plane")
+        cmd = [str(ARDUPLANE), "--model", "quadplane-tilttri", "--speedup", str(self.speedup),
+               "--home", HOME, "--defaults", ",".join(str(p) for p in DEFAULTS), "-I0"]
+        self.logf = open(self.rundir / "sitl.log", "w")
+        # own session, so a reboot (execv) keeps the same process and Ctrl-C reaches only us
+        self.proc = subprocess.Popen(cmd, cwd=self.rundir, stdout=self.logf,
+                                     stderr=subprocess.STDOUT, start_new_session=True)
+
+    def alive(self):
+        return self.proc is not None and self.proc.poll() is None
+
+    def stop(self):
+        if self.proc and self.proc.poll() is None:
+            self.proc.terminate()
+            try:
+                self.proc.wait(5)
+            except subprocess.TimeoutExpired:
+                self.proc.kill()
+        if self.logf:
+            self.logf.close()
+
+    def cleanup(self, failed):
+        if self.keep or failed:
+            print(f"SITL run directory kept: {self.rundir}")
+        else:
+            shutil.rmtree(self.rundir, ignore_errors=True)
+
+
+# ---------------------------------------------------------------------------
+# MAVLink link, vehicle state and the continuous safety monitor
+# ---------------------------------------------------------------------------
+class Link:
+    def __init__(self, speedup):
+        self.speedup = speedup
+        self.m = None
+        self.rc = {1: 1500, 2: 1500, 3: 1000, 4: 1500, 5: OVR_REST, 6: 1000, 7: 1000, 8: SEL["FBWA"]}
+        self.overrides = True
+        self.last_rc = 0.0
+        # simulated time, kept monotonic across reboots
+        self.sim_base = 0
+        self.boot_ms = 0
+        self.sim_ms = 0
+        self.mode = None
+        self.armed = False
+        self.mode_changes = []     # (sim_ms, mode)
+        self.texts = []            # (sim_ms, text)
+        self.nvf = {}              # name -> (value, sim_ms)
+        self.servo = {}
+        self.airspeed = 0.0
+        self.heading = 0
+        self.rel_alt = 0.0
+        self.params = {}
+        # monitor
+        self.chan = {}             # "door"/"tilt"/"lift" -> servo channel
+        self.monitor_on = False
+        self.windows = []          # [start_ms, end_ms or None, label]
+        self.violations = []       # (sim_ms, kind, detail, window label or None)
+        self.samples = []          # (sim_ms, mode, door, tilt, lift, airspeed)
+        self.door_st_last = None
+        self.prev_tilt = None
+
+    # -- connection --------------------------------------------------------
+    def connect(self, wall_timeout=90):
+        deadline = time.time() + wall_timeout
+        last_err = None
+        while time.time() < deadline:
+            try:
+                self.m = mavutil.mavlink_connection(MAV_URL, source_system=255)
+                if self.m.wait_heartbeat(timeout=15):
+                    self.m.mav.request_data_stream_send(self.m.target_system, self.m.target_component,
+                                                        mavutil.mavlink.MAV_DATA_STREAM_ALL, 10, 1)
+                    return
+            except OSError as e:
+                last_err = e
+            time.sleep(1)
+        raise RuntimeError(f"could not connect to SITL on {MAV_URL}: {last_err}")
+
+    def close(self):
+        try:
+            self.m.close()
+        except Exception:
+            pass
+
+    # -- message pump ------------------------------------------------------
+    def pump(self, wall_s=0.05):
+        end = time.time() + wall_s
+        while True:
+            now = time.time()
+            if self.overrides and now - self.last_rc > 0.1:
+                self.send_rc()
+            msg = self.m.recv_match(blocking=True, timeout=0.02)
+            if msg is not None:
+                self.handle(msg)
+            if time.time() >= end:
+                return
+
+    def send_rc(self):
+        self.m.mav.rc_channels_override_send(self.m.target_system, self.m.target_component,
+                                             *[self.rc[i] for i in range(1, 9)])
+        self.last_rc = time.time()
+
+    def handle(self, msg):
+        t = msg.get_type()
+        if t == "BAD_DATA":
+            return
+        tb = getattr(msg, "time_boot_ms", None)
+        if tb is not None and msg.get_srcSystem() == self.m.target_system:
+            if tb + 5000 < self.boot_ms:            # rebooted
+                self.sim_base += self.boot_ms
+            self.boot_ms = tb
+            self.sim_ms = max(self.sim_ms, self.sim_base + tb)
+        if t == "HEARTBEAT":
+            if msg.get_srcComponent() != 1 or msg.type == mavutil.mavlink.MAV_TYPE_GCS:
+                return
+            mode = MODE_NAMES.get(msg.custom_mode, str(msg.custom_mode))
+            if mode != self.mode:
+                self.mode_changes.append((self.sim_ms, mode))
+                self.mode = mode
+            self.armed = bool(msg.base_mode & mavutil.mavlink.MAV_MODE_FLAG_SAFETY_ARMED)
+        elif t == "STATUSTEXT":
+            self.texts.append((self.sim_ms, msg.text))
+        elif t == "NAMED_VALUE_FLOAT":
+            name = msg.name.rstrip("\x00") if isinstance(msg.name, str) else msg.name.decode().rstrip("\x00")
+            self.nvf[name] = (msg.value, self.sim_ms)
+            if name == "DOOR_ST":
+                st = int(round(msg.value))
+                if st != self.door_st_last:
+                    if self.door_st_last is not None:
+                        print(f"      t={self.sim_ms / 1000:7.1f}s  {self.mode or '?':10s} doors "
+                              f"{DOOR_ST_NAME.get(self.door_st_last, '?')} -> {DOOR_ST_NAME.get(st, '?')}"
+                              f"  airspeed {self.airspeed:4.1f}")
+                    self.door_st_last = st
+        elif t == "SERVO_OUTPUT_RAW":
+            if getattr(msg, "port", 0) != 0:
+                return
+            for i in range(1, 17):
+                v = getattr(msg, f"servo{i}_raw", None)
+                if v is not None:
+                    self.servo[i] = v
+            self.check_invariants()
+        elif t == "VFR_HUD":
+            self.airspeed = msg.airspeed
+            self.heading = msg.heading
+        elif t == "GLOBAL_POSITION_INT":
+            self.rel_alt = msg.relative_alt / 1000.0
+        elif t == "PARAM_VALUE":
+            self.params[msg.param_id.rstrip("\x00")] = msg.param_value
+
+    # -- safety monitor ----------------------------------------------------
+    def outputs(self):
+        return (self.servo.get(self.chan.get("door")), self.servo.get(self.chan.get("tilt")),
+                self.servo.get(self.chan.get("lift")))
+
+    def nacelles_fwd(self, tilt):
+        tf = self.params.get("DOOR_TILT_FWD", 1900)
+        return tilt >= tf if tf >= 1500 else tilt <= tf
+
+    def lift_off(self, lift):
+        if self.params.get("DOOR_LIFT_FN", 0) <= 0:
+            return True
+        return lift <= self.params.get("DOOR_LIFT_OFF", 1050)
+
+    def door_is(self, door, which):
+        return door is not None and abs(door - self.params.get(f"DOOR_{which}", 0)) <= PWM_TOL
+
+    def check_invariants(self):
+        door, tilt, lift = self.outputs()
+        if None in (door, tilt, lift):
+            return
+        self.samples.append((self.sim_ms, self.mode, door, tilt, lift, self.airspeed))
+        if not self.monitor_on:
+            return
+        fwd, off = self.nacelles_fwd(tilt), self.lift_off(lift)
+        window = next((w[2] for w in self.windows if w[0] <= self.sim_ms and (w[1] is None or self.sim_ms <= w[1])),
+                      None)
+        if self.door_is(door, "CLOSED") and not (fwd and off):
+            self.violations.append((self.sim_ms, "closed", f"door {door} closed with tilt {tilt}, lift {lift}",
+                                    window))
+        # While an entry is pending (still fixed-wing) the VTOL hardware must not deploy: the
+        # lift motor stays off and the nacelles don't move away from forward. Nacelles still
+        # stowing toward forward (e.g. right after leaving VTOL) are fine.
+        prev, self.prev_tilt = self.prev_tilt, tilt
+        tf = self.params.get("DOOR_TILT_FWD", 1900)
+        deploying = prev is not None and ((tilt < prev - 3) if tf >= 1500 else (tilt > prev + 3))
+        # "Pending" comes from the script's own countdown: with time still remaining on a fresh
+        # VTOL_DLY report, the script cannot have entered VTOL yet. (The mode from HEARTBEAT is
+        # up to 1 s stale, so it can't be used here.)
+        st, st_ms = self.nvf.get("DOOR_ST", (None, 0))
+        dly, dly_ms = self.nvf.get("VTOL_DLY", (0, 0))
+        age = (self.sim_ms - dly_ms) / 1000.0
+        pending = st is not None and int(round(st)) == 3 and self.sim_ms - st_ms <= 250 and dly - age >= 0.1
+        if pending and (deploying or not off):
+            self.violations.append((self.sim_ms, "pending", f"VTOL hardware deployed during pending entry: "
+                                    f"tilt {prev}->{tilt}, lift {lift}", window))
+
+    def open_window(self, label):
+        self.windows.append([self.sim_ms, None, label])
+
+    def close_window(self, extra_s=0.0):
+        self.windows[-1][1] = self.sim_ms + int(extra_s * 1000)
+
+    # -- waiting -----------------------------------------------------------
+    def wait(self, pred, timeout_s):
+        start = self.sim_ms
+        wall_deadline = time.time() + timeout_s / self.speedup * 4 + 20
+        while True:
+            self.pump()
+            if pred():
+                return True
+            if self.sim_ms - start > timeout_s * 1000 or time.time() > wall_deadline:
+                return False
+
+    def sleep(self, s):
+        self.wait(lambda: False, s)
+
+    def hold(self, pred, s):
+        """True if pred stays true for s seconds of sim time."""
+        start = self.sim_ms
+        wall_deadline = time.time() + s / self.speedup * 4 + 20
+        while self.sim_ms - start < s * 1000 and time.time() < wall_deadline:
+            self.pump()
+            if not pred():
+                return False
+        return True
+
+    # -- state accessors ---------------------------------------------------
+    def nv(self, name):
+        return self.nvf.get(name, (None, 0))[0]
+
+    def door_st(self):
+        v = self.nv("DOOR_ST")
+        return None if v is None else int(round(v))
+
+    def texts_since(self, mark):
+        return [txt for (ms, txt) in self.texts if ms >= mark]
+
+    def text_seen(self, pattern, mark):
+        return any(re.search(pattern, txt) for txt in self.texts_since(mark))
+
+    def wait_text(self, pattern, timeout_s, mark):
+        return self.wait(lambda: self.text_seen(pattern, mark), timeout_s)
+
+    def modes_since(self, mark):
+        return [m for (ms, m) in self.mode_changes if ms >= mark]
+
+    # -- commands ----------------------------------------------------------
+    def set_rc(self, **chans):
+        for k, v in chans.items():
+            self.rc[int(k[2:])] = int(v)
+        if self.overrides:
+            self.send_rc()
+
+    def select(self, mode):
+        self.set_rc(ch8=SEL[mode])
+
+    def set_param(self, name, value):
+        for _ in range(5):
+            self.params.pop(name, None)
+            self.m.mav.param_set_send(self.m.target_system, self.m.target_component, name.encode(),
+                                      float(value), mavutil.mavlink.MAV_PARAM_TYPE_REAL32)
+            if self.wait(lambda: name in self.params, 3) and abs(self.params[name] - value) < 1e-3:
+                return
+        raise TestFail(f"could not set {name}={value}")
+
+    def get_param(self, name):
+        for _ in range(5):
+            self.params.pop(name, None)
+            self.m.mav.param_request_read_send(self.m.target_system, self.m.target_component, name.encode(), -1)
+            if self.wait(lambda: name in self.params, 3):
+                return self.params[name]
+        return None
+
+    def command(self, cmd, *p):
+        p = list(p) + [0] * (7 - len(p))
+        self.m.mav.command_long_send(self.m.target_system, self.m.target_component, cmd, 0, *p)
+
+    def gcs_mode(self, name):
+        self.command(mavutil.mavlink.MAV_CMD_DO_SET_MODE,
+                     mavutil.mavlink.MAV_MODE_FLAG_CUSTOM_MODE_ENABLED, MODE_NUMBERS[name])
+
+    def arm(self, timeout_s=150):
+        mark = self.sim_ms
+        while self.sim_ms - mark < timeout_s * 1000:
+            self.command(mavutil.mavlink.MAV_CMD_COMPONENT_ARM_DISARM, 1)
+            if self.wait(lambda: self.armed, 5):
+                return
+        prearm = [t for t in self.texts_since(mark) if "PreArm" in t or "Arm" in t]
+        raise Abort(f"could not arm: {prearm[-1] if prearm else 'no reason given'}")
+
+    def reboot(self):
+        self.command(mavutil.mavlink.MAV_CMD_PREFLIGHT_REBOOT_SHUTDOWN, 1)
+        time.sleep(1.5)
+        self.close()
+        self.connect()
+
+
+# ---------------------------------------------------------------------------
+# Test runner
+# ---------------------------------------------------------------------------
+class Runner:
+    def __init__(self, link, sitl):
+        self.L = link
+        self.sitl = sitl
+        self.results = []         # (id, title, status, detail)
+        self.cal = {}
+        self.flight_abort = None
+
+    # -- bookkeeping -------------------------------------------------------
+    def run(self, tid, title, fn, flight=False):
+        if flight and self.flight_abort:
+            self.record(tid, title, "SKIP", f"flight sequence aborted: {self.flight_abort}")
+            return
+        print(f"  {tid:4s} {title}")
+        try:
+            detail = fn() or ""
+            self.record(tid, title, "PASS", detail)
+        except TestFail as e:
+            self.record(tid, title, "FAIL", str(e))
+        except Skip as e:
+            self.record(tid, title, "SKIP", str(e))
+        except Abort as e:
+            self.flight_abort = str(e)
+            self.record(tid, title, "FAIL", f"aborted flight sequence: {e}")
+        except Exception as e:
+            self.record(tid, title, "ERROR", f"{type(e).__name__}: {e}")
+            traceback.print_exc()
+        if not self.sitl.alive():
+            raise RuntimeError("SITL exited unexpectedly; see sitl.log in the run directory")
+
+    def record(self, tid, title, status, detail):
+        self.results.append((tid, title, status, detail))
+        print(f"  {'':4s} -> {status}  {detail}")
+
+    def check(self, cond, msg):
+        if not cond:
+            raise TestFail(msg)
+
+    # -- shared steps ------------------------------------------------------
+    def ensure_fbwa_closed(self, timeout_s=15):
+        L = self.L
+        L.set_rc(ch5=OVR_REST)
+        L.select("FBWA")
+        if not L.wait(lambda: L.mode == "FBWA", 2):
+            # selector ignored (e.g. external MANUAL) or no edge: toggle the override switch
+            L.set_rc(ch5=OVR_MANUAL)
+            L.sleep(1)
+            L.set_rc(ch5=OVR_REST)
+            if not L.wait(lambda: L.mode == "FBWA", 3):
+                L.gcs_mode("FBWA")
+                L.wait(lambda: L.mode == "FBWA", 3)
+        self.check(L.mode == "FBWA", f"setup: could not get to FBWA (mode {L.mode})")
+        self.check(L.wait(lambda: L.door_st() == 0, timeout_s), f"setup: doors did not close (DOOR_ST {L.door_st()})")
+
+    def enter_vtol_via_selector(self, mode="QLOITER", timeout_s=8):
+        L = self.L
+        L.select(mode)
+        self.check(L.wait(lambda: L.mode == mode, timeout_s), f"could not enter {mode} via the selector (mode {L.mode})")
+
+    def gate(self, target, mark):
+        """Check an inbound entry: OPENING, held in fixed-wing for DOOR_ENTRY_MS, then target."""
+        L = self.L
+        entry_s = L.params["DOOR_ENTRY_MS"] / 1000.0
+        self.check(L.wait(lambda: L.door_st() == 3, 1.5), f"doors not OPENING (DOOR_ST {L.door_st()})")
+        self.check(L.wait_text(r"doors opening", 2, mark), "no 'doors opening' message")
+        self.check(L.hold(lambda: L.mode not in VTOL_MODES, entry_s - 0.4 - (L.sim_ms - mark) / 1000.0),
+                   f"entered {L.mode} before the door delay ended")
+        self.check(L.wait(lambda: L.mode == target, 2.5), f"did not enter {target} after the delay (mode {L.mode})")
+        entered = next(ms for ms, m in reversed(L.mode_changes) if m == target)
+        self.check(L.text_seen(r"doors open - entering VTOL", mark), "no 'doors open - entering VTOL' message")
+        return (entered - mark) / 1000.0
+
+    def no_violations_since(self, mark):
+        bad = [v for v in self.L.violations if v[0] >= mark and v[3] is None]
+        self.check(not bad, f"{len(bad)} safety violation(s), first at t={bad[0][0] / 1000:.1f}s: {bad[0][2]}"
+                   if bad else "")
+
+    def debounce_delay(self, mark, door_is, crossed):
+        """Seconds from the airspeed crossing a threshold to the door changing.
+
+        door_is(door) is true once the door has changed; crossed(airspeed) is true on the far
+        side of the threshold. The script needs the crossing to persist for 0.75 s."""
+        samples = [s for s in self.L.samples if s[0] >= mark]
+        change = next((i for i, s in enumerate(samples) if door_is(s[2])), None)
+        if change is None:
+            return None, None, None
+        start = change
+        while start > 0 and crossed(samples[start - 1][5]):
+            start -= 1
+        if start == 0 and crossed(samples[0][5]):
+            return None, samples[change][5], None
+        return (samples[change][0] - samples[start][0]) / 1000.0, samples[change][5], samples[start][5]
+
+    def check_alt(self, min_alt=8):
+        if self.L.rel_alt < min_alt:
+            raise Abort(f"altitude {self.L.rel_alt:.1f} m below {min_alt} m in {self.L.mode}")
+
+    # -- setup -------------------------------------------------------------
+    def setup(self):
+        L = self.L
+        print("Setting up: waiting for the script and setting DOOR_ parameters")
+        if not L.wait(lambda: L.text_seen(r"F35B: script loaded", 0), 60):
+            if L.get_param("DOOR_ENABLE") is None:
+                raise RuntimeError("F35B.lua did not load (no 'script loaded' message, no DOOR_ENABLE)")
+        for name, value in DOOR_PARAMS.items():
+            L.set_param(name, value)
+        functions = {}
+        for ch in range(1, 17):
+            functions[ch] = L.get_param(f"SERVO{ch}_FUNCTION")
+        for key, fn in (("door", DOOR_PARAMS["DOOR_FUNC"]), ("tilt", DOOR_PARAMS["DOOR_TILT_FN"]),
+                        ("lift", DOOR_PARAMS["DOOR_LIFT_FN"])):
+            ch = next((c for c, f in functions.items() if f is not None and int(f) == fn), None)
+            if ch is None:
+                raise RuntimeError(f"no servo output with function {fn} for the {key}")
+            L.chan[key] = ch
+        self.ensure_fbwa_closed_initial()
+        L.sleep(2)
+        door, tilt, lift = L.outputs()
+        self.cal.update(tilt_fwd=tilt, lift_stopped=lift)
+        L.set_param("DOOR_TILT_FWD", tilt - 50 if tilt >= 1500 else tilt + 50)
+        L.set_param("DOOR_LIFT_OFF", lift + 30)
+        self.check(L.wait(lambda: L.door_st() == 0, 10), "doors did not close after calibration")
+        L.monitor_on = True
+        print(f"  outputs: door SERVO{L.chan['door']}, tilt SERVO{L.chan['tilt']}, lift SERVO{L.chan['lift']}; "
+              f"tilt forward {tilt}, lift stopped {lift}")
+
+    def ensure_fbwa_closed_initial(self):
+        L = self.L
+        if not L.wait(lambda: L.mode == "FBWA", 10):
+            L.set_rc(ch5=OVR_MANUAL)
+            L.sleep(1)
+            L.set_rc(ch5=OVR_REST)
+            L.wait(lambda: L.mode == "FBWA", 5)
+        if L.mode != "FBWA":
+            raise RuntimeError(f"vehicle not in FBWA after boot (mode {L.mode})")
+
+    # -- ground tests (disarmed) -------------------------------------------
+    def t_1a(self):
+        L = self.L
+        self.check(L.wait(lambda: L.nv("TILT_POS") is not None, 3), "no TILT_POS telemetry")
+        tp, tilt = L.nv("TILT_POS"), L.outputs()[1]
+        self.check(tp > 0, f"TILT_POS is {tp}: DOOR_TILT_FN is wrong")
+        self.check(abs(tp - tilt) <= 5, f"TILT_POS {tp} does not match SERVO{L.chan['tilt']} {tilt}")
+        return f"TILT_POS {tp:.0f} = tilt output, nacelles forward"
+
+    def t_1d(self):
+        L = self.L
+        ok = L.hold(lambda: L.door_st() == 0 and L.door_is(L.outputs()[0], "CLOSED"), 5)
+        self.check(ok, f"DOOR_ST/door output changed while idle (DOOR_ST {L.door_st()}, door {L.outputs()[0]})")
+        return "closed and stable for 5 s"
+
+    def t_2a(self):
+        L = self.L
+        self.check(L.get_param("FLTMODE_CH") != L.params["DOOR_MODE_CH"], "FLTMODE_CH equals DOOR_MODE_CH")
+        L.set_param("DOOR_ENABLE", 0)
+        try:
+            ok = True
+            for pwm in (1000, 1500, 2000):
+                L.set_rc(ch8=pwm)
+                ok = ok and L.hold(lambda: L.mode == "FBWA", 2)
+            self.check(ok, f"mode changed to {L.mode} with the script disabled: the selector reaches the autopilot")
+        finally:
+            L.set_rc(ch8=SEL["FBWA"])
+            L.set_param("DOOR_ENABLE", 1)
+        return f"FLTMODE_CH {L.params['FLTMODE_CH']:.0f} != DOOR_MODE_CH 8; selector sweep alone changed nothing"
+
+    def t_9c(self):
+        L = self.L
+        self.ensure_fbwa_closed()
+        mark = L.sim_ms
+        L.select("QLOITER")
+        delay = self.gate("QLOITER", mark)
+        return f"held FBWA, entered QLOITER after {delay:.1f} s"
+
+    def t_9a(self):
+        L = self.L
+        self.check(L.mode == "QLOITER", f"expected QLOITER from 9c, in {L.mode}")
+        # DOOR_ST is reported at 5 Hz, so the last report can still be OPENING
+        self.check(L.wait(lambda: L.door_st() in (1, 2), 1), f"doors not open (DOOR_ST {L.door_st()})")
+        self.check(L.hold(lambda: L.door_st() in (1, 2), 3), f"doors not open (DOOR_ST {L.door_st()})")
+        return f"doors {DOOR_ST_NAME[L.door_st()]} while disarmed in QLOITER"
+
+    def t_9b(self):
+        L = self.L
+        mark = L.sim_ms
+        L.select("FBWA")
+        self.check(L.wait(lambda: L.mode == "FBWA", 1), f"FBWA not immediate (mode {L.mode})")
+        self.check(L.wait(lambda: L.door_st() == 0, 10), f"doors did not close (DOOR_ST {L.door_st()})")
+        self.no_violations_since(mark)
+        return f"FBWA immediately, doors closed after {(L.sim_ms - mark) / 1000:.1f} s"
+
+    def t_6b(self):
+        L = self.L
+        self.ensure_fbwa_closed()
+        mark = L.sim_ms
+        L.select("QLOITER")
+        L.sleep(1)
+        L.select("FBWA")
+        self.check(L.hold(lambda: L.mode == "FBWA", 6), f"entered {L.mode} after the entry was cancelled")
+        self.check(not L.text_seen(r"entering VTOL", mark), "VTOL entry happened")
+        self.check(L.wait(lambda: L.door_st() == 0, 5), "doors did not close")
+        return "pending entry cancelled, stayed FBWA, doors closed"
+
+    def t_6c(self):
+        L = self.L
+        self.ensure_fbwa_closed()
+        mark = L.sim_ms
+        L.select("QSTABILIZE")
+        L.sleep(1.5)
+        L.select("QLOITER")
+        L.sleep(0.6)
+        dly = L.nv("VTOL_DLY")
+        self.check(dly is not None and dly >= 2.0, f"timer did not restart (VTOL_DLY {dly})")
+        self.check(L.wait(lambda: L.mode == "QLOITER", 4), f"did not end in QLOITER (mode {L.mode})")
+        self.check("QSTABILIZE" not in L.modes_since(mark), "passed through QSTABILIZE")
+        L.select("FBWA")
+        self.check(L.wait(lambda: L.door_st() == 0, 10), "doors did not close afterwards")
+        return f"retargeted to QLOITER, timer restarted (VTOL_DLY {dly:.1f} s)"
+
+    def t_6d(self):
+        L = self.L
+        self.ensure_fbwa_closed()
+        L.set_param("DOOR_MODE5", 0)          # selector position 5 -> MANUAL for this test
+        try:
+            closed = lambda: L.door_st() == 0   # noqa: E731
+            L.set_rc(ch8=1700)
+            self.check(L.wait(lambda: L.mode == "MANUAL", 1), f"FBWA->MANUAL not immediate (mode {L.mode})")
+            self.check(L.hold(closed, 2), "doors moved")
+            L.select("FBWA")
+            self.check(L.wait(lambda: L.mode == "FBWA", 1), f"MANUAL->FBWA not immediate (mode {L.mode})")
+            self.check(L.hold(closed, 2), "doors moved")
+        finally:
+            L.set_param("DOOR_MODE5", 5)
+        return "FBWA->MANUAL->FBWA immediate, doors stayed closed"
+
+    def t_7f(self):
+        L = self.L
+        self.ensure_fbwa_closed()
+        mark = L.sim_ms
+        L.select("QLOITER")
+        L.sleep(1)
+        L.set_rc(ch5=OVR_MANUAL)
+        self.check(L.wait_text(r"VTOL entry cancelled", 2, mark), "no 'VTOL entry cancelled' message")
+        self.check(L.hold(lambda: L.mode == "MANUAL", 5), f"left MANUAL: now {L.mode}")
+        self.check(not any(m in VTOL_MODES for m in L.modes_since(mark)), "a VTOL mode was entered")
+        return "entry cancelled, stayed MANUAL"
+
+    def t_7b(self):
+        L = self.L
+        self.check(L.mode == "MANUAL", f"expected MANUAL from 7f, in {L.mode}")
+        mark = L.sim_ms
+        L.select("QSTABILIZE")
+        self.check(L.wait_text(r"MANUAL override active", 2, mark), "no 'MANUAL override active' message")
+        self.check(L.hold(lambda: L.mode == "MANUAL" and L.door_st() == 0, 4),
+                   f"mode {L.mode}, DOOR_ST {L.door_st()}")
+        return "selector ignored in MANUAL, doors stayed closed"
+
+    def t_7c(self):
+        L = self.L
+        L.set_rc(ch5=OVR_REST)
+        self.check(L.wait(lambda: L.mode == "FBWA", 2), f"override rest did not give FBWA (mode {L.mode})")
+        mark = L.sim_ms
+        L.select("QLOITER")
+        delay = self.gate("QLOITER", mark)
+        L.select("FBWA")
+        self.check(L.wait(lambda: L.door_st() == 0, 10), "doors did not close afterwards")
+        return f"selector works again: QLOITER via the gate after {delay:.1f} s"
+
+    def t_7d(self):
+        L = self.L
+        self.ensure_fbwa_closed()
+        L.set_rc(ch5=OVR_MANUAL)
+        self.check(L.wait(lambda: L.mode == "MANUAL", 2), f"no MANUAL (mode {L.mode})")
+        self.check(L.hold(lambda: L.door_st() == 0, 3), "doors moved")
+        L.set_rc(ch5=OVR_REST)
+        L.wait(lambda: L.mode == "FBWA", 2)
+        return "MANUAL, doors stayed closed"
+
+    def t_7e(self):
+        L = self.L
+        self.ensure_fbwa_closed()
+        before = L.outputs()[0]
+        L.set_param("DOOR_ENABLE", 0)
+        try:
+            L.set_rc(ch5=OVR_MANUAL)
+            self.check(L.wait(lambda: L.mode == "MANUAL", 2), f"MANUAL did not engage (mode {L.mode})")
+            self.check(L.hold(lambda: L.outputs()[0] == before, 3), f"door output changed from {before}")
+        finally:
+            L.set_param("DOOR_ENABLE", 1)
+            L.set_rc(ch5=OVR_REST)
+            L.wait(lambda: L.mode == "FBWA", 2)
+        return f"MANUAL engaged with the script disabled; door held {before}"
+
+    def t_8e(self):
+        L = self.L
+        self.ensure_fbwa_closed()
+        L.set_param("Q_RTL_MODE", 0)          # keep RTL from switching to QRTL on the ground
+        try:
+            mark = L.sim_ms
+            L.select("QLOITER")
+            L.sleep(1)
+            L.gcs_mode("RTL")
+            self.check(L.wait_text(r"VTOL entry cancelled", 2, mark), "no 'VTOL entry cancelled' message")
+            self.check(L.hold(lambda: L.mode == "RTL", 5), f"left RTL: now {L.mode}")
+            self.check(not any(m in VTOL_MODES for m in L.modes_since(mark)), "a VTOL mode was entered")
+        finally:
+            L.set_param("Q_RTL_MODE", 1)
+            L.gcs_mode("FBWA")
+            L.wait(lambda: L.mode == "FBWA", 2)
+            L.select("FBWA")
+        return "entry cancelled, stayed RTL"
+
+    def t_8a(self):
+        L = self.L
+        self.ensure_fbwa_closed()
+        mark = L.sim_ms
+        L.open_window("8a GCS QHOVER")
+        L.gcs_mode("QHOVER")
+        self.check(L.wait(lambda: L.mode == "QHOVER", 2), f"no QHOVER (mode {L.mode})")
+        self.check(L.wait_text(r"VTOL entered externally", 2, mark), "no 'VTOL entered externally' warning")
+        self.check(L.wait(lambda: L.door_st() in (1, 2), 1.5), f"doors did not open (DOOR_ST {L.door_st()})")
+        L.close_window(3)
+        L.gcs_mode("FBWA")
+        self.check(L.wait(lambda: L.mode == "FBWA" and L.door_st() == 0, 10), "did not return to FBWA, doors closed")
+        return "warning sent, doors opened reactively"
+
+    def t_8b(self):
+        L = self.L
+        self.ensure_fbwa_closed()
+        self.enter_vtol_via_selector("QLOITER")
+        L.gcs_mode("FBWA")
+        self.check(L.wait(lambda: L.mode == "FBWA", 2), f"GCS FBWA not applied (mode {L.mode})")
+        self.check(L.hold(lambda: L.mode == "FBWA", 5), f"script dragged the mode back to {L.mode}")
+        self.check(L.wait(lambda: L.door_st() == 0, 10), "doors did not close")
+        L.select("FBWA")
+        return "GCS FBWA respected with the selector still on QLOITER"
+
+    def t_5c(self):
+        L = self.L
+        self.ensure_fbwa_closed()
+        good = L.params["DOOR_TILT_FWD"]
+        L.monitor_on = False
+        try:
+            L.set_param("DOOR_TILT_FWD", 2100 if good >= 1500 else 900)
+            self.check(L.wait(lambda: L.door_st() in (1, 2), 2), "doors did not open")
+            self.check(L.hold(lambda: L.door_st() in (1, 2), 5), "doors closed although nacelles never read forward")
+        finally:
+            L.set_param("DOOR_TILT_FWD", good)
+            L.wait(lambda: L.door_st() == 0, 5)
+            L.monitor_on = True
+        return "doors stayed open (fail-safe)"
+
+    def t_10a(self):
+        L = self.L
+        self.ensure_fbwa_closed()
+        mark = L.sim_ms
+        L.set_param("DOOR_MODE_CH", 0)
+        try:
+            L.select("QLOITER")
+            self.check(L.hold(lambda: L.mode == "FBWA" and L.door_st() == 0, 4), f"mode {L.mode}, DOOR_ST {L.door_st()}")
+            self.check(not L.text_seen(r"Internal Error", mark), "script error")
+        finally:
+            L.select("FBWA")
+            L.sleep(0.5)
+            L.set_param("DOOR_MODE_CH", 8)
+        self.check(L.hold(lambda: L.mode == "FBWA", 2), "mode changed when gating was restored")
+        return "no gating, doors tracked phase, no errors"
+
+    def t_10c(self):
+        L = self.L
+        self.ensure_fbwa_closed()
+        mark = L.sim_ms
+        for pwm in (1000, 1500, 2000, 1500, 1000, 2000, 1500):
+            L.set_rc(ch8=pwm)
+            L.sleep(0.3)
+        self.check(L.wait(lambda: L.mode == "QLOITER", 5), f"did not settle in QLOITER (mode {L.mode})")
+        self.check("QSTABILIZE" not in L.modes_since(mark), "entered QSTABILIZE during the sweep")
+        self.check(not L.text_seen(r"Internal Error", mark), "script error")
+        L.select("FBWA")
+        self.check(L.wait(lambda: L.door_st() == 0, 10), "doors did not close afterwards")
+        return "settled in the final selection (QLOITER) only"
+
+    def t_10d(self):
+        L = self.L
+        self.ensure_fbwa_closed()
+        L.monitor_on = False
+        try:
+            L.set_param("DOOR_TILT_FN", 0)
+            self.check(L.wait(lambda: L.nv("TILT_POS") == 0, 1.5), f"TILT_POS {L.nv('TILT_POS')}, expected 0")
+            self.check(L.wait(lambda: L.door_st() in (1, 2), 2), "doors did not open")
+            self.check(L.hold(lambda: L.door_st() in (1, 2), 3), "doors closed with no tilt reading")
+        finally:
+            L.set_param("DOOR_TILT_FN", 41)
+            L.wait(lambda: L.door_st() == 0, 5)
+            L.monitor_on = True
+        return "TILT_POS 0, doors stayed open (fail-safe)"
+
+    def t_10e(self):
+        L = self.L
+        mark = L.sim_ms
+        self.check(L.wait_text(r"^F35B hb", 4, mark), "no debug heartbeat with DOOR_DEBUG 1")
+        L.set_param("DOOR_DEBUG", 0)
+        try:
+            L.sleep(0.5)
+            mark = L.sim_ms
+            L.sleep(5)
+            dbg = [t for t in L.texts_since(mark) if t.startswith("F35B ")]
+            self.check(not dbg, f"debug output with DOOR_DEBUG 0: {dbg[0]}" if dbg else "")
+        finally:
+            L.set_param("DOOR_DEBUG", 1)
+        return "debug output stops with DOOR_DEBUG 0"
+
+    def t_4e(self):
+        L = self.L
+        self.ensure_fbwa_closed()
+        part_as = L.params["DOOR_PART_AS"]
+        L.monitor_on = False
+        try:
+            # no tilt reading keeps the doors "active" outside VTOL, so the outbound threshold
+            # applies; a headwind at that speed holds the airspeed estimate on the threshold
+            L.set_param("DOOR_TILT_FN", 0)
+            L.set_param("SIM_WIND_T", 1)          # constant wind: the default profile is ~0 at ground level
+            L.set_param("SIM_WIND_DIR", L.heading)
+            wind = part_as
+            for _ in range(3):
+                # the airspeed estimate reads below the wind speed; scale the wind until it sits
+                # on the threshold
+                L.set_param("SIM_WIND_SPD", wind)
+                L.sleep(5)
+                recent = [s[5] for s in L.samples[-20:]]
+                mean = sum(recent) / len(recent)
+                if abs(mean - part_as) < 0.15 or mean <= 0.5:
+                    break
+                wind = round(wind * part_as / mean, 2)
+            mark = L.sim_ms
+            L.sleep(30)
+            window = [s for s in L.samples if s[0] >= mark]
+            doors = [s[2] for s in window]
+            changes = sum(1 for a, b in zip(doors, doors[1:]) if abs(a - b) > PWM_TOL)
+            speeds = [s[5] for s in window]
+            lo, hi = min(speeds), max(speeds)
+            if not (lo <= part_as <= hi):
+                raise Skip(f"airspeed {lo:.1f}-{hi:.1f} m/s never crossed {part_as} m/s")
+            self.check(changes <= 4, f"{changes} door changes in 30 s (airspeed {lo:.1f}-{hi:.1f} m/s)")
+        finally:
+            L.set_param("SIM_WIND_SPD", 0)
+            L.set_param("SIM_WIND_T", 0)
+            L.set_param("DOOR_TILT_FN", 41)
+            L.wait(lambda: L.door_st() == 0, 5)
+            L.monitor_on = True
+        return f"{changes} door change(s) in 30 s with airspeed {lo:.1f}-{hi:.1f} m/s around {part_as} m/s"
+
+    def t_9d(self):
+        L = self.L
+        self.ensure_fbwa_closed()
+        self.enter_vtol_via_selector("QLOITER")
+        L.monitor_on = False
+        L.reboot()
+        mark = L.sim_ms
+        self.check(L.wait_text(r"F35B: script loaded", 30, mark - 1), "script did not load after reboot")
+        L.monitor_on = True
+        self.check(L.wait_text(r"doors opening", 15, mark), "no gated entry after reboot")
+        self.check(L.wait(lambda: L.mode == "QLOITER", 10), f"did not enter QLOITER (mode {L.mode})")
+        self.check(L.text_seen(r"doors open - entering VTOL", mark), "VTOL entered without the gate")
+        L.select("FBWA")
+        self.check(L.wait(lambda: L.door_st() == 0, 10), "doors did not close afterwards")
+        return "after reboot on QLOITER: gated entry, no instant VTOL"
+
+    def t_10f(self):
+        L = self.L
+        self.ensure_fbwa_closed()
+        # Boot into FBWA: with the default INITIAL_MODE (MANUAL) the MANUAL lockout would hide
+        # a script that acts on the selector before RC is valid. Before RC arrives the selector
+        # reads 0 us (position 1 = QSTABILIZE).
+        initial_mode = L.get_param("INITIAL_MODE")
+        L.set_param("INITIAL_MODE", MODE_NUMBERS["FBWA"])
+        L.set_param("SIM_RC_FAIL", 1)
+        L.overrides = False
+        L.monitor_on = False
+        try:
+            L.reboot()
+            mark = L.sim_ms
+            self.check(L.wait_text(r"F35B: script loaded", 30, mark - 1), "script did not load after reboot")
+            L.monitor_on = True
+            L.sleep(10)
+            self.check(L.mode == "FBWA", f"booted into {L.mode}, not FBWA")
+            self.check(not L.text_seen(r"doors opening", mark), "script acted on the selector without RC")
+            self.check(not any(m in VTOL_MODES for m in L.modes_since(mark)), "a VTOL mode was entered without RC")
+        finally:
+            L.set_param("SIM_RC_FAIL", 0)
+            L.set_param("INITIAL_MODE", initial_mode)
+            L.overrides = True
+            L.set_rc(ch5=OVR_REST, ch8=SEL["FBWA"])
+            L.sleep(3)
+        self.ensure_fbwa_closed()
+        return "booted into FBWA without RC: no selector action for 10 s"
+
+    # -- flight tests ------------------------------------------------------
+    def f_takeoff(self):
+        L = self.L
+        self.ensure_fbwa_closed()
+        self.enter_vtol_via_selector("QLOITER")
+        L.set_rc(ch3=1000)
+        L.arm()
+        L.set_rc(ch3=1800)
+        if not L.wait(lambda: L.rel_alt >= 50, 60):
+            raise Abort(f"climb stalled at {L.rel_alt:.1f} m")
+        L.set_rc(ch3=1500)
+        L.sleep(3)
+        return f"armed in QLOITER, hovering at {L.rel_alt:.0f} m"
+
+    def f_1b(self):
+        L = self.L
+        tilt = L.outputs()[1]
+        self.cal["tilt_hover"] = tilt
+        self.check(abs(tilt - self.cal["tilt_fwd"]) > 100, f"tilt output {tilt} barely moved from forward "
+                   f"{self.cal['tilt_fwd']}")
+        return f"TILT_POS {L.nv('TILT_POS'):.0f} in hover vs {self.cal['tilt_fwd']} forward"
+
+    def f_1c(self):
+        L = self.L
+        lift = L.outputs()[2]
+        self.cal["lift_hover"] = lift
+        stopped = self.cal["lift_stopped"]
+        self.check(lift > stopped + 50, f"lift output {lift} in hover, {stopped} stopped")
+        lift_off = round(stopped + 0.3 * (lift - stopped))
+        fwd, hover = self.cal["tilt_fwd"], self.cal["tilt_hover"]
+        tilt_fwd = round(fwd - max(20, 0.05 * abs(fwd - hover)) * (1 if fwd > hover else -1))
+        L.set_param("DOOR_LIFT_OFF", lift_off)
+        L.set_param("DOOR_TILT_FWD", tilt_fwd)
+        self.cal.update(lift_off=lift_off, tilt_fwd_param=tilt_fwd)
+        return f"LIFT_PWM {lift} hover vs {stopped} stopped; set DOOR_LIFT_OFF {lift_off}, DOOR_TILT_FWD {tilt_fwd}"
+
+    def f_3c(self):
+        """Outbound; also records the data for 4a, 5a and 5b."""
+        L = self.L
+        mark = L.sim_ms
+        L.set_rc(ch3=1900)
+        L.select("FBWA")
+        self.check(L.wait(lambda: L.mode == "FBWA", 1), f"FBWA not immediate (mode {L.mode})")
+        start = L.sim_ms
+        while L.sim_ms - start < 90000 and L.door_st() != 0:
+            L.pump()
+            self.check_alt()
+        self.check(L.door_st() == 0, f"doors never closed (DOOR_ST {L.door_st()}, airspeed {L.airspeed:.1f})")
+        # all timings from the same servo samples: first closed sample, and when the nacelles
+        # last arrived forward / the lift motor last stopped before it
+        samples = [s for s in L.samples if s[0] >= mark]
+        close_i = next(i for i, s in enumerate(samples) if L.door_is(s[2], "CLOSED"))
+
+        def arrived(ok):
+            i = close_i
+            while i > 0 and ok(samples[i - 1]):
+                i -= 1
+            return samples[i][0] if ok(samples[i]) else None
+        self.outbound = dict(mark=mark, close_ms=samples[close_i][0],
+                             tilt_fwd_ms=arrived(lambda s: L.nacelles_fwd(s[3])),
+                             lift_off_ms=arrived(lambda s: L.lift_off(s[4])))
+        close_ms = samples[close_i][0]
+        self.no_violations_since(mark)
+        return f"FBWA immediately; doors closed {(close_ms - mark) / 1000:.1f} s later at {L.airspeed:.1f} m/s"
+
+    def f_4a(self):
+        L = self.L
+        o = getattr(self, "outbound", None)
+        if not o:
+            raise Skip("no outbound data (3c failed)")
+        part = L.params["DOOR_PART_AS"]
+        delay, at, crossed_at = self.debounce_delay(o["mark"], lambda d: L.door_is(d, "PART"), lambda a: a >= part)
+        self.check(at is not None, "doors never went partial on the way out")
+        self.check(delay is not None, f"partial at {at:.1f} m/s but airspeed never crossed {part:.0f} m/s first")
+        self.check(0.5 <= delay <= 1.5, f"partial {delay:.2f} s after crossing {part:.0f} m/s (expected ~0.75 s)")
+        return (f"partial {delay:.2f} s after airspeed crossed DOOR_PART_AS {part:.0f} m/s "
+                f"(debounce 0.75 s; {at:.1f} m/s by then, accelerating)")
+
+    def f_5a(self):
+        o = getattr(self, "outbound", None)
+        if not o:
+            raise Skip("no outbound data (3c failed)")
+        self.check(o["tilt_fwd_ms"] is not None, "doors closed with the nacelles not forward")
+        self.check(o["close_ms"] >= o["tilt_fwd_ms"], "doors closed before the nacelles were forward")
+        return (f"nacelles forward at +{(o['tilt_fwd_ms'] - o['mark']) / 1000:.1f} s, "
+                f"doors closed at +{(o['close_ms'] - o['mark']) / 1000:.1f} s")
+
+    def f_5b(self):
+        o = getattr(self, "outbound", None)
+        if not o:
+            raise Skip("no outbound data (3c failed)")
+        self.check(o["lift_off_ms"] is not None, "doors closed with the lift motor running")
+        self.check(o["close_ms"] >= o["lift_off_ms"], "doors closed while the lift motor was running")
+        return (f"lift motor off at +{(o['lift_off_ms'] - o['mark']) / 1000:.1f} s, "
+                f"doors closed at +{(o['close_ms'] - o['mark']) / 1000:.1f} s")
+
+    def f_cruise(self):
+        L = self.L
+        L.set_rc(ch1=1650)                     # gentle turn to stay near home
+        ok = True
+        start = L.sim_ms
+        while L.sim_ms - start < 15000:
+            L.pump()
+            self.check_alt()
+            ok = ok and L.door_st() == 0
+        L.set_rc(ch1=1500)
+        L.sleep(2)
+        self.check(ok, "doors opened during cruise")
+        return f"doors closed through 15 s of cruise at {L.airspeed:.1f} m/s, {L.rel_alt:.0f} m"
+
+    def f_3a(self):
+        """Fast inbound entry; also records the data for 4b."""
+        L = self.L
+        fast = L.airspeed
+        mark = L.sim_ms
+        L.set_rc(ch3=1500)
+        L.select("QLOITER")
+        self.check(L.wait(lambda: L.door_st() == 3, 1), f"doors not OPENING (DOOR_ST {L.door_st()})")
+        partial = L.wait(lambda: L.door_is(L.outputs()[0], "PART"), 1.5)
+        partial_ms = L.sim_ms
+        delay = self.gate("QLOITER", mark)
+        full_as = None
+        start = L.sim_ms
+        while L.sim_ms - start < 40000:
+            L.pump()
+            self.check_alt()
+            if L.door_is(L.outputs()[0], "OPEN"):
+                full_as = L.airspeed
+                break
+        self.inbound = dict(full_as=full_as, mark=mark)
+        self.no_violations_since(mark)
+        self.check(partial, f"doors did not go partial during a fast entry ({fast:.1f} m/s)")
+        self.check(full_as is not None, f"doors never opened fully (airspeed {L.airspeed:.1f})")
+        self.check(L.text_seen(r"doors latched FULL", mark), "no 'doors latched FULL' debug message")
+        return (f"from {fast:.1f} m/s: partial after {(partial_ms - mark) / 1000:.1f} s, held FBWA, "
+                f"QLOITER after {delay:.1f} s, full at {full_as:.1f} m/s; no VTOL motion before the mode change")
+
+    def f_4b(self):
+        L = self.L
+        i = getattr(self, "inbound", None)
+        if not i or i["full_as"] is None:
+            raise Skip("no inbound data (3a failed)")
+        full = L.params["DOOR_FULL_AS"]
+        delay, at, _ = self.debounce_delay(i["mark"], lambda d: L.door_is(d, "OPEN"), lambda a: a < full)
+        self.check(delay is not None, f"full at {at} m/s but airspeed never crossed {full:.0f} m/s first")
+        self.check(0.5 <= delay <= 1.5, f"full {delay:.2f} s after crossing {full:.0f} m/s (expected ~0.75 s)")
+        return (f"full {delay:.2f} s after airspeed fell through DOOR_FULL_AS {full:.0f} m/s "
+                f"(debounce 0.75 s; {at:.1f} m/s by then, decelerating)")
+
+    def f_4c(self):
+        L = self.L
+        L.wait(lambda: L.airspeed < 5, 30)
+        self.check(L.door_st() == 2, f"doors not full in hover (DOOR_ST {L.door_st()})")
+        full = L.params["DOOR_FULL_AS"]
+        L.set_param("SIM_WIND_T", 1)
+        L.set_param("SIM_WIND_DIR", L.heading)
+        try:
+            wind = None
+            for wind in (full + 5, full + 9, full + 13):
+                L.set_param("SIM_WIND_SPD", wind)
+                if L.wait(lambda: L.airspeed > full + 1, 15):
+                    break
+                self.check_alt()
+            if L.airspeed <= full + 1:
+                raise Skip(f"airspeed only reached {L.airspeed:.1f} m/s in a {wind:.0f} m/s headwind")
+            peak = [L.airspeed]
+
+            def full_and_track():
+                peak[0] = max(peak[0], L.airspeed)
+                return L.door_st() == 2
+            self.check(L.hold(full_and_track, 10), f"doors went {DOOR_ST_NAME.get(L.door_st())} at "
+                       f"{L.airspeed:.1f} m/s after latching full")
+        finally:
+            L.set_param("SIM_WIND_SPD", 0)
+            L.set_param("SIM_WIND_T", 0)
+            L.wait(lambda: L.airspeed < 5, 30)
+        return f"stayed full for 10 s at up to {peak[0]:.1f} m/s (above DOOR_FULL_AS {full:.0f})"
+
+    def f_6a(self):
+        L = self.L
+        mark = L.sim_ms
+        L.select("QSTABILIZE")
+        self.check(L.wait(lambda: L.mode == "QSTABILIZE", 1), f"VTOL->VTOL not immediate (mode {L.mode})")
+        self.check(not L.text_seen(r"doors opening", mark), "went through the door delay")
+        L.sleep(2)
+        self.check_alt()
+        L.select("QLOITER")
+        self.check(L.wait(lambda: L.mode == "QLOITER", 1), f"back to QLOITER not immediate (mode {L.mode})")
+        self.check(L.door_st() in (1, 2), "doors not open")
+        return "QLOITER->QSTABILIZE->QLOITER immediate, no delay"
+
+    def f_7a(self):
+        L = self.L
+        L.set_rc(ch3=1800)
+        L.wait(lambda: L.rel_alt >= 80, 40)
+        L.set_rc(ch3=1500)
+        L.sleep(2)
+        mark = L.sim_ms
+        L.set_rc(ch5=OVR_MANUAL)
+        self.check(L.wait(lambda: L.mode == "MANUAL", 1), f"MANUAL not immediate (mode {L.mode})")
+        L.set_rc(ch3=1800)
+        start = L.sim_ms
+        while L.sim_ms - start < 30000 and L.door_st() != 0:
+            L.pump()
+            self.check_alt()
+        self.check(L.door_st() == 0, f"doors did not close in MANUAL (DOOR_ST {L.door_st()})")
+        closed_s = (L.sim_ms - mark) / 1000
+        self.no_violations_since(mark)
+        L.set_rc(ch5=OVR_REST, ch3=1900)
+        self.check(L.wait(lambda: L.mode == "FBWA", 2), f"override rest did not give FBWA (mode {L.mode})")
+        start = L.sim_ms
+        while L.sim_ms - start < 10000:
+            L.pump()
+            self.check_alt()
+        return f"MANUAL immediately; doors closed after {closed_s:.1f} s once nacelles forward and lift off"
+
+    def f_4d(self):
+        L = self.L
+        mark_reset = getattr(self, "inbound", {}).get("mark", 0)
+        self.check(L.text_seen(r"full latch reset", mark_reset), "no 'full latch reset' after leaving VTOL")
+        L.select("FBWA")                       # FBWA already: makes the next move an edge
+        L.sleep(0.5)
+        fast = L.airspeed
+        mark = L.sim_ms
+        L.set_rc(ch3=1500)
+        L.select("QLOITER")
+        self.check(L.wait(lambda: L.door_st() == 3, 1), "doors not OPENING")
+        first_full = L.door_is(L.outputs()[0], "OPEN")
+        partial = L.wait(lambda: L.door_is(L.outputs()[0], "PART"), 1.5)
+        partial_s = (L.sim_ms - mark) / 1000
+        self.gate("QLOITER", mark)
+        self.check(L.wait(lambda: L.door_st() == 2, 40), "doors did not latch full again")
+        self.no_violations_since(mark)
+        self.check(partial, f"doors did not go partial on the fast re-entry ({fast:.1f} m/s)")
+        note = " (commanded full for the first 0.75 s: the debounce starts from full)" if first_full else ""
+        return f"latch reset seen; re-entry at {fast:.1f} m/s went partial after {partial_s:.1f} s{note}"
+
+    def f_3d(self):
+        got = {tid: status for tid, _, status, _ in self.results}
+        parts = ["3c", "3a", "7a", "4d"]
+        bad = [p for p in parts if got.get(p) != "PASS"]
+        self.check(not bad, f"depends on {', '.join(bad)}")
+        return "FBWA->QLOITER->hover->FBWA->cruise and back, all legs passed"
+
+    def f_8d(self):
+        L = self.L
+        L.set_rc(ch3=1900)
+        L.select("FBWA")
+        self.check(L.wait(lambda: L.mode == "FBWA", 1), f"no FBWA (mode {L.mode})")
+        start = L.sim_ms
+        while L.sim_ms - start < 90000 and L.door_st() != 0:
+            L.pump()
+            self.check_alt()
+        self.check(L.door_st() == 0, "doors did not close on the way out")
+        start = L.sim_ms
+        while L.sim_ms - start < 20000:
+            L.pump()
+            self.check_alt()
+        mark = L.sim_ms
+        L.open_window("8d RTL auto-transition")
+        L.gcs_mode("RTL")
+        self.check(L.wait(lambda: L.mode == "RTL", 2), f"no RTL (mode {L.mode})")
+        self.check(L.wait(lambda: L.mode == "QRTL", 150), f"RTL never switched to QRTL (mode {L.mode})")
+        qrtl_ms = L.sim_ms
+        self.check(L.wait_text(r"VTOL entered externally", 3, mark), "no 'VTOL entered externally' warning")
+        self.check(L.wait(lambda: L.door_st() in (1, 2), 3), "doors did not open in QRTL")
+        L.close_window(10)
+        # door lag: first sample with VTOL hardware active vs first sample with the doors open
+        active = [s for s in L.samples if s[0] >= mark and not (L.nacelles_fwd(s[3]) and L.lift_off(s[4]))]
+        opened = [s for s in L.samples if s[0] >= mark and not L.door_is(s[2], "CLOSED")]
+        lag = (opened[0][0] - active[0][0]) / 1000 if active and opened else None
+        if not L.wait(lambda: not L.armed, 240):
+            raise Abort(f"QRTL did not land and disarm (alt {L.rel_alt:.1f} m)")
+        L.set_rc(ch3=1000)
+        if lag is None:
+            lag_txt = "door lag not measured"
+        else:
+            when = f"{lag:.1f} s after" if lag > 0 else "no later than"
+            lag_txt = (f"doors commanded open {when} the VTOL hardware started moving (10 Hz samples), but "
+                       f"physical door travel still lags (documented limitation)")
+        return f"RTL switched to QRTL after {(qrtl_ms - mark) / 1000:.0f} s, warning sent; {lag_txt}; landed"
+
+    # -- whole-run check ---------------------------------------------------
+    def t_monitor(self):
+        L = self.L
+        bad = [v for v in L.violations if v[3] is None]
+        expected = [v for v in L.violations if v[3] is not None]
+        self.check(not bad, f"{len(bad)} violation(s); first at t={bad[0][0] / 1000:.1f}s: {bad[0][2]}" if bad else "")
+        return (f"{len(L.samples)} output samples; doors never closed on active VTOL hardware and nothing moved "
+                f"during a pending entry; {len(expected)} sample(s) inside the documented external-entry windows")
+
+
+# ---------------------------------------------------------------------------
+def write_results(path, runner, args, started, wall_s):
+    L = runner.L
+    counts = {}
+    for _, _, status, _ in runner.results:
+        counts[status] = counts.get(status, 0) + 1
+    try:
+        rev = subprocess.run(["git", "-C", str(REPO), "log", "-1", "--format=%h %s"], capture_output=True,
+                             text=True).stdout.strip()
+    except Exception:
+        rev = "?"
+    lines = [
+        "# F35B.lua SITL results",
+        "",
+        f"- Run: {started:%Y-%m-%d %H:%M}, {wall_s / 60:.1f} min wall time, speedup {args.speedup}",
+        f"- Script: `{os.path.relpath(args.script, REPO)}` at `{rev}`",
+        "- Model: stock `quadplane-tilttri` with `F35B_sitl/tilttri.parm` (logic test, not F-35B dynamics)",
+        f"- Totals: " + ", ".join(f"{k} {v}" for k, v in sorted(counts.items())),
+        "",
+        "Calibration: " + ", ".join(f"{k} {v}" for k, v in runner.cal.items()),
+        "",
+        "| ID | Test | Result | Detail |",
+        "|----|------|--------|--------|",
+    ]
+    for tid, title, status, detail in runner.results:
+        lines.append(f"| {tid} | {title} | {status} | {detail.replace('|', '/')} |")
+    lines += ["", "Not automated: 3b (the model stalls above DOOR_PART_AS, so a slow fixed-wing entry is "
+              "impossible), 8c (AUTO mission), 10b (RC failsafe in flight).", ""]
+    if L.violations:
+        lines += ["## Safety monitor events", ""]
+        for ms, kind, detail, window in L.violations[:40]:
+            lines.append(f"- t={ms / 1000:.1f}s {kind}: {detail}" + (f" (expected: {window})" if window else ""))
+        lines.append("")
+    Path(path).write_text("\n".join(lines))
+
+
+def main():
+    ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    ap.add_argument("--speedup", type=int, default=5, help="SITL speedup (default 5)")
+    ap.add_argument("--script", default=str(APPLETS / "F35B.lua"), help="F35B.lua to test")
+    ap.add_argument("--results", default=str(HERE / "last_results.md"), help="Markdown results file")
+    ap.add_argument("--ground-only", action="store_true", help="skip the flight tests")
+    ap.add_argument("--keep", action="store_true", help="keep the SITL run directory (logs, eeprom)")
+    args = ap.parse_args()
+    sys.stdout.reconfigure(line_buffering=True)
+    args.script = str(Path(args.script).resolve())
+
+    started = datetime.datetime.now()
+    t0 = time.time()
+    sitl = Sitl(args.script, args.speedup, args.keep)
+    link = Link(args.speedup)
+    runner = Runner(link, sitl)
+    failed = True
+    try:
+        sitl.start()
+        link.connect()
+        runner.setup()
+
+        print("Ground tests (disarmed)")
+        for tid, title, fn in [
+            ("1a", "Telemetry: TILT_POS matches the tilt output", runner.t_1a),
+            ("1d", "DOOR_ST stable while idle", runner.t_1d),
+            ("2a", "Selector alone cannot change the mode", runner.t_2a),
+            ("9c", "Disarmed FBWA -> QLOITER goes through the door gate", runner.t_9c),
+            ("9a", "Disarmed in a VTOL mode: doors open", runner.t_9a),
+            ("9b", "Disarmed -> FBWA: doors close once nacelles forward", runner.t_9b),
+            ("6b", "Selector moved away during a pending entry cancels it", runner.t_6b),
+            ("6c", "New VTOL selection during a pending entry retargets it", runner.t_6c),
+            ("6d", "Fixed-wing to fixed-wing via the selector", runner.t_6d),
+            ("7f", "MANUAL override during a pending entry cancels it", runner.t_7f),
+            ("7b", "Selector ignored in MANUAL", runner.t_7b),
+            ("7c", "Override back to rest re-enables the selector", runner.t_7c),
+            ("7d", "FBWA -> MANUAL override: doors stay closed", runner.t_7d),
+            ("7e", "MANUAL override works with the script disabled", runner.t_7e),
+            ("8e", "GCS mode change during a pending entry cancels it", runner.t_8e),
+            ("8a", "GCS VTOL mode: warning, doors open reactively", runner.t_8a),
+            ("8b", "GCS FBWA respected with the selector on VTOL", runner.t_8b),
+            ("5c", "Nacelles never forward: doors never close", runner.t_5c),
+            ("10a", "DOOR_MODE_CH 0: no gating, no errors", runner.t_10a),
+            ("10c", "Rapid selector sweep", runner.t_10c),
+            ("10d", "DOOR_TILT_FN 0: no reading, doors stay open", runner.t_10d),
+            ("10e", "DOOR_DEBUG 0 silences debug output", runner.t_10e),
+            ("4e", "No door chatter at a steady threshold airspeed", runner.t_4e),
+            ("9d", "Reboot with the selector on QLOITER: gated entry", runner.t_9d),
+            ("10f", "Boot without RC: selector ignored", runner.t_10f),
+        ]:
+            runner.run(tid, title, fn)
+
+        if not args.ground_only:
+            print("Flight tests")
+            for tid, title, fn in [
+                ("F0", "Arm in QLOITER and climb to 50 m", runner.f_takeoff),
+                ("1b", "TILT_POS moves with the nacelles in hover", runner.f_1b),
+                ("1c", "LIFT_PWM: lift motor running vs stopped; calibrate", runner.f_1c),
+                ("3c", "Outbound: QLOITER -> FBWA", runner.f_3c),
+                ("4a", "Outbound partial airspeed ~ DOOR_PART_AS", runner.f_4a),
+                ("5a", "Close waits for nacelles forward", runner.f_5a),
+                ("5b", "Close waits for the lift motor to stop", runner.f_5b),
+                ("F1", "Cruise: doors stay closed", runner.f_cruise),
+                ("3a", "Fast inbound: FBWA -> QLOITER through the gate", runner.f_3a),
+                ("4b", "Inbound full airspeed ~ DOOR_FULL_AS", runner.f_4b),
+                ("4c", "Latched full: fast airflow in VTOL keeps doors full", runner.f_4c),
+                ("6a", "VTOL -> VTOL switch is immediate", runner.f_6a),
+                ("7a", "MANUAL override in hover", runner.f_7a),
+                ("4d", "Latch resets per VTOL session", runner.f_4d),
+                ("3d", "Full round trip", runner.f_3d),
+                ("8d", "RTL auto-transition to QRTL (documented limitation)", runner.f_8d),
+            ]:
+                runner.run(tid, title, fn, flight=True)
+
+        runner.run("INV", "Safety monitor over the whole run", runner.t_monitor)
+        failed = any(r[2] in ("FAIL", "ERROR") for r in runner.results)
+    except KeyboardInterrupt:
+        print("interrupted")
+    except Exception as e:
+        print(f"run aborted: {type(e).__name__}: {e}")
+        traceback.print_exc()
+    finally:
+        wall = time.time() - t0
+        link.close() if link.m else None
+        sitl.stop()
+        if runner.results:
+            write_results(args.results, runner, args, started, wall)
+            print(f"\nResults written to {args.results}")
+        counts = {}
+        for r in runner.results:
+            counts[r[2]] = counts.get(r[2], 0) + 1
+        print("Summary: " + (", ".join(f"{k} {v}" for k, v in sorted(counts.items())) or "no results"))
+        sitl.cleanup(failed)
+    sys.exit(1 if failed else 0)
+
+
+if __name__ == "__main__":
+    main()

@@ -8,9 +8,10 @@ work, so the context survives between sessions.
 
 - **Preliminary.** Only the DOORS subsystem exists. It has been exercised in SITL, but no
   test results were recorded, so which `F35B_TESTPLAN.md` items pass is unknown.
-- **Not flight-tested.** Review findings 1–4 were fixed on 2026-11-01 and pass the offline
-  tests, but not yet in SITL. Run the SITL test plan, at least 7f, 8e and 10f, and settle
-  finding 5 before flying it.
+- **Not flight-tested.** Review findings 1–4 were fixed on 2026-11-01. On 2026-11-02 the
+  automated SITL suite passed 42/42 on the stand-in tiltrotor model (`F35B_sitl/last_results.md`);
+  the unfixed script fails 7f, 8e and 10f there. Settle finding 5 and test on the F-35B
+  itself (RealFlight, then hardware) before flying it.
 - Developed around July 2026 (files dated 2026-07-05) and committed here on 2026-09-12.
   The original design discussion was not preserved; `F35B.md` and `F35B_TESTPLAN.md` are
   the design record.
@@ -25,6 +26,7 @@ work, so the context survives between sessions.
 | `F35B_TESTPLAN.html` | Older rendering of the test plan; out of date (see below) |
 | `F35B_TESTPLAN.param` | SITL parameter set the test plan assumes (its "consolidated list") |
 | `F35B_offline/` | Offline syntax check and behavioral tests (`run.sh`) |
+| `F35B_sitl/` | Automated SITL test runner, its parameters, and `last_results.md` |
 
 ### SITL test parameters (`F35B_TESTPLAN.param`)
 
@@ -59,6 +61,44 @@ each new fix or behavior. To check a different copy of the script, pass its path
 ArduPilot's Lua strips `print`, `loadfile`, `dofile`, `select` and `os`, so the harness
 uses `io.write`, `io.open` + `load`, and `error()` for the exit status.
 
+## SITL tests
+
+```bash
+./waf configure --board sitl && ./waf plane      # once per branch switch
+libraries/AP_Scripting/applets/F35B_sitl/run_sitl_tests.py
+```
+
+`run_sitl_tests.py` runs the test plan unattended and writes `F35B_sitl/last_results.md`.
+A full run (ground and flight) takes a few minutes at the default `--speedup 5`.
+`--ground-only` skips the flight sequence, and `--script PATH` tests another copy of the
+script. It prints each door state change live, and exits non-zero on any failure.
+
+**Model.** There is no SITL physics model for the F-35B frame (`Q_FRAME_CLASS 35`), so the
+runner uses the stock `quadplane-tilttri` model with `F35B_sitl/tilttri.parm`. Its two front
+motors tilt (function 41) and its rear motor (function 36) is a non-tilting lift motor that
+stops in fixed-wing flight. The door script only watches outputs, so the door logic is
+exercised as it would be on the airframe, but the flight dynamics are not the F-35B's. The
+runner calibrates `DOOR_TILT_FWD` and `DOOR_LIFT_OFF` from the outputs it sees, and uses
+`DOOR_PART_AS 7` / `DOOR_FULL_AS 15` to suit the model's 13 m/s stall and 25 m/s cruise.
+
+**What it checks.** Ground tests (disarmed) run first, then one flight: arm and climb in
+QLOITER, outbound transition, cruise, fast inbound entry, latched-full in a headwind,
+VTOL-to-VTOL switch, MANUAL bailout in hover, a second fast entry, and an RTL that switches
+to QRTL and lands. Throughout the run a monitor checks the raw servo outputs: the doors
+are never closed while the nacelles are not forward or the lift motor is powered, and the
+VTOL hardware never deploys while an entry is pending. Airspeed thresholds (4a, 4b) are
+checked as the delay from the threshold crossing to the door change, which should be the
+0.75 s debounce.
+
+**Not automated:** 3b (the model stalls above `DOOR_PART_AS`, so a slow fixed-wing entry is
+impossible), 8c (AUTO mission) and 10b (RC failsafe in flight).
+
+**SITL gotchas** (also in the runner): RC overrides need `source_system=255`; script
+parameters can't come from a defaults file, so they're set over MAVLink; SITL's default
+wind profile is near zero at ground level, so wind tests set `SIM_WIND_T 1`; and a SITL
+build left over from another branch can fail on stale generated MAVLink headers, in which
+case delete `build/sitl` and rebuild.
+
 ## Review findings (2026-11-01)
 
 ### Safety-relevant
@@ -73,7 +113,7 @@ Findings 1–4 were **fixed on 2026-11-01**. Each fix is described under its fin
    are respected" guarantees. *Reproduced by harness scenarios 2 and 3.*
    **Fixed:** the mode at the start of the entry is recorded (`pending_from_mode`), and any
    change cancels the entry with "mode changed, VTOL entry cancelled". The pilot re-selects
-   to retry. Harness scenarios 2–3; SITL tests 7f, 8e.
+   to retry. Harness scenarios 2–3; SITL tests 7f, 8e (both fail on the unfixed script).
 
 2. **The selector is acted on before RC is valid.** `rc:get_pwm()` returns the raw
    channel value and doesn't check for a valid signal. Before the receiver connects it
@@ -82,8 +122,10 @@ Findings 1–4 were **fixed on 2026-11-01**. Each fix is described under its fin
    receiver's preset failsafe outputs move the selector during an RC failsafe.
    **Fixed:** the selector is ignored while `rc:has_valid_input()` is false. In ArduPlane
    that covers RC failsafe, including throttle-detected failsafe, so preset receiver values
-   are ignored too. Harness scenario 4; SITL test 10f. Still to confirm in SITL:
-   `has_valid_input()` is false at boot before any RC has been received.
+   are ignored too. Harness scenario 4; SITL test 10f. Confirmed in SITL on 2026-11-02:
+   booting into FBWA without RC, the unfixed script entered QSTABILIZE on its own. With
+   `INITIAL_MODE 0` (MANUAL), as in the F-35B parameter sets, the MANUAL lockout masks the
+   boot case, so 10f boots into FBWA to expose it.
 
 3. **`DOOR_TILT_FN = 0` is not "unassigned".** Function 0 is held by every unused servo
    output, so `SRV_Channels:get_output_pwm(0)` returns a spare channel's PWM, not nil.
@@ -91,7 +133,8 @@ Findings 1–4 were **fixed on 2026-11-01**. Each fix is described under its fin
    or below `DOOR_TILT_FWD` reads as "nacelles forward", and the doors could close.
    Found from `SRV_Channels::find_channel` / `update_aux_servo_function`.
    **Fixed:** `DOOR_TILT_FN <= 0` is treated as no reading (doors never close), matching
-   `DOOR_LIFT_FN`. Harness scenario 5; SITL test 10d.
+   `DOOR_LIFT_FN`. Harness scenario 5; SITL test 10d. Not reproducible in SITL, where
+   unused outputs read 0; on hardware it depends on what the spare output carries.
 
 4. **No error protection.** A runtime error stops the script, and the doors hold their
    last PWM. If they're closed and VTOL is later entered reactively (Q_ASSIST, failsafe
@@ -136,8 +179,10 @@ Findings 1–4 were **fixed on 2026-11-01**. Each fix is described under its fin
 
 ## Next steps
 
-1. Run the SITL test plan with `F35B_TESTPLAN.param` and record the results. Start with
-   7f, 8e, 10d and 10f, which check the 2026-11-01 fixes.
-2. Fix the documentation drift and regenerate or delete the HTML test plan.
-3. Decide the RTL/AUTO auto-transition mitigation (finding 5) before real flight.
-4. Consider the minor findings, especially checking `set_mode()` return values.
+1. Run `F35B_offline/run.sh` and `F35B_sitl/run_sitl_tests.py` after every script change,
+   and commit the updated `last_results.md`.
+2. Decide the RTL/AUTO auto-transition mitigation (finding 5) before real flight.
+3. Test on the F-35B in RealFlight (a `--realflight` mode for the runner is planned; the
+   RealFlight model has no doors, so door state is watched in the terminal).
+4. Fix the documentation drift and regenerate or delete the HTML test plan.
+5. Consider the minor findings, especially checking `set_mode()` return values.

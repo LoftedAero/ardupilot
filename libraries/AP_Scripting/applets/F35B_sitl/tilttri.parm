@@ -1,0 +1,42 @@
+# Standard parameters for running F35B.lua on the stock quadplane-tilttri
+# SITL model, loaded after quadplane.parm and quadplane-tilttri.parm.
+#
+# The model stands in for the F-35B: two front motors tilt (SERVO12,
+# function 41) and the rear motor (motor 4, function 36) is a non-tilting
+# lift motor that stops in fixed-wing flight. The door logic only watches
+# outputs, so it behaves as it would on the real airframe.
+#
+# DOOR_* parameters are created by the script, so run_sitl_tests.py sets them
+# over MAVLink; script parameters in a defaults file are not applied at boot.
+
+SCR_ENABLE 1
+
+# Emergency override on RC5: high = FBWA ("rest"), anything lower = MANUAL
+FLTMODE_CH 5
+FLTMODE1 0
+FLTMODE2 0
+FLTMODE3 0
+FLTMODE4 0
+FLTMODE5 0
+FLTMODE6 5
+
+# The mode selector on RC8 must be a plain channel
+RC8_OPTION 0
+
+# Assist would deploy the VTOL motors in cruise and open the doors reactively
+Q_ASSIST_SPEED -1
+
+# RTL switches to QRTL near home (test 8d)
+Q_RTL_MODE 1
+
+# Door board on Scripting1, with the full PWM range
+SERVO13_FUNCTION 94
+SERVO13_MIN 1000
+SERVO13_MAX 2000
+
+# Telemetry rates the runner relies on
+SR0_EXTRA1 10
+SR0_EXTRA2 10
+SR0_RC_CHAN 10
+SR0_POSITION 5
+SR0_EXT_STAT 2
