@@ -93,6 +93,32 @@ checked as the delay from the threshold crossing to the door change, which shoul
 **Not automated:** 3b (the model stalls above `DOOR_PART_AS`, so a slow fixed-wing entry is
 impossible), 8c (AUTO mission) and 10b (RC failsafe in flight).
 
+### With RealFlight
+
+```bash
+libraries/AP_Scripting/applets/F35B_sitl/run_sitl_tests.py --realflight [--step]
+```
+
+Start RealFlight first with the "Lofted Aero Simple F-35B" model (from the release `.RFX`)
+and RealFlight Link enabled (RealFlight 9: Simulation > Settings > Physics > Quality). The
+runner connects SITL over FlightAxis to the Windows host as seen from WSL (`--rf-host` to
+override) and runs the same tests in real time on the F-35B parameter set,
+`F35B_TESTPLAN.param`, with its own `DOOR_` values (no recalibration; 1c instead checks that
+`DOOR_TILT_FWD` and `DOOR_LIFT_OFF` fit the outputs). The model has no doors, so the door
+state is printed in the terminal as it changes. `--step` pauses before each test until
+Enter is pressed, while still holding the controls. Results go to
+`F35B_sitl/last_results_realflight.md`.
+
+Skipped with RealFlight: 4c and 4e (need SITL-controlled wind) and 10f (needs simulated RC
+loss; RealFlight supplies the RC). 4b is skipped if the inbound entry is not faster than
+`DOOR_FULL_AS`.
+
+Two things specific to the F-35B parameter set: it boots in MANUAL (`INITIAL_MODE 0`), so
+after a reboot with the selector on a VTOL position the MANUAL lockout ignores the selector
+until it is moved (9d accepts that or a gated entry, as both are safe); and it is a hardware
+dump with the watchdog on (`BRD_OPTIONS 1`), which in SITL kills the process on reboot, so
+the runner sets `BRD_OPTIONS 0` (FlightAxis also forces this).
+
 **SITL gotchas** (also in the runner): RC overrides need `source_system=255`; script
 parameters can't come from a defaults file, so they're set over MAVLink; SITL's default
 wind profile is near zero at ground level, so wind tests set `SIM_WIND_T 1`; and a SITL
@@ -182,7 +208,7 @@ Findings 1–4 were **fixed on 2026-11-01**. Each fix is described under its fin
 1. Run `F35B_offline/run.sh` and `F35B_sitl/run_sitl_tests.py` after every script change,
    and commit the updated `last_results.md`.
 2. Decide the RTL/AUTO auto-transition mitigation (finding 5) before real flight.
-3. Test on the F-35B in RealFlight (a `--realflight` mode for the runner is planned; the
-   RealFlight model has no doors, so door state is watched in the terminal).
+3. Run `run_sitl_tests.py --realflight` with the F-35B in RealFlight and commit
+   `last_results_realflight.md`.
 4. Fix the documentation drift and regenerate or delete the HTML test plan.
 5. Consider the minor findings, especially checking `set_mode()` return values.
