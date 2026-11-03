@@ -8,11 +8,12 @@ work, so the context survives between sessions.
 
 - **Preliminary.** Only the DOORS subsystem exists. The automated SITL tests cover most of
   `F35B_TESTPLAN.md`; the manual items have no recorded results.
-- **Not flight-tested.** Review findings 1–4 were fixed on 2026-11-01. On 2026-11-02 the
-  automated SITL suite passed 42/42 on the stand-in tiltrotor model (`F35B_sitl/last_results.md`);
-  the unfixed script fails 7f, 8e and 10f there. The same day it passed 39 with 3 skipped
-  on the F-35B in RealFlight (`F35B_sitl/last_results_realflight.md`). Settle finding 5
-  and test on hardware before flying it.
+- **Not flight-tested.** Review findings 1–4 were fixed on 2026-11-01, findings 6–7 on
+  2026-11-02. With those fixes the automated SITL suite passes 43/43 on the stand-in
+  tiltrotor model (`F35B_sitl/last_results.md`) and 40 with 3 skipped on the F-35B in
+  RealFlight (`F35B_sitl/last_results_realflight.md`). The unfixed scripts fail 7f, 8e and
+  10f (findings 1–2) and 10g (finding 7). Settle finding 5, do the hardware steps under
+  Next steps, and bench-test before flying it.
 - Developed around July 2026 (files dated 2026-07-05) and committed here on 2026-09-12.
   The original design discussion was not preserved; `F35B.md` and `F35B_TESTPLAN.md` are
   the design record.
@@ -190,7 +191,32 @@ Findings 1–4 were **fixed on 2026-11-01**. Each fix is described under its fin
    closed. Harness scenario 6.
 
 5. **RTL/AUTO auto-transition opens the doors reactively.** Already documented in
-   `F35B.md` as unresolved; still open.
+   `F35B.md` as unresolved; still open. On this airframe it includes long RC failsafe:
+   `FS_LONG_ACTN 1` is RTL, and `Q_RTL_MODE 1` turns that into QRTL near home.
+
+Findings 6 and 7 came from a review on 2026-11-02 of how the doors could close on a deployed
+nozzle. Both were **fixed the same day**. The doors clear the fan blades, so a lift fan coasting
+down behind a closed door is not a concern; the nozzle is.
+
+6. **The doors closed on the output commands, with no allowance for the nozzle.** The close
+   test reads the tilt and lift *outputs*, and the doors closed on the first cycle all three
+   conditions held. In a normal transition the tilt output slews, so the nozzle keeps up. On a
+   switch to MANUAL the tilt output jumps straight to forward while the nozzle lags.
+   **Fixed:** `DOOR_CLOSE_MS` (default 1000) holds the doors open that long after the outputs
+   first read stowed, restarting if anything un-stows. Set it from the nozzle's measured
+   full-stroke time. Harness scenarios 7–8; SITL 7a checks the hold, and the whole-run monitor
+   flags any close less than `DOOR_CLOSE_MS` after the outputs read stowed.
+7. **A stopped script froze the doors.** `SRV_Channels:set_output_pwm` sets a raw PWM that
+   is never recalculated, so if scripting stopped (out of memory, crash, `SCR_ENABLE 0` at
+   runtime) the doors held their last command, closed in fixed-wing, and any later VTOL entry
+   met closed doors. Confirmed in SITL: after `MAV_CMD_SCRIPTING` stop the output held 1000.
+   **Fixed:** the script drives the door with `set_output_pwm_chan_timeout` (lapses after
+   0.5 s) and first calls `set_output_scaled(func, 0)`, without which the lapse holds the raw
+   value instead of returning to trim (every channel starts with a raw PWM of 0). With
+   `SERVO13_TRIM` set to open, a stopped, erroring or disabled script now leaves the doors
+   open. Confirmed in SITL (10g), harness scenario 9. **Not covered:** before the script
+   first runs after boot, the door output sends no pulses at all, whatever the trim; what the
+   door servo does then depends on the servo.
 
 ### Minor
 
@@ -211,8 +237,6 @@ Findings 1–4 were **fixed on 2026-11-01**. Each fix is described under its fin
   of the `.md` already lists the current strings.
 - `F35B_TESTPLAN.html` predates the `.md`: its section 0 still has the old strings, and it
   lacks tests 7f, 8e and 10f. Regenerate it from the `.md` or delete it.
-- `F35B.md` Notes say the script "assumes higher scaled tilt = more forward". The script
-  auto-detects direction from `DOOR_TILT_FWD`.
 - The test plan has no place to record results. Add a results column, or a dated log
   here, when it's run.
 
@@ -226,6 +250,11 @@ Findings 1–4 were **fixed on 2026-11-01**. Each fix is described under its fin
 1. Run `F35B_offline/run.sh` and `F35B_sitl/run_sitl_tests.py` after every script change,
    and commit the updated `last_results.md`. Run `--realflight` too when RealFlight is
    available, and commit `last_results_realflight.md`.
-2. Decide the RTL/AUTO auto-transition mitigation (finding 5) before real flight.
-3. Fix the documentation drift and regenerate or delete the HTML test plan.
-4. Consider the minor findings, especially checking `set_mode()` return values.
+2. Decide the RTL/AUTO auto-transition mitigation (finding 5) before real flight. At
+   minimum, choose failsafe actions and mission legs that don't enter VTOL unplanned.
+3. On the hardware: set `SERVO13_TRIM` to the door's open position, measure the nozzle's
+   full-stroke time and set `DOOR_CLOSE_MS` from it, then bench-test with the fan blades off.
+   Run the test plan and the failsafe cases while watching the real door and nozzle,
+   especially 7a (MANUAL from hover).
+4. Fix the documentation drift and regenerate or delete the HTML test plan.
+5. Consider the minor findings, especially checking `set_mode()` return values.

@@ -41,13 +41,14 @@ local function new_world(overrides)
       now = 0, mode = 5, reason = REASON_RC_COMMAND, in_vtol = false, assisted = false,
       armed = true, aspd = 20.0, rc = { [8] = 2000 }, rc_valid = true, aspd_error = false,
       srv = { [41] = 1000, [35] = 1000 },
-      set_mode_calls = 0, door_pwm = nil,
+      set_mode_calls = 0, door_pwm = nil, door_lapse = 0, door_trim = 2000,
+      servo_func = { [13] = 94 },
       P = {
          DOOR_ENABLE=1, DOOR_MODE_CH=8, DOOR_MODE1=17, DOOR_MODE2=17, DOOR_MODE3=19,
          DOOR_MODE4=19, DOOR_MODE5=5, DOOR_MODE6=5, DOOR_FUNC=94, DOOR_CLOSED=1000,
          DOOR_PART=1500, DOOR_OPEN=2000, DOOR_ENTRY_MS=3000, DOOR_PART_AS=5,
          DOOR_FULL_AS=15, DOOR_TILT_FN=41, DOOR_TILT_FWD=1010, DOOR_LIFT_FN=35,
-         DOOR_LIFT_OFF=1010, DOOR_DEBUG=0,
+         DOOR_LIFT_OFF=1010, DOOR_DEBUG=0, DOOR_CLOSE_MS=1000,
       },
    }
    for k, v in pairs(overrides or {}) do S[k] = v end
@@ -64,6 +65,15 @@ local function new_world(overrides)
       add_param = function(_, _, _, name, default)
          if S.P["DOOR_" .. name] == nil then S.P["DOOR_" .. name] = default end
          return true
+      end,
+      get = function(_, name)
+         local n = name:match("^SERVO(%d+)_FUNCTION$")
+         if n then
+            n = tonumber(n)
+            if n > 16 then return nil end
+            return S.servo_func[n] or 0
+         end
+         return S.P[name]
       end,
    }
    Parameter = function(name) return { get = function() return S.P[name] end } end
@@ -84,7 +94,13 @@ local function new_world(overrides)
    }
    SRV_Channels = {
       get_output_pwm = function(_, fn) return S.srv[fn] end,
-      set_output_pwm = function(_, fn, pwm) if fn == S.P.DOOR_FUNC then S.door_pwm = pwm end end,
+      set_output_scaled = function() end,
+      -- chan is 0-based; the command lapses to the output's trim after timeout_ms
+      set_output_pwm_chan_timeout = function(_, chan, pwm, timeout_ms)
+         if S.servo_func[chan + 1] == S.P.DOOR_FUNC then
+            S.door_pwm, S.door_lapse = pwm, S.now + timeout_ms
+         end
+      end,
    }
    gcs = {
       send_text = function(_, _, txt) out("    [t=%5.2fs] GCS: %s", S.now / 1000, txt) end,
@@ -111,6 +127,12 @@ local function run_until(t_ms)
       update, delay = update()
    end
    S.now = t_ms
+end
+
+-- the door output as the servo sees it: the last command until it lapses, then the trim
+local function door_out()
+   if S.door_pwm ~= nil and S.now < S.door_lapse then return S.door_pwm end
+   return S.door_trim
 end
 
 local function external_mode(m, reason, label)
@@ -172,25 +194,69 @@ local scenarios = {
          S.P.DOOR_TILT_FN = 0
          S.srv[0] = 1000
          run_until(3000)
-         return S.door_pwm ~= S.P.DOOR_CLOSED, "doors not closed"
+         return door_out() ~= S.P.DOOR_CLOSED, "doors not closed"
       end,
    },
    {
       name = "runtime error with VTOL in play opens doors and keeps running",
       run = function()
          new_world()
-         run_until(1000)
-         local was_closed = (S.door_pwm == S.P.DOOR_CLOSED)
+         run_until(2000)
+         local was_closed = (door_out() == S.P.DOOR_CLOSED)
          external_mode(18, REASON_RC_COMMAND, "GCS")
          S.aspd_error = true
          out("    [t=%5.2fs] airspeed binding starts faulting", S.now / 1000)
-         run_until(3000)
-         local opened = (S.door_pwm == S.P.DOOR_OPEN)
+         run_until(4000)
+         local opened = (door_out() == S.P.DOOR_OPEN)
          S.aspd_error = false
          S.aspd = 3.0
-         run_until(5000)
-         return was_closed and opened and S.door_pwm == S.P.DOOR_OPEN,
+         run_until(6000)
+         return was_closed and opened and door_out() == S.P.DOOR_OPEN,
                 "doors closed -> open on fault, still open after recovery"
+      end,
+   },
+   {
+      name = "switch to MANUAL from hover: doors wait DOOR_CLOSE_MS for the nozzle",
+      run = function()
+         new_world({ mode = 18, in_vtol = true, aspd = 0, srv = { [41] = 1800, [35] = 1500 } })
+         run_until(2000)
+         local open_in_hover = (door_out() == S.P.DOOR_OPEN)
+         -- MANUAL jumps the tilt output straight to forward and stops the lift motor
+         external_mode(0, REASON_RC_COMMAND, "pilot override")
+         S.srv[41], S.srv[35] = 1000, 1000
+         run_until(2900)
+         local still_open = (door_out() == S.P.DOOR_OPEN)
+         run_until(3200)
+         return open_in_hover and still_open and door_out() == S.P.DOOR_CLOSED,
+                "open in hover, still open 0.9 s after the jump, closed by 1.2 s"
+      end,
+   },
+   {
+      name = "hold-off restarts if the hardware moves again before closing",
+      run = function()
+         new_world({ mode = 0, aspd = 0, srv = { [41] = 1400, [35] = 1000 } })
+         run_until(1000)
+         S.srv[41] = 1000                       -- reaches forward
+         run_until(1600)
+         S.srv[41] = 1100                       -- moves off forward again
+         run_until(1700)
+         S.srv[41] = 1000                       -- and back
+         run_until(2600)
+         local still_open = (door_out() ~= S.P.DOOR_CLOSED)
+         run_until(2800)
+         return still_open and door_out() == S.P.DOOR_CLOSED,
+                "open until DOOR_CLOSE_MS after the last return to forward"
+      end,
+   },
+   {
+      name = "doors fail open if the script stops",
+      run = function()
+         new_world()
+         run_until(2000)
+         local was_closed = (door_out() == S.P.DOOR_CLOSED)
+         S.now = S.now + 1000                   -- no more script cycles
+         return was_closed and door_out() == S.door_trim and S.door_trim == S.P.DOOR_OPEN,
+                "closed, then the output lapses to the trim (open)"
       end,
    },
 }

@@ -71,7 +71,7 @@ TILTTRI_DOOR_PARAMS = {
     "DOOR_MODE5": 5, "DOOR_MODE6": 5,
     "DOOR_FUNC": 94, "DOOR_CLOSED": 1000, "DOOR_PART": 1500, "DOOR_OPEN": 2000,
     "DOOR_ENTRY_MS": 3000, "DOOR_PART_AS": 7, "DOOR_FULL_AS": 15,
-    "DOOR_TILT_FN": 41, "DOOR_LIFT_FN": 36, "DOOR_DEBUG": 1,
+    "DOOR_TILT_FN": 41, "DOOR_LIFT_FN": 36, "DOOR_DEBUG": 1, "DOOR_CLOSE_MS": 1000,
 }
 
 SEL = {"QSTABILIZE": 1000, "QLOITER": 1500, "FBWA": 2000}
@@ -81,6 +81,11 @@ MODE_NAMES = dict(mavutil.mode_mapping_apm)                      # number -> nam
 MODE_NUMBERS = {name: num for num, name in MODE_NAMES.items()}
 DOOR_ST_NAME = {0: "CLOSED", 1: "PARTIAL", 2: "OPEN", 3: "OPENING"}
 PWM_TOL = 30
+# A 0.75 s debounce can measure as short as this: DOOR_AS arrives at ~5 Hz, so a crossing is seen
+# up to 0.2 s late, and the outputs are sampled at 10 Hz. No debounce at all would read 0-0.3 s.
+DEBOUNCE_MIN_S = 0.45
+MAV_CMD_SCRIPTING = 42701
+SCRIPTING_CMD_STOP, SCRIPTING_CMD_STOP_AND_RESTART = 2, 3
 
 
 class TestFail(Exception):
@@ -242,6 +247,9 @@ class Link:
         self.samples = []          # (sim_ms, mode, door, tilt, lift, airspeed)
         self.door_st_last = None
         self.prev_tilt = None
+        self.prev_door = None
+        self.stowed_since = None   # sim_ms when the tilt and lift outputs last started reading stowed
+        self.close_holds = []      # seconds the outputs had read stowed at each door close
 
     # -- connection --------------------------------------------------------
     def connect(self, wall_timeout=90):
@@ -363,14 +371,31 @@ class Link:
         if None in (door, tilt, lift):
             return
         self.samples.append((self.sim_ms, self.mode, door, tilt, lift, self.door_airspeed()))
+        fwd, off = self.nacelles_fwd(tilt), self.lift_off(lift)
+        if fwd and off:
+            if self.stowed_since is None:
+                self.stowed_since = self.sim_ms
+        else:
+            self.stowed_since = None
+        closing = (self.door_is(door, "CLOSED") and self.prev_door is not None
+                   and not self.door_is(self.prev_door, "CLOSED"))
+        self.prev_door = door
         if not self.monitor_on:
             return
-        fwd, off = self.nacelles_fwd(tilt), self.lift_off(lift)
         window = next((w[2] for w in self.windows if w[0] <= self.sim_ms and (w[1] is None or self.sim_ms <= w[1])),
                       None)
         if self.door_is(door, "CLOSED") and not (fwd and off):
             self.violations.append((self.sim_ms, "closed", f"door {door} closed with tilt {tilt}, lift {lift}",
                                     window))
+        # The outputs are commands and the nozzle lags them, so the doors must wait DOOR_CLOSE_MS
+        # after the outputs read stowed (less 0.15 s for the 10 Hz sampling).
+        if closing:
+            held = (self.sim_ms - self.stowed_since) / 1000.0 if self.stowed_since is not None else 0.0
+            self.close_holds.append(held)
+            need = self.params.get("DOOR_CLOSE_MS", 1000) / 1000.0
+            if held < need - 0.15:
+                self.violations.append((self.sim_ms, "early", f"doors closed {held:.2f} s after the outputs read "
+                                        f"stowed (DOOR_CLOSE_MS {need:.1f} s)", window))
         # While an entry is pending (still fixed-wing) the VTOL hardware must not deploy: the
         # lift motor stays off and the nacelles don't move away from forward. Nacelles still
         # stowing toward forward (e.g. right after leaving VTOL) are fine.
@@ -820,17 +845,41 @@ class Runner:
     def t_7e(self):
         L = self.L
         self.ensure_fbwa_closed()
-        before = L.outputs()[0]
+        trim = L.get_param(f"SERVO{L.chan['door']}_TRIM")
         L.set_param("DOOR_ENABLE", 0)
         try:
             L.set_rc(ch5=OVR_MANUAL)
             self.check(L.wait(lambda: L.mode == "MANUAL", 2), f"MANUAL did not engage (mode {L.mode})")
-            self.check(L.hold(lambda: L.outputs()[0] == before, 3), f"door output changed from {before}")
+            # the script stops refreshing the door command, so the output lapses to its trim
+            self.check(L.wait(lambda: L.outputs()[0] == trim, 2),
+                       f"door output {L.outputs()[0]} did not return to SERVO{L.chan['door']}_TRIM {trim:.0f}")
+            self.check(L.hold(lambda: L.outputs()[0] == trim, 2), f"door output left the trim {trim:.0f}")
         finally:
             L.set_param("DOOR_ENABLE", 1)
             L.set_rc(ch5=OVR_REST)
             L.wait(lambda: L.mode == "FBWA", 2)
-        return f"MANUAL engaged with the script disabled; door held {before}"
+        return f"MANUAL engaged with the script disabled; door output returned to its trim ({trim:.0f})"
+
+    def t_10g(self):
+        L = self.L
+        self.ensure_fbwa_closed()
+        trim = L.get_param(f"SERVO{L.chan['door']}_TRIM")
+        mark = L.sim_ms
+        L.command(MAV_CMD_SCRIPTING, SCRIPTING_CMD_STOP)
+        try:
+            self.check(L.wait(lambda: L.door_is(L.outputs()[0], "OPEN"), 3),
+                       f"door output {L.outputs()[0]} did not fail open with scripting stopped "
+                       f"(SERVO{L.chan['door']}_TRIM {trim:.0f}, DOOR_OPEN {L.params.get('DOOR_OPEN')})")
+            lapse = (L.sim_ms - mark) / 1000
+            self.check(L.hold(lambda: L.door_is(L.outputs()[0], "OPEN"), 3), "door output left open while stopped")
+        finally:
+            restart = L.sim_ms
+            L.command(MAV_CMD_SCRIPTING, SCRIPTING_CMD_STOP_AND_RESTART)
+            restarted = L.wait_text(r"F35B: script loaded", 10, restart)
+        self.check(restarted, "script did not restart")
+        self.check(L.wait(lambda: L.door_is(L.outputs()[0], "CLOSED"), 10), "doors did not close after the restart")
+        return (f"scripting stopped with the doors closed: output went to {trim:.0f} (trim, open) after "
+                f"{lapse:.1f} s and stayed; closed again after the restart")
 
     def t_8e(self):
         L = self.L
@@ -1150,7 +1199,7 @@ class Runner:
         delay, at, crossed_at = self.debounce_delay(o["mark"], lambda d: L.door_is(d, "PART"), lambda a: a >= part)
         self.check(at is not None, "doors never went partial on the way out")
         self.check(delay is not None, f"partial at {at:.1f} m/s but airspeed never crossed {part:.0f} m/s first")
-        self.check(0.5 <= delay <= 1.5, f"partial {delay:.2f} s after crossing {part:.0f} m/s (expected ~0.75 s)")
+        self.check(DEBOUNCE_MIN_S <= delay <= 1.5, f"partial {delay:.2f} s after crossing {part:.0f} m/s (expected ~0.75 s)")
         return (f"partial {delay:.2f} s after airspeed crossed DOOR_PART_AS {part:.0f} m/s "
                 f"(debounce 0.75 s; {at:.1f} m/s by then, accelerating)")
 
@@ -1223,7 +1272,7 @@ class Runner:
             raise Skip(f"entry at {i['fast']:.1f} m/s, not above DOOR_FULL_AS {full:.0f}")
         delay, at, _ = self.debounce_delay(i["mark"], lambda d: L.door_is(d, "OPEN"), lambda a: a < full)
         self.check(delay is not None, f"full at {at} m/s but airspeed never crossed {full:.0f} m/s first")
-        self.check(0.5 <= delay <= 1.5, f"full {delay:.2f} s after crossing {full:.0f} m/s (expected ~0.75 s)")
+        self.check(DEBOUNCE_MIN_S <= delay <= 1.5, f"full {delay:.2f} s after crossing {full:.0f} m/s (expected ~0.75 s)")
         return (f"full {delay:.2f} s after airspeed fell through DOOR_FULL_AS {full:.0f} m/s "
                 f"(debounce 0.75 s; {at:.1f} m/s by then, decelerating)")
 
@@ -1287,13 +1336,19 @@ class Runner:
         self.check(L.door_st() == 0, f"doors did not close in MANUAL (DOOR_ST {L.door_st()})")
         closed_s = (L.sim_ms - mark) / 1000
         self.no_violations_since(mark)
+        # the tilt output jumps to forward in MANUAL; the doors must hold DOOR_CLOSE_MS for the nozzle
+        held = L.close_holds[-1] if L.close_holds else 0.0
+        need = L.params.get("DOOR_CLOSE_MS", 1000) / 1000.0
+        self.check(held >= need - 0.15, f"doors closed {held:.2f} s after the outputs read stowed "
+                   f"(DOOR_CLOSE_MS {need:.1f} s)")
         L.set_rc(ch5=OVR_REST, ch3=1900)
         self.check(L.wait(lambda: L.mode == "FBWA", 2), f"override rest did not give FBWA (mode {L.mode})")
         start = L.sim_ms
         while L.sim_ms - start < 10000:
             L.pump()
             self.check_alt()
-        return f"MANUAL immediately; doors closed after {closed_s:.1f} s once nacelles forward and lift off"
+        return (f"MANUAL immediately; doors closed after {closed_s:.1f} s, {held:.1f} s after the outputs read "
+                f"stowed (DOOR_CLOSE_MS {need:.1f} s)")
 
     def f_4d(self):
         L = self.L
@@ -1371,8 +1426,12 @@ class Runner:
         bad = [v for v in L.violations if v[3] is None]
         expected = [v for v in L.violations if v[3] is not None]
         self.check(not bad, f"{len(bad)} violation(s); first at t={bad[0][0] / 1000:.1f}s: {bad[0][2]}" if bad else "")
+        holds = L.close_holds
+        hold_txt = (f"{len(holds)} close(s), each at least {min(holds):.1f} s after the outputs read stowed"
+                    if holds else "no closes seen")
         return (f"{len(L.samples)} output samples; doors never closed on active VTOL hardware and nothing moved "
-                f"during a pending entry; {len(expected)} sample(s) inside the documented external-entry windows")
+                f"during a pending entry; {hold_txt}; {len(expected)} sample(s) inside the documented "
+                f"external-entry windows")
 
 
 # ---------------------------------------------------------------------------
@@ -1476,6 +1535,7 @@ def main():
             ("10c", "Rapid selector sweep", runner.t_10c),
             ("10d", "DOOR_TILT_FN 0: no reading, doors stay open", runner.t_10d),
             ("10e", "DOOR_DEBUG 0 silences debug output", runner.t_10e),
+            ("10g", "Scripting stopped: doors fail open", runner.t_10g),
             ("4e", "No door chatter at a steady threshold airspeed", runner.t_4e),
             ("9d", "Reboot with the selector on QLOITER: gated entry", runner.t_9d),
             ("10f", "Boot without RC: selector ignored", runner.t_10f),

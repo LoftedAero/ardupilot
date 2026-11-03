@@ -83,7 +83,7 @@ local doors = {}
 do
    local PARAM_TABLE_KEY = 100
    local PARAM_TABLE_PREFIX = "DOOR_"
-   assert(param:add_table(PARAM_TABLE_KEY, PARAM_TABLE_PREFIX, 20), "F35B: could not add DOOR_ param table")
+   assert(param:add_table(PARAM_TABLE_KEY, PARAM_TABLE_PREFIX, 21), "F35B: could not add DOOR_ param table")
 
    local function add(idx, name, default)
       assert(param:add_param(PARAM_TABLE_KEY, idx, name, default),
@@ -134,6 +134,11 @@ do
       DOOR_LIFT_OFF : output PWM at/below which the watched lift motor counts as off. Set from
                       the LIFT_PWM telemetry: between the value seen with the motor stopped and
                       the value when it is idling/running.
+      DOOR_CLOSE_MS : once the outputs say the VTOL hardware is stowed (nacelles forward, lift
+                      motor off, not in VTOL), keep the doors open this much longer before
+                      closing. The outputs are commands: the nozzle can lag its output, most
+                      of all on a switch to MANUAL, where the tilt output jumps straight to
+                      forward. Set it to the nozzle's full-stroke time plus a margin.
       DOOR_DEBUG    : 0 normal, 1 verbose. When 1 the script sends a GCS message on every door
                       state change (with the deciding inputs) and on every mode/latch action,
                       for SITL testing. Leave 0 for flight.
@@ -158,6 +163,7 @@ do
    doors.LIFT_FN  = add(18, "LIFT_FN",  0)
    doors.LIFT_OFF = add(19, "LIFT_OFF", 1050)
    doors.DEBUG    = add(20, "DEBUG",    0)
+   doors.CLOSE_MS = add(21, "CLOSE_MS", 1000)
 
    doors.mode_params = { doors.MODE1, doors.MODE2, doors.MODE3, doors.MODE4, doors.MODE5, doors.MODE6 }
 end
@@ -181,6 +187,7 @@ local door_warned_nonscript = false
 local door_tilt_pos = 0              -- last read nacelle-tilt output PWM (0 = no reading), for telemetry
 local door_lift_pwm = 0              -- last read dedicated lift-motor output PWM, for telemetry
 local door_aspd = nil                -- last airspeed estimate (m/s) this cycle
+local stowed_since = nil             -- millis() when the outputs first read stowed (close hold-off)
 local dbg_mode = 0                   -- snapshot of current mode for debug output
 local dbg_in_vtol = false            -- snapshot of in_vtol for debug output
 
@@ -228,8 +235,43 @@ local function door_announce(state, extra)
        dbg_mode, dbg_in_vtol and "Y" or "N", door_tilt_pos, door_lift_pwm, door_aspd or -1)
 end
 
+-- The door command lapses DOOR_HOLD_MS after the script stops refreshing it, and the output
+-- returns to its SERVOx_TRIM. With the trim set to open, the doors fail open if the script
+-- stops for any reason (a plain set_output_pwm would hold the last command forever). The
+-- timed command only lapses to trim if the channel has a scaled output to fall back to, so
+-- set one (0 = trim) first; every channel starts out holding a raw PWM of 0.
+local DOOR_HOLD_MS = 500
+local DOOR_CHAN_SCAN_MS = 2000       -- how often to re-read which outputs carry DOOR_FUNC
+local door_chans = {}                -- output channels (0-based) assigned DOOR_FUNC
+local door_chans_func = nil
+local door_chans_ms = nil
+
+local function find_door_chans(func)
+   local chans = {}
+   for ch = 1, 32 do
+      local f = param:get(string.format("SERVO%d_FUNCTION", ch))
+      if f == nil then
+         break
+      end
+      if math.floor(f) == func then
+         chans[#chans + 1] = ch - 1
+      end
+   end
+   return chans
+end
+
 local function door_output(pwm)
-   SRV_Channels:set_output_pwm(math.floor(doors.FUNC:get()), math.floor(pwm))
+   local func = math.floor(doors.FUNC:get())
+   local now = millis()
+   if func ~= door_chans_func or door_chans_ms == nil or (now - door_chans_ms):tofloat() >= DOOR_CHAN_SCAN_MS then
+      door_chans = find_door_chans(func)
+      door_chans_func = func
+      door_chans_ms = now
+   end
+   SRV_Channels:set_output_scaled(func, 0)
+   for _, ch in ipairs(door_chans) do
+      SRV_Channels:set_output_pwm_chan_timeout(ch, math.floor(pwm), DOOR_HOLD_MS)
+   end
 end
 
 -- Door position to use while the VTOL system is in play. The partial<->full airspeed
@@ -415,7 +457,17 @@ local function doors_update()
    -- airspeed sets partial vs full. The doors close only once we are in fixed wing AND the
    -- nacelles are forward AND the lift motor is off - all watched directly, so it is correct
    -- regardless of Q_ASSIST and while disarmed.
-   if in_vtol or (not nacelles_fwd) or (not lift_off) or (assisted and armed) then
+   -- Once all of that reads stowed, the doors stay open DOOR_CLOSE_MS longer: the outputs are
+   -- commands, and the nozzle lags its output (a switch to MANUAL jumps it straight to forward).
+   local active = in_vtol or (not nacelles_fwd) or (not lift_off) or (assisted and armed)
+   if active then
+      stowed_since = nil
+   elseif stowed_since == nil then
+      stowed_since = now
+      dbg("stowed: closing in %.1fs", doors.CLOSE_MS:get() / 1000)
+   end
+   local holding = (not active) and (now - stowed_since):tofloat() < doors.CLOSE_MS:get()
+   if active or holding then
       local pwm, is_partial = vtol_active_door_pwm(in_vtol)
       door_output(pwm)
       if is_partial then
@@ -426,7 +478,7 @@ local function doors_update()
       return DOOR_ST.OPEN, pwm, 0.0
    end
 
-   -- Pure fixed wing: transition complete and lift motors stowed - close immediately.
+   -- Pure fixed wing: transition complete, lift motors stowed, and the hold-off has run.
    door_output(doors.CLOSED:get())
    door_announce(DOOR_ST.CLOSED)
    return DOOR_ST.CLOSED, doors.CLOSED:get(), 0.0

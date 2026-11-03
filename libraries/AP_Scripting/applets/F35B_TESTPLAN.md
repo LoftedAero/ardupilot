@@ -118,11 +118,11 @@ Production (always on): `doors opening…`, `doors open - entering VTOL`, `doors
 
 | ID | Steps | Expect / Pass |
 |----|-------|---------------|
-| 7a | Hovering QLOITER, flip override to MANUAL. | Immediate MANUAL (bypasses script); lift motor stops, nacelles slew forward; doors stay open then close per 5a/5b. |
+| 7a | Hovering QLOITER, flip override to MANUAL. | Immediate MANUAL (bypasses script); the tilt output jumps to forward and the lift motor stops; doors stay open `DOOR_CLOSE_MS` after both read stowed, then close. **On hardware, watch that the nozzle is fully home before the doors reach it.** |
 | 7b | While in MANUAL, move `rc 8` to a VTOL position. | `MANUAL override active - selector ignored`; **no** mode change, **no** door opening. |
 | 7c | Override back to rest (→FBWA), then select QLOITER. | Selector works again → QLOITER via the normal gate. |
 | 7d | FBWA → override MANUAL. | MANUAL; doors stay closed. |
-| 7e | `param set DOOR_ENABLE 0` (or stop script), flip override to MANUAL. | MANUAL still engages (script-independent). Doors hold last PWM. Re-enable after. |
+| 7e | `param set DOOR_ENABLE 0`, flip override to MANUAL. | MANUAL still engages (script-independent). Within about 1 s the door output returns to its `SERVOx_TRIM` (open). Re-enable after. |
 | 7f | From FBWA select QLOITER, then flip override to MANUAL before `DOOR_ENTRY_MS` elapses. | `mode changed, VTOL entry cancelled`; **stays MANUAL** — no VTOL entry when the delay would have ended. |
 
 ---
@@ -159,6 +159,7 @@ Production (always on): `doors opening…`, `doors open - entering VTOL`, `doors
 | 10c | Rapidly sweep the selector across all positions. | No stuck/oscillating state, no runaway mode commands. |
 | 10d | `param set DOOR_TILT_FN 0` momentarily. | `TILT_POS`=0 → treated as "deployed" → doors stay open (fail-safe). Restore after. |
 | 10e | `param set DOOR_DEBUG 0`. | Verbose `F35B[dbg]:` messages stop; production event messages remain. |
+| 10g | Doors closed in FBWA; stop scripting (MAVLink `MAV_CMD_SCRIPTING`, param1 = 2), then restart it (param1 = 3). | Within about 1 s of the stop (the command lapses after 0.5 s) the door output goes to its trim (open) and stays there; after the restart the script closes the doors again. |
 | 10f | Start SITL with RC failsafe active (`param set SIM_RC_FAIL 1`, reboot), selector on a VTOL position; then clear it (`SIM_RC_FAIL 0`). | No mode command while RC is invalid. Once RC is valid, the selector position is acted on through the normal gate (as in 9d). |
 
 ---
