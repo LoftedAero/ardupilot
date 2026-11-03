@@ -4,14 +4,15 @@ Working notes for continuing development of `F35B.lua`. `F35B.md` is the user-fa
 setup and behavior reference; this file records project status, review findings and open
 work, so the context survives between sessions.
 
-## Status (2026-11-01)
+## Status (2026-11-02)
 
-- **Preliminary.** Only the DOORS subsystem exists. It has been exercised in SITL, but no
-  test results were recorded, so which `F35B_TESTPLAN.md` items pass is unknown.
+- **Preliminary.** Only the DOORS subsystem exists. The automated SITL tests cover most of
+  `F35B_TESTPLAN.md`; the manual items have no recorded results.
 - **Not flight-tested.** Review findings 1–4 were fixed on 2026-11-01. On 2026-11-02 the
   automated SITL suite passed 42/42 on the stand-in tiltrotor model (`F35B_sitl/last_results.md`);
-  the unfixed script fails 7f, 8e and 10f there. Settle finding 5 and test on the F-35B
-  itself (RealFlight, then hardware) before flying it.
+  the unfixed script fails 7f, 8e and 10f there. The same day it passed 39 with 3 skipped
+  on the F-35B in RealFlight (`F35B_sitl/last_results_realflight.md`). Settle finding 5
+  and test on hardware before flying it.
 - Developed around July 2026 (files dated 2026-07-05) and committed here on 2026-09-12.
   The original design discussion was not preserved; `F35B.md` and `F35B_TESTPLAN.md` are
   the design record.
@@ -119,6 +120,23 @@ until it is moved (9d accepts that or a gated entry, as both are safe); and it i
 dump with the watchdog on (`BRD_OPTIONS 1`), which in SITL kills the process on reboot, so
 the runner sets `BRD_OPTIONS 0` (FlightAxis also forces this).
 
+The first RealFlight run (2026-11-02) exposed two runner problems that the faster tilttri
+runs hide, both fixed:
+
+- **Airspeed source.** With an airspeed sensor fitted but unused (`ARSPD_TYPE 2`,
+  `ARSPD_USE 0`), VFR_HUD reports the raw sensor, while the script's thresholds use the
+  AHRS estimate. Under hard acceleration the two crossed 5 m/s about 0.35 s apart, so 4a
+  measured a 0.40 s debounce. The script now publishes the airspeed it uses as `DOOR_AS`,
+  and the runner times threshold crossings against that (VFR_HUD only as a fallback).
+- **Reboot timestamps.** HEARTBEAT and STATUSTEXT carry no boot time, so they take the
+  last time seen. Right after a reboot, the new boot's first messages tied with the old
+  boot's last ones, and 9d counted the pre-reboot gated entry as a post-reboot one. The
+  runner now steps the clock 1 ms at each reboot.
+
+A GCS can watch a run without disturbing it on SITL's spare MAVLink ports, TCP 5762 or
+5763. The runner uses 5760. Don't change modes or parameters from it, and keep any GCS
+joystick off.
+
 **SITL gotchas** (also in the runner): RC overrides need `source_system=255`; script
 parameters can't come from a defaults file, so they're set over MAVLink; SITL's default
 wind profile is near zero at ground level, so wind tests set `SIM_WIND_T 1`; and a SITL
@@ -206,9 +224,8 @@ Findings 1–4 were **fixed on 2026-11-01**. Each fix is described under its fin
 ## Next steps
 
 1. Run `F35B_offline/run.sh` and `F35B_sitl/run_sitl_tests.py` after every script change,
-   and commit the updated `last_results.md`.
+   and commit the updated `last_results.md`. Run `--realflight` too when RealFlight is
+   available, and commit `last_results_realflight.md`.
 2. Decide the RTL/AUTO auto-transition mitigation (finding 5) before real flight.
-3. Run `run_sitl_tests.py --realflight` with the F-35B in RealFlight and commit
-   `last_results_realflight.md`.
-4. Fix the documentation drift and regenerate or delete the HTML test plan.
-5. Consider the minor findings, especially checking `set_mode()` return values.
+3. Fix the documentation drift and regenerate or delete the HTML test plan.
+4. Consider the minor findings, especially checking `set_mode()` return values.

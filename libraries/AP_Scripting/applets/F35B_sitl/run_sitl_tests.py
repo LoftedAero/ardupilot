@@ -109,7 +109,7 @@ class Config:
             self.door_params["DOOR_DEBUG"] = 1
             self.calibrate = False
             self.home = None if self.model.startswith("flightaxis") else HOME
-            self.description = (f"RealFlight over FlightAxis ({self.model}) with "
+            self.description = (f"RealFlight over FlightAxis with "
                                 f"`{os.path.relpath(self.defaults[0], REPO)}`")
             self.results = args.results or str(HERE / "last_results_realflight.md")
         else:
@@ -314,7 +314,7 @@ class Link:
                     if self.door_st_last is not None:
                         print(f"      t={self.sim_ms / 1000:7.1f}s  {self.mode or '?':10s} doors "
                               f"{DOOR_ST_NAME.get(self.door_st_last, '?')} -> {DOOR_ST_NAME.get(st, '?')}"
-                              f"  airspeed {self.airspeed:4.1f}")
+                              f"  airspeed {self.door_airspeed():4.1f}")
                     self.door_st_last = st
         elif t == "SERVO_OUTPUT_RAW":
             if getattr(msg, "port", 0) != 0:
@@ -331,6 +331,15 @@ class Link:
             self.rel_alt = msg.relative_alt / 1000.0
         elif t == "PARAM_VALUE":
             self.params[msg.param_id.rstrip("\x00")] = msg.param_value
+
+    def door_airspeed(self):
+        """The airspeed the script's thresholds use (DOOR_AS). VFR_HUD reports the airspeed
+        sensor whenever one is healthy, even with ARSPD_USE 0, while the script uses the AHRS
+        estimate; the two can cross a threshold several tenths of a second apart."""
+        v = self.nvf.get("DOOR_AS")
+        if v is not None and v[0] >= 0 and self.sim_ms - v[1] < 1000:
+            return v[0]
+        return self.airspeed
 
     # -- safety monitor ----------------------------------------------------
     def outputs(self):
@@ -353,7 +362,7 @@ class Link:
         door, tilt, lift = self.outputs()
         if None in (door, tilt, lift):
             return
-        self.samples.append((self.sim_ms, self.mode, door, tilt, lift, self.airspeed))
+        self.samples.append((self.sim_ms, self.mode, door, tilt, lift, self.door_airspeed()))
         if not self.monitor_on:
             return
         fwd, off = self.nacelles_fwd(tilt), self.lift_off(lift)
@@ -477,6 +486,9 @@ class Link:
         self.command(mavutil.mavlink.MAV_CMD_PREFLIGHT_REBOOT_SHUTDOWN, 1)
         time.sleep(1.5)
         self.close()
+        # HEARTBEAT and STATUSTEXT carry no boot time and take the last one seen; step past it so
+        # the new boot's first messages sort after everything from the old one
+        self.sim_ms += 1
         self.connect()
 
 
@@ -1191,7 +1203,7 @@ class Runner:
             L.pump()
             self.check_alt()
             if L.door_is(L.outputs()[0], "OPEN"):
-                full_as = L.airspeed
+                full_as = L.door_airspeed()
                 break
         self.inbound = dict(full_as=full_as, mark=mark, fast=fast)
         self.no_violations_since(mark)
@@ -1227,18 +1239,18 @@ class Runner:
             wind = None
             for wind in (full + 5, full + 9, full + 13):
                 L.set_param("SIM_WIND_SPD", wind)
-                if L.wait(lambda: L.airspeed > full + 1, 15):
+                if L.wait(lambda: L.door_airspeed() > full + 1, 15):
                     break
                 self.check_alt()
-            if L.airspeed <= full + 1:
-                raise Skip(f"airspeed only reached {L.airspeed:.1f} m/s in a {wind:.0f} m/s headwind")
-            peak = [L.airspeed]
+            if L.door_airspeed() <= full + 1:
+                raise Skip(f"airspeed only reached {L.door_airspeed():.1f} m/s in a {wind:.0f} m/s headwind")
+            peak = [L.door_airspeed()]
 
             def full_and_track():
-                peak[0] = max(peak[0], L.airspeed)
+                peak[0] = max(peak[0], L.door_airspeed())
                 return L.door_st() == 2
             self.check(L.hold(full_and_track, 10), f"doors went {DOOR_ST_NAME.get(L.door_st())} at "
-                       f"{L.airspeed:.1f} m/s after latching full")
+                       f"{L.door_airspeed():.1f} m/s after latching full")
         finally:
             L.set_param("SIM_WIND_SPD", 0)
             L.set_param("SIM_WIND_T", 0)
@@ -1372,6 +1384,8 @@ def write_results(path, runner, args, cfg, started, wall_s):
     try:
         rev = subprocess.run(["git", "-C", str(REPO), "log", "-1", "--format=%h %s"], capture_output=True,
                              text=True).stdout.strip()
+        if subprocess.run(["git", "-C", str(REPO), "diff", "--quiet", "HEAD", "--", args.script]).returncode:
+            rev += " + uncommitted changes"
     except Exception:
         rev = "?"
     lines = [

@@ -33,7 +33,8 @@ the MANUAL override.
 - Airspeed: fly it, or `param set SIM_WIND_SPD <x>` / throttle to move airspeed across thresholds.
 
 **Watch in MP** — add to the Quick tab: `DOOR_ST` (0 closed / 1 partial / 2 open / 3 opening),
-`DOOR_PWM`, `VTOL_DLY`, `TILT_POS`, `LIFT_PWM`. Keep the Messages tab visible.
+`DOOR_PWM`, `VTOL_DLY`, `TILT_POS`, `LIFT_PWM`, `DOOR_AS` (the airspeed the door thresholds
+use). Keep the Messages tab visible.
 
 **Debug messages you'll see (prefix `F35B`, all ≤50 chars):**
 - `sel pos N -> mode M (cur C)` — a selector move was acted on

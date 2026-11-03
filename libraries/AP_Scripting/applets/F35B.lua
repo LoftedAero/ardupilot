@@ -451,6 +451,7 @@ local function update()
          gcs:send_named_float('VTOL_DLY', delay)
          gcs:send_named_float('TILT_POS', door_tilt_pos)
          gcs:send_named_float('LIFT_PWM', door_lift_pwm)
+         gcs:send_named_float('DOOR_AS',  door_aspd or -1)
       end
       -- text heartbeat so the signals are visible in the GCS Messages window (not just as
       -- NAMED_VALUE_FLOAT telemetry, which some GCSes don't surface). Debug only.
