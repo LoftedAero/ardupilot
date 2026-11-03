@@ -9,11 +9,11 @@ work, so the context survives between sessions.
 - **Preliminary.** Only the DOORS subsystem exists. The automated SITL tests cover most of
   `F35B_TESTPLAN.md`; the manual items have no recorded results.
 - **Not flight-tested.** Review findings 1–4 were fixed on 2026-11-01, findings 6–7 on
-  2026-11-02. With those fixes the automated SITL suite passes 43/43 on the stand-in
-  tiltrotor model (`F35B_sitl/last_results.md`) and 40 with 3 skipped on the F-35B in
-  RealFlight (`F35B_sitl/last_results_realflight.md`). The unfixed scripts fail 7f, 8e and
-  10f (findings 1–2) and 10g (finding 7). Settle finding 5, do the hardware steps under
-  Next steps, and bench-test before flying it.
+  2026-11-02, and revised on 2026-11-03 after the failure-mode review. The automated SITL
+  suite passes 43/43 on the stand-in tiltrotor model (`F35B_sitl/last_results.md`). The
+  RealFlight results (`F35B_sitl/last_results_realflight.md`, 40 with 3 skipped) are from
+  2026-11-02, **before** the nozzle estimate and MID trim: rerun `--realflight`. Settle
+  finding 5, do the hardware steps under Next steps, and bench-test before flying it.
 - Developed around July 2026 (files dated 2026-07-05) and committed here on 2026-09-12.
   The original design discussion was not preserved; `F35B.md` and `F35B_TESTPLAN.md` are
   the design record.
@@ -200,12 +200,21 @@ down behind a closed door is not a concern; the nozzle is.
 
 6. **The doors closed on the output commands, with no allowance for the nozzle.** The close
    test reads the tilt and lift *outputs*, and the doors closed on the first cycle all three
-   conditions held. In a normal transition the tilt output slews, so the nozzle keeps up. On a
-   switch to MANUAL the tilt output jumps straight to forward while the nozzle lags.
-   **Fixed:** `DOOR_CLOSE_MS` (default 1000) holds the doors open that long after the outputs
-   first read stowed, restarting if anything un-stows. Set it from the nozzle's measured
-   full-stroke time. Harness scenarios 7–8; SITL 7a checks the hold, and the whole-run monitor
-   flags any close less than `DOOR_CLOSE_MS` after the outputs read stowed.
+   conditions held. The tilt output is always rate-limited (`Tiltrotor::tilt_max_change`):
+   `Q_TILT_RATE_DN` (30°/s) normally, but at least 90°/s in MANUAL and in any armed
+   fixed-wing mode without assist, which includes the end of every outbound transition.
+   ACRO is not special. The 1000–2000 µs output covers 90° of tilt, so 30°/s crosses it in
+   about 3 s, and 90°/s outruns a nozzle that moves at about 30°/s.
+   **Fixed:** the script estimates the physical nozzle position, following the tilt output
+   at most the output's full range per `DOOR_NOZ_MS` (default 3500), and closes only once
+   the estimate reads forward. A normal slew adds at most about 0.5 s; a fast swing waits for
+   the nozzle. At script start on the ground the estimate starts fully deployed (a full
+   stroke's wait after boot); armed (a restart in flight) it starts at the output, so the
+   doors don't open at cruise. Published as `NOZ_EST`. Harness scenarios 7–10; SITL 7a
+   checks the wait in MANUAL, and the whole-run monitor runs its own copy of the model on
+   the sampled outputs and flags any close before it reads forward.
+   (First fixed on 2026-11-02 as a fixed `DOOR_CLOSE_MS` hold-off after every close;
+   replaced on 2026-11-03 after the failure-mode review below.)
 7. **A stopped script froze the doors.** `SRV_Channels:set_output_pwm` sets a raw PWM that
    is never recalculated, so if scripting stopped (out of memory, crash, `SCR_ENABLE 0` at
    runtime) the doors held their last command, closed in fixed-wing, and any later VTOL entry
@@ -213,10 +222,28 @@ down behind a closed door is not a concern; the nozzle is.
    **Fixed:** the script drives the door with `set_output_pwm_chan_timeout` (lapses after
    0.5 s) and first calls `set_output_scaled(func, 0)`, without which the lapse holds the raw
    value instead of returning to trim (every channel starts with a raw PWM of 0). With
-   `SERVO13_TRIM` set to open, a stopped, erroring or disabled script now leaves the doors
-   open. Confirmed in SITL (10g), harness scenario 9. **Not covered:** before the script
-   first runs after boot, the door output sends no pulses at all, whatever the trim; what the
-   door servo does then depends on the servo.
+   `SERVO13_TRIM` at MID (`DOOR_PART`), a stopped, erroring or disabled script leaves the
+   lift fan door at its intermediate position and the other doors open. The error path
+   holds the doors open in VTOL for longer than its 1 s retry, so they don't drop to MID
+   between retries. Confirmed in SITL (10g), harness scenarios 6 and 11. **Not covered:**
+   before the script first runs after boot, the door output sends no pulses at all; the
+   sequencer holds the nozzle doors open until it sees a valid signal.
+
+### Failure-mode review (2026-11-03)
+
+The owner reviewed 27 failure modes across the script and the door sequencer firmware
+(groups A script/FC, B VTOL entry paths, C signal wire, D sequencer, E hardware and
+sensors). Decisions:
+
+- **Script stops in flight (A2–A6):** fail to MID, not fully open. Opening the lift fan
+  door fully at cruise speed is its own hazard. Done: `SERVO13_TRIM` = `DOOR_PART`.
+- **Nozzle lag (B4):** track the nozzle rather than a fixed hold-off. Done: finding 6.
+- **Signal wire lost in flight (C1):** the sequencer goes to MID and holds it until the
+  signal returns; boot behavior unchanged. Done in the sequencer firmware (separate repo).
+- **No airspeed limit** for opening the lift fan door (B1, B2): accepted as is.
+- **No door-state feedback** from the sequencer to the flight controller (C1, D2, E1):
+  accepted; these stay undetected.
+- Accepted or not a concern: A1, A7–A10, B1–B3, B5, B6, C2, C3, D1–D4, E1–E4.
 
 ### Minor
 
@@ -252,8 +279,10 @@ down behind a closed door is not a concern; the nozzle is.
    available, and commit `last_results_realflight.md`.
 2. Decide the RTL/AUTO auto-transition mitigation (finding 5) before real flight. At
    minimum, choose failsafe actions and mission legs that don't enter VTOL unplanned.
-3. On the hardware: set `SERVO13_TRIM` to the door's open position, measure the nozzle's
-   full-stroke time and set `DOOR_CLOSE_MS` from it, then bench-test with the fan blades off.
+3. On the hardware: set `SERVO13_TRIM` to `DOOR_PART` (MID), measure the nozzle's time
+   across the tilt output's full range and set `DOOR_NOZ_MS` from it (check against
+   `NOZ_EST`), flash the sequencer firmware with the signal-loss change, then bench-test
+   with the fan blades off.
    Run the test plan and the failsafe cases while watching the real door and nozzle,
    especially 7a (MANUAL from hover).
 4. Fix the documentation drift and regenerate or delete the HTML test plan.

@@ -41,14 +41,15 @@ local function new_world(overrides)
       now = 0, mode = 5, reason = REASON_RC_COMMAND, in_vtol = false, assisted = false,
       armed = true, aspd = 20.0, rc = { [8] = 2000 }, rc_valid = true, aspd_error = false,
       srv = { [41] = 1000, [35] = 1000 },
-      set_mode_calls = 0, door_pwm = nil, door_lapse = 0, door_trim = 2000,
-      servo_func = { [13] = 94 },
+      set_mode_calls = 0, door_pwm = nil, door_lapse = 0, door_trim = 1500,
+      servo_func = { [8] = 41, [13] = 94 },
+      servo_range = { [8] = { 1000, 2000 }, [13] = { 1000, 2000 } },
       P = {
          DOOR_ENABLE=1, DOOR_MODE_CH=8, DOOR_MODE1=17, DOOR_MODE2=17, DOOR_MODE3=19,
          DOOR_MODE4=19, DOOR_MODE5=5, DOOR_MODE6=5, DOOR_FUNC=94, DOOR_CLOSED=1000,
          DOOR_PART=1500, DOOR_OPEN=2000, DOOR_ENTRY_MS=3000, DOOR_PART_AS=5,
          DOOR_FULL_AS=15, DOOR_TILT_FN=41, DOOR_TILT_FWD=1010, DOOR_LIFT_FN=35,
-         DOOR_LIFT_OFF=1010, DOOR_DEBUG=0, DOOR_CLOSE_MS=1000,
+         DOOR_LIFT_OFF=1010, DOOR_DEBUG=0, DOOR_NOZ_MS=3500,
       },
    }
    for k, v in pairs(overrides or {}) do S[k] = v end
@@ -67,11 +68,15 @@ local function new_world(overrides)
          return true
       end,
       get = function(_, name)
-         local n = name:match("^SERVO(%d+)_FUNCTION$")
+         local n, field = name:match("^SERVO(%d+)_(%u+)$")
          if n then
             n = tonumber(n)
             if n > 16 then return nil end
-            return S.servo_func[n] or 0
+            if field == "FUNCTION" then return S.servo_func[n] or 0 end
+            local r = S.servo_range[n] or { 1000, 2000 }
+            if field == "MIN" then return r[1] end
+            if field == "MAX" then return r[2] end
+            return nil
          end
          return S.P[name]
       end,
@@ -216,47 +221,70 @@ local scenarios = {
       end,
    },
    {
-      name = "switch to MANUAL from hover: doors wait DOOR_CLOSE_MS for the nozzle",
+      name = "switch to MANUAL from hover: doors wait for the nozzle estimate",
       run = function()
          new_world({ mode = 18, in_vtol = true, aspd = 0, srv = { [41] = 1800, [35] = 1500 } })
          run_until(2000)
          local open_in_hover = (door_out() == S.P.DOOR_OPEN)
-         -- MANUAL jumps the tilt output straight to forward and stops the lift motor
+         -- MANUAL: take the tilt output straight to forward (faster than the nozzle can follow)
+         -- and stop the lift motor. The nozzle needs 790/1000 of DOOR_NOZ_MS to get home.
          external_mode(0, REASON_RC_COMMAND, "pilot override")
          S.srv[41], S.srv[35] = 1000, 1000
-         run_until(2900)
-         local still_open = (door_out() == S.P.DOOR_OPEN)
-         run_until(3200)
-         return open_in_hover and still_open and door_out() == S.P.DOOR_CLOSED,
-                "open in hover, still open 0.9 s after the jump, closed by 1.2 s"
-      end,
-   },
-   {
-      name = "hold-off restarts if the hardware moves again before closing",
-      run = function()
-         new_world({ mode = 0, aspd = 0, srv = { [41] = 1400, [35] = 1000 } })
-         run_until(1000)
-         S.srv[41] = 1000                       -- reaches forward
-         run_until(1600)
-         S.srv[41] = 1100                       -- moves off forward again
-         run_until(1700)
-         S.srv[41] = 1000                       -- and back
-         run_until(2600)
+         run_until(2000 + 2600)
          local still_open = (door_out() ~= S.P.DOOR_CLOSED)
-         run_until(2800)
-         return still_open and door_out() == S.P.DOOR_CLOSED,
-                "open until DOOR_CLOSE_MS after the last return to forward"
+         run_until(2000 + 2900)
+         return open_in_hover and still_open and door_out() == S.P.DOOR_CLOSED,
+                "open in hover, still open 2.6 s after the jump, closed by 2.9 s (estimate 2.77 s)"
       end,
    },
    {
-      name = "doors fail open if the script stops",
+      name = "slew no faster than the nozzle: doors close as soon as the output is forward",
+      run = function()
+         new_world({ mode = 5, aspd = 20, srv = { [41] = 1400, [35] = 1000 } })
+         run_until(500)
+         local open_at_start = (door_out() ~= S.P.DOOR_CLOSED)
+         -- 200 us/s, slower than the nozzle's 1000 us per 3.5 s
+         local t, closed_at, fwd_at = 500, nil, nil
+         while t < 4000 do
+            t = t + 50
+            S.srv[41] = math.max(1000, S.srv[41] - 10)
+            run_until(t)
+            if not fwd_at and S.srv[41] <= S.P.DOOR_TILT_FWD then fwd_at = t end
+            if not closed_at and door_out() == S.P.DOOR_CLOSED then closed_at = t end
+         end
+         return open_at_start and fwd_at and closed_at and closed_at - fwd_at <= 100,
+                "closed within 0.1 s of the output reaching forward"
+      end,
+   },
+   {
+      name = "boot on the ground: doors wait a full nozzle stroke",
+      run = function()
+         -- outputs already stowed, but the nozzle could be anywhere after power-up
+         new_world({ mode = 0, armed = false, aspd = 0 })
+         run_until(3300)
+         local still_open = (door_out() ~= S.P.DOOR_CLOSED)
+         run_until(3600)
+         return still_open and door_out() == S.P.DOOR_CLOSED, "open at 3.3 s, closed by 3.6 s (estimate 3.47 s)"
+      end,
+   },
+   {
+      name = "restart in flight: doors stay closed",
+      run = function()
+         -- armed: the nozzle is taken to be where the output says, so no opening at cruise
+         new_world()
+         run_until(100)
+         return door_out() == S.P.DOOR_CLOSED, "closed from the first cycle"
+      end,
+   },
+   {
+      name = "doors fail to MID if the script stops",
       run = function()
          new_world()
          run_until(2000)
          local was_closed = (door_out() == S.P.DOOR_CLOSED)
          S.now = S.now + 1000                   -- no more script cycles
-         return was_closed and door_out() == S.door_trim and S.door_trim == S.P.DOOR_OPEN,
-                "closed, then the output lapses to the trim (open)"
+         return was_closed and door_out() == S.door_trim and S.door_trim == S.P.DOOR_PART,
+                "closed, then the output lapses to the trim (MID)"
       end,
    },
 }

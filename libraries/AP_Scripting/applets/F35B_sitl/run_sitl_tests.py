@@ -71,7 +71,7 @@ TILTTRI_DOOR_PARAMS = {
     "DOOR_MODE5": 5, "DOOR_MODE6": 5,
     "DOOR_FUNC": 94, "DOOR_CLOSED": 1000, "DOOR_PART": 1500, "DOOR_OPEN": 2000,
     "DOOR_ENTRY_MS": 3000, "DOOR_PART_AS": 7, "DOOR_FULL_AS": 15,
-    "DOOR_TILT_FN": 41, "DOOR_LIFT_FN": 36, "DOOR_DEBUG": 1, "DOOR_CLOSE_MS": 1000,
+    "DOOR_TILT_FN": 41, "DOOR_LIFT_FN": 36, "DOOR_DEBUG": 1, "DOOR_NOZ_MS": 3500,
 }
 
 SEL = {"QSTABILIZE": 1000, "QLOITER": 1500, "FBWA": 2000}
@@ -249,7 +249,11 @@ class Link:
         self.prev_tilt = None
         self.prev_door = None
         self.stowed_since = None   # sim_ms when the tilt and lift outputs last started reading stowed
-        self.close_holds = []      # seconds the outputs had read stowed at each door close
+        self.tilt_span = None      # tilt output's SERVOx_MAX - SERVOx_MIN, for the nozzle estimate
+        self.noz = None            # nozzle position estimate (tilt-output PWM), as the script models it
+        self.noz_at = None
+        self.home_since = None     # sim_ms when the outputs read stowed and the estimate read forward
+        self.close_holds = []      # (s the outputs had read stowed, s the estimate needed) at each close
 
     # -- connection --------------------------------------------------------
     def connect(self, wall_timeout=90):
@@ -377,6 +381,21 @@ class Link:
                 self.stowed_since = self.sim_ms
         else:
             self.stowed_since = None
+        # The script's nozzle model, run independently on the sampled outputs: the nozzle follows
+        # the tilt output at most the output's full range per DOOR_NOZ_MS.
+        noz_ms = self.params.get("DOOR_NOZ_MS", 3500)
+        if self.noz is None or self.tilt_span is None or noz_ms <= 0:
+            self.noz = tilt
+        else:
+            step = self.tilt_span * (self.sim_ms - self.noz_at) / noz_ms
+            self.noz = min(tilt, self.noz + step) if self.noz < tilt else max(tilt, self.noz - step)
+        self.noz_at = self.sim_ms
+        noz_fwd = self.nacelles_fwd(self.noz)
+        if fwd and off and noz_fwd:
+            if self.home_since is None:
+                self.home_since = self.sim_ms
+        else:
+            self.home_since = None
         closing = (self.door_is(door, "CLOSED") and self.prev_door is not None
                    and not self.door_is(self.prev_door, "CLOSED"))
         self.prev_door = door
@@ -387,15 +406,19 @@ class Link:
         if self.door_is(door, "CLOSED") and not (fwd and off):
             self.violations.append((self.sim_ms, "closed", f"door {door} closed with tilt {tilt}, lift {lift}",
                                     window))
-        # The outputs are commands and the nozzle lags them, so the doors must wait DOOR_CLOSE_MS
-        # after the outputs read stowed (less 0.15 s for the 10 Hz sampling).
+        # The tilt output is a command and the nozzle lags it, so the doors must not close before
+        # the nozzle estimate reads forward (allowing 0.2 s of nozzle travel for the sampling).
         if closing:
             held = (self.sim_ms - self.stowed_since) / 1000.0 if self.stowed_since is not None else 0.0
-            self.close_holds.append(held)
-            need = self.params.get("DOOR_CLOSE_MS", 1000) / 1000.0
-            if held < need - 0.15:
-                self.violations.append((self.sim_ms, "early", f"doors closed {held:.2f} s after the outputs read "
-                                        f"stowed (DOOR_CLOSE_MS {need:.1f} s)", window))
+            need = ((self.home_since - self.stowed_since) / 1000.0
+                    if self.home_since is not None and self.stowed_since is not None else None)
+            self.close_holds.append((held, need))
+            tf = self.params.get("DOOR_TILT_FWD", 1900)
+            short = (tf - self.noz) if tf >= 1500 else (self.noz - tf)
+            tol = (self.tilt_span or 1000) * 200 / max(noz_ms, 1)
+            if short > tol:
+                self.violations.append((self.sim_ms, "early", f"doors closed with the nozzle estimate at "
+                                        f"{self.noz:.0f}, {short:.0f} us short of forward", window))
         # While an entry is pending (still fixed-wing) the VTOL hardware must not deploy: the
         # lift motor stays off and the nacelles don't move away from forward. Nacelles still
         # stowing toward forward (e.g. right after leaving VTOL) are fine.
@@ -663,6 +686,8 @@ class Runner:
             if ch is None:
                 raise RuntimeError(f"no servo output with function {fn} for the {key}")
             L.chan[key] = ch
+        lo, hi = L.get_param(f"SERVO{L.chan['tilt']}_MIN"), L.get_param(f"SERVO{L.chan['tilt']}_MAX")
+        L.tilt_span = (hi - lo) if lo is not None and hi is not None and hi > lo else None
         self.ensure_fbwa_closed_initial()
         L.sleep(2)
         door, tilt, lift = L.outputs()
@@ -867,18 +892,18 @@ class Runner:
         mark = L.sim_ms
         L.command(MAV_CMD_SCRIPTING, SCRIPTING_CMD_STOP)
         try:
-            self.check(L.wait(lambda: L.door_is(L.outputs()[0], "OPEN"), 3),
-                       f"door output {L.outputs()[0]} did not fail open with scripting stopped "
-                       f"(SERVO{L.chan['door']}_TRIM {trim:.0f}, DOOR_OPEN {L.params.get('DOOR_OPEN')})")
+            self.check(L.wait(lambda: L.door_is(L.outputs()[0], "PART"), 3),
+                       f"door output {L.outputs()[0]} did not fail to MID with scripting stopped "
+                       f"(SERVO{L.chan['door']}_TRIM {trim:.0f}, DOOR_PART {L.params.get('DOOR_PART')})")
             lapse = (L.sim_ms - mark) / 1000
-            self.check(L.hold(lambda: L.door_is(L.outputs()[0], "OPEN"), 3), "door output left open while stopped")
+            self.check(L.hold(lambda: L.door_is(L.outputs()[0], "PART"), 3), "door output left MID while stopped")
         finally:
             restart = L.sim_ms
             L.command(MAV_CMD_SCRIPTING, SCRIPTING_CMD_STOP_AND_RESTART)
             restarted = L.wait_text(r"F35B: script loaded", 10, restart)
         self.check(restarted, "script did not restart")
         self.check(L.wait(lambda: L.door_is(L.outputs()[0], "CLOSED"), 10), "doors did not close after the restart")
-        return (f"scripting stopped with the doors closed: output went to {trim:.0f} (trim, open) after "
+        return (f"scripting stopped with the doors closed: output went to {trim:.0f} (trim, MID) after "
                 f"{lapse:.1f} s and stayed; closed again after the restart")
 
     def t_8e(self):
@@ -1336,11 +1361,12 @@ class Runner:
         self.check(L.door_st() == 0, f"doors did not close in MANUAL (DOOR_ST {L.door_st()})")
         closed_s = (L.sim_ms - mark) / 1000
         self.no_violations_since(mark)
-        # the tilt output jumps to forward in MANUAL; the doors must hold DOOR_CLOSE_MS for the nozzle
-        held = L.close_holds[-1] if L.close_holds else 0.0
-        need = L.params.get("DOOR_CLOSE_MS", 1000) / 1000.0
-        self.check(held >= need - 0.15, f"doors closed {held:.2f} s after the outputs read stowed "
-                   f"(DOOR_CLOSE_MS {need:.1f} s)")
+        # MANUAL tilts at 90 deg/s or more, faster than the nozzle: the doors must wait for the estimate
+        held, need = L.close_holds[-1] if L.close_holds else (0.0, None)
+        self.check(need is not None and need >= 0.5,
+                   f"the tilt output was not faster than the nozzle estimate (wait {need}); nothing to test")
+        self.check(held >= need - 0.2, f"doors closed {held:.2f} s after the outputs read stowed; the nozzle "
+                   f"estimate needed {need:.2f} s")
         L.set_rc(ch5=OVR_REST, ch3=1900)
         self.check(L.wait(lambda: L.mode == "FBWA", 2), f"override rest did not give FBWA (mode {L.mode})")
         start = L.sim_ms
@@ -1348,7 +1374,7 @@ class Runner:
             L.pump()
             self.check_alt()
         return (f"MANUAL immediately; doors closed after {closed_s:.1f} s, {held:.1f} s after the outputs read "
-                f"stowed (DOOR_CLOSE_MS {need:.1f} s)")
+                f"stowed (nozzle estimate needed {need:.1f} s at DOOR_NOZ_MS {L.params.get('DOOR_NOZ_MS', 3500):.0f})")
 
     def f_4d(self):
         L = self.L
@@ -1427,8 +1453,9 @@ class Runner:
         expected = [v for v in L.violations if v[3] is not None]
         self.check(not bad, f"{len(bad)} violation(s); first at t={bad[0][0] / 1000:.1f}s: {bad[0][2]}" if bad else "")
         holds = L.close_holds
-        hold_txt = (f"{len(holds)} close(s), each at least {min(holds):.1f} s after the outputs read stowed"
-                    if holds else "no closes seen")
+        waits = [n for _, n in holds if n is not None]
+        hold_txt = (f"{len(holds)} close(s), none before the nozzle estimate read forward (longest wait for it "
+                    f"{max(waits):.1f} s)" if waits else f"{len(holds)} close(s)")
         return (f"{len(L.samples)} output samples; doors never closed on active VTOL hardware and nothing moved "
                 f"during a pending entry; {hold_txt}; {len(expected)} sample(s) inside the documented "
                 f"external-entry windows")
@@ -1535,7 +1562,7 @@ def main():
             ("10c", "Rapid selector sweep", runner.t_10c),
             ("10d", "DOOR_TILT_FN 0: no reading, doors stay open", runner.t_10d),
             ("10e", "DOOR_DEBUG 0 silences debug output", runner.t_10e),
-            ("10g", "Scripting stopped: doors fail open", runner.t_10g),
+            ("10g", "Scripting stopped: doors fail to MID", runner.t_10g),
             ("4e", "No door chatter at a steady threshold airspeed", runner.t_4e),
             ("9d", "Reboot with the selector on QLOITER: gated entry", runner.t_9d),
             ("10f", "Boot without RC: selector ignored", runner.t_10f),
