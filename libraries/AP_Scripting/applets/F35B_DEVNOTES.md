@@ -4,7 +4,7 @@ Working notes for continuing development of `F35B.lua`. `F35B.md` is the user-fa
 setup and behavior reference; this file records project status, review findings and open
 work, so the context survives between sessions.
 
-## Status (2026-11-02)
+## Status (2026-11-03)
 
 - **Preliminary.** Only the DOORS subsystem exists. The automated SITL tests cover most of
   `F35B_TESTPLAN.md`; the manual items have no recorded results.
@@ -14,6 +14,7 @@ work, so the context survives between sessions.
   (`F35B_sitl/last_results.md`) and 40 with 3 skipped on the F-35B in RealFlight
   (`F35B_sitl/last_results_realflight.md`). Settle finding 5, do the hardware steps under
   Next steps, and bench-test before flying it.
+- **Hardware bring-up starts next**, in a new session: read "Hardware bring-up" below first.
 - Developed around July 2026 (files dated 2026-07-05) and committed here on 2026-09-12.
   The original design discussion was not preserved; `F35B.md` and `F35B_TESTPLAN.md` are
   the design record.
@@ -28,7 +29,7 @@ work, so the context survives between sessions.
 | `F35B_TESTPLAN.html` | Older rendering of the test plan; out of date (see below) |
 | `F35B_TESTPLAN.param` | SITL parameter set the test plan assumes (its "consolidated list") |
 | `F35B_offline/` | Offline syntax check and behavioral tests (`run.sh`) |
-| `F35B_sitl/` | Automated SITL test runner, its parameters, and `last_results.md` |
+| `F35B_sitl/` | Automated SITL test runner, its parameters, `last_results.md` and `last_results_realflight.md` |
 
 ### SITL test parameters (`F35B_TESTPLAN.param`)
 
@@ -42,7 +43,12 @@ The test plan's selector and override commands assume this set:
 - Door output `SERVO13_FUNCTION 94`; tilt `SERVO8_FUNCTION 41` with forward at the low PWM
   end (`DOOR_TILT_FWD 1010`); lift motor 3 on `SERVO1` (`DOOR_LIFT_FN 35`,
   `DOOR_LIFT_OFF 1010`).
-- `DOOR_PART_AS 5`, `DOOR_FULL_AS 15`, `DOOR_ENTRY_MS 3000`, `ARSPD_TYPE 2`.
+- `DOOR_PART_AS 5`, `DOOR_FULL_AS 15`, `DOOR_ENTRY_MS 3000`, `DOOR_NOZ_MS 3500`,
+  `SERVO13_TRIM 1500` (MID), `ARSPD_TYPE 2`.
+
+This file is a dump from the owner's RealFlight SITL setup (it carries `SIM_` parameters).
+It is **not** the aircraft's configuration and must not be loaded onto hardware; see
+"Hardware bring-up".
 
 ## Offline tests
 
@@ -55,8 +61,9 @@ directory, syntax-checks `F35B.lua` with it, then runs `harness.lua`. The harnes
 bindings and drives the script's scheduler through scenarios using the test-plan
 parameters. It exits non-zero if any scenario fails.
 
-**Expected: 6/6 pass.** Scenarios 2–6 cover findings 1–4. Each one failed against the
-unfixed script (commit `fe69b53045`: 1/6 pass) and passes after the fixes. Add a scenario for
+**Expected: 11/11 pass.** Scenarios 2–6 cover findings 1–4; each failed against the unfixed
+script (commit `fe69b53045`). Scenarios 7–10 cover the nozzle estimate (finding 6) and 11
+the fail-to-MID lapse (finding 7). Add a scenario for
 each new fix or behavior. To check a different copy of the script, pass its path:
 `run.sh path/to/F35B.lua`.
 
@@ -87,8 +94,9 @@ runner calibrates `DOOR_TILT_FWD` and `DOOR_LIFT_OFF` from the outputs it sees, 
 QLOITER, outbound transition, cruise, fast inbound entry, latched-full in a headwind,
 VTOL-to-VTOL switch, MANUAL bailout in hover, a second fast entry, and an RTL that switches
 to QRTL and lands. Throughout the run a monitor checks the raw servo outputs: the doors
-are never closed while the nacelles are not forward or the lift motor is powered, and the
-VTOL hardware never deploys while an entry is pending. Airspeed thresholds (4a, 4b) are
+are never closed while the nacelles are not forward or the lift motor is powered, never
+close before its own copy of the nozzle estimate reads forward, and the VTOL hardware never
+deploys while an entry is pending. Airspeed thresholds (4a, 4b) are
 checked as the delay from the threshold crossing to the door change, which should be the
 0.75 s debounce.
 
@@ -153,6 +161,100 @@ parameters can't come from a defaults file, so they're set over MAVLink; SITL's 
 wind profile is near zero at ground level, so wind tests set `SIM_WIND_T 1`; and a SITL
 build left over from another branch can fail on stale generated MAVLink headers, in which
 case delete `build/sitl` and rebuild.
+
+## Hardware bring-up (handoff, 2026-11-03)
+
+Everything so far is simulation. Nothing physical has been tested: door travel times, the
+nozzle's real speed, servo directions and endpoints, the sequencer's real timing, or the
+tilt and lift outputs on the aircraft's own parameters.
+
+### The system
+
+- **Flight controller:** ArduPlane from this branch (`F35B-4.6`, `Q_FRAME_CLASS 35`, custom
+  `AP_MotorsF35B`). Board targets: `CubeOrange-F35B`, `CubeOrangePlus-F35B`,
+  `MatekH743-F35B`, `MatekH743-F35B-Mini`, `TBS_H7_WING-F35B-70`, `TBS_H7_WING-F35B-90`.
+  `F35B.lua` runs on it and drives one PWM output (`DOOR_FUNC 94`, Scripting1).
+- **Door sequencer:** an Arduino Nano (separate repo, `LoftedAero/F35B_Sequencer`; the
+  signal-loss change is commit `11f5b02`). It reads that one PWM signal as three states and
+  drives up to nine door servos (lift fan door, lift exhaust, aux inlet, nozzle doors):
+  - LOW (`DOOR_CLOSED` 1000): all doors closed.
+  - MID (`DOOR_PART` 1500): lift fan door at its intermediate position, all others open.
+  - HIGH (`DOOR_OPEN` 2000): all doors open.
+  - Matching is ±100 µs around its calibrated `in_low`/`in_mid`/`in_high`; between bands
+    it holds its state. It ramps doors at its configured open/close speeds.
+  - Boot, before a valid signal: nozzle doors forced open, others at the last saved state.
+  - Signal lost after it was valid (about 0.5 s): every door to MID until it returns.
+  - Configured over USB by the F-35B Door Sequencer config app. In config mode it ignores
+    the flight controller (bench only).
+- **The script's safety behavior on hardware:** VTOL entries from the selector wait
+  `DOOR_ENTRY_MS` with the doors opening; the doors close only when fixed-wing, tilt output
+  forward, lift output off, and the nozzle estimate forward; a stopped or erroring script
+  lapses the door output to its `SERVOx_TRIM` (set it to MID) within about 0.6 s.
+  Entries the script doesn't command (GCS, failsafe, RTL→QRTL, AUTO) open the doors only
+  after the fact (finding 5).
+
+### Differences from the SITL setup
+
+- The board `defaults.parm` files don't enable scripting (`SCR_ENABLE`) or configure a door
+  output. On the Cube targets `SERVO13` is the rudder (function 26, reversed), so the door
+  output is on whichever channel is wired to the sequencer. Set `SERVOx_FUNCTION 94` there,
+  `DOOR_FUNC 94`, and that channel's `SERVOx_TRIM` to `DOOR_PART`.
+- `Q_TILT_ANGLE_MAX` is 110 on the boards (105 in the SITL set), so the tilt output's
+  forward and hover readings differ. Recalibrate `DOOR_TILT_FWD` from `TILT_POS`.
+- `ARSPD_TYPE 0` on the boards: no airspeed sensor, so `DOOR_AS` (and the partial/full
+  thresholds) run on the synthetic estimate.
+- `FS_LONG_ACTN 1` and `Q_RTL_MODE 1` on the boards: a long RC failsafe ends in QRTL, a
+  reactive VTOL entry (finding 5). Decide before flight.
+- `INITIAL_MODE 0` (MANUAL) in the owner's setup: after boot the selector is locked out
+  until it is moved.
+
+### Settings that must match (nothing enforces them)
+
+1. `SERVOx_TRIM` of the door output = `DOOR_PART`, and inside the sequencer's MID band.
+2. The sequencer's `in_low`/`in_mid`/`in_high` within ±100 µs of `DOOR_CLOSED`/`DOOR_PART`/
+   `DOOR_OPEN` (they are matched against the PWM the flight controller actually outputs, so
+   check `SERVOx_MIN`/`MAX`/`REVERSED` on the door output too).
+3. `DOOR_ENTRY_MS` ≥ the **measured** time for the sequencer to take every door from closed
+   to MID (all but the lift fan door fully open), plus margin. Its configured speeds are
+   nominal: the loop locks to the 50 Hz input frame and slips occasionally.
+4. `DOOR_NOZ_MS` ≥ the **measured** time for the physical nozzle to cross the tilt output's
+   full range (`SERVOx_MIN` to `SERVOx_MAX` of the `DOOR_TILT_FN` output), plus margin.
+5. `DOOR_TILT_FWD` from `TILT_POS` with the nozzle fully forward, nudged about 10 µs toward
+   mid-travel. `DOOR_LIFT_FN` = the lift fan motor's output function; `DOOR_LIFT_OFF`
+   between `LIFT_PWM` stopped and idling.
+
+### Install
+
+- Build and flash this branch for the board, copy `F35B.lua` to `APM/scripts`, set
+  `SCR_ENABLE 1`, reboot, check for "F35B: script loaded", then set the `DOOR_` parameters.
+- **Reboot after any update that adds a `DOOR_` parameter** (`DOOR_NOZ_MS` was added on
+  2026-11-02): the parameter table can't grow on a scripting restart.
+- Flash the sequencer from commit `11f5b02` or later (`arduino-cli compile/upload --fqbn
+  arduino:avr:nano:cpu=atmega328`). Its EEPROM settings are kept.
+
+### Suggested order
+
+Lift fan blades off (or the fan otherwise unable to spin) for every bench stage. The doors
+and nozzle move at power-up and on mode changes even when disarmed: keep fingers clear of
+the linkages. Watch with Mission Planner: `DOOR_ST`, `DOOR_PWM`, `VTOL_DLY`, `TILT_POS`,
+`LIFT_PWM`, `NOZ_EST`, `DOOR_AS` on the Quick tab, `DOOR_DEBUG 1` on the bench (0 for flight).
+
+1. **Sequencer alone** (servo tester on its input): boot pose (nozzle doors open), each
+   state's endpoints with no binding, directions, and the measured closed→MID time.
+   Signal-loss: after a valid signal, remove it and check MID within about 0.5 s.
+2. **Flight controller + sequencer, disarmed.** Set the door output and the matching
+   settings above. Disarmed, a VTOL mode tilts the nozzle down at `Q_TILT_RATE_DN` and
+   MANUAL tilts at 90°/s or more, so the nozzle speed can be measured without arming: from
+   QLOITER switch the override to MANUAL and time the physical nozzle (video), then set
+   `DOOR_NOZ_MS`. Calibrate `DOOR_TILT_FWD` and `DOOR_LIFT_OFF`.
+3. **Ground tests from `F35B_TESTPLAN.md`**, disarmed, watching the real door and nozzle:
+   gated entry (doors physically at MID before the mode changes), 9a/9b, 6b/6c, 7b–7e,
+   10g (scripting stopped → MID; or `SCR_ENABLE 0` + reboot for the no-script boot),
+   signal wire unplugged → MID, and above all MANUAL from a VTOL mode: the doors must stay
+   open until the nozzle is physically home.
+4. **Powered, restrained,** only after 1–3 are clean.
+5. **Flight:** hover first; transitions with height in hand; MANUAL from a hover is a
+   bailout only (it crashed the RealFlight model when held). Settle finding 5 first.
 
 ## Review findings (2026-11-01)
 
@@ -289,11 +391,8 @@ sensors). Decisions:
    available, and commit `last_results_realflight.md`.
 2. Decide the RTL/AUTO auto-transition mitigation (finding 5) before real flight. At
    minimum, choose failsafe actions and mission legs that don't enter VTOL unplanned.
-3. On the hardware: set `SERVO13_TRIM` to `DOOR_PART` (MID), measure the nozzle's time
-   across the tilt output's full range and set `DOOR_NOZ_MS` from it (check against
-   `NOZ_EST`), flash the sequencer firmware with the signal-loss change, then bench-test
-   with the fan blades off.
-   Run the test plan and the failsafe cases while watching the real door and nozzle,
-   especially 7a (MANUAL from hover).
+3. Hardware bring-up: follow "Hardware bring-up" above, and record what is measured and
+   set (door output channel, `DOOR_ENTRY_MS`, `DOOR_NOZ_MS`, `DOOR_TILT_FWD`,
+   `DOOR_LIFT_OFF`, sequencer calibration) here.
 4. Fix the documentation drift and regenerate or delete the HTML test plan.
 5. Consider the minor findings, especially checking `set_mode()` return values.
