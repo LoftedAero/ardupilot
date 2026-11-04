@@ -174,16 +174,21 @@ tilt and lift outputs on the aircraft's own parameters.
   `AP_MotorsF35B`). Board targets: `CubeOrange-F35B`, `CubeOrangePlus-F35B`,
   `MatekH743-F35B`, `MatekH743-F35B-Mini`, `TBS_H7_WING-F35B-70`, `TBS_H7_WING-F35B-90`.
   `F35B.lua` runs on it and drives one PWM output (`DOOR_FUNC 94`, Scripting1).
-- **Door sequencer:** an Arduino Nano (separate repo, `LoftedAero/F35B_Sequencer`; the
-  signal-loss change is commit `11f5b02`). It reads that one PWM signal as three states and
+- **Door sequencer:** an Arduino Nano (separate repo, `LoftedAero/F35B_Sequencer`;
+  firmware version 1 with the power-up hold is commit `54b6d26`, configured with the F-35B
+  config app from `LoftedAero/F35B_Sequencer_Config` commit `66670bd` or later). It reads that one PWM signal as three states and
   drives up to nine door servos (lift fan door, lift exhaust, aux inlet, nozzle doors):
   - LOW (`DOOR_CLOSED` 1000): all doors closed.
   - MID (`DOOR_PART` 1500): lift fan door at its intermediate position, all others open.
   - HIGH (`DOOR_OPEN` 2000): all doors open.
   - Matching is ±100 µs around its calibrated `in_low`/`in_mid`/`in_high`; between bands
     it holds its state. It ramps doors at its configured open/close speeds.
-  - Boot, before a valid signal: nozzle doors forced open, others at the last saved state.
-  - Signal lost after it was valid (about 0.5 s): every door to MID until it returns.
+  - **Every door holds MID** for `Boot Hold` after power-up (default 20 s, set in the
+    config app as "Boot Hold") and whenever the signal isn't trustworthy: before the
+    first valid signal, and after losing it (about 0.5 s) until it returns. The nozzle
+    homes slowly at power-up (10–15 s from vertical) and powers up with the sequencer, so
+    the hold is timed from the sequencer's own power-up. The switch is still read during
+    the hold, so the doors go straight to the commanded state when it ends.
   - Configured over USB by the F-35B Door Sequencer config app. In config mode it ignores
     the flight controller (bench only).
 - **The script's safety behavior on hardware:** VTOL entries from the selector wait
@@ -229,8 +234,14 @@ tilt and lift outputs on the aircraft's own parameters.
   `SCR_ENABLE 1`, reboot, check for "F35B: script loaded", then set the `DOOR_` parameters.
 - **Reboot after any update that adds a `DOOR_` parameter** (`DOOR_NOZ_MS` was added on
   2026-11-02): the parameter table can't grow on a scripting restart.
-- Flash the sequencer from commit `11f5b02` or later (`arduino-cli compile/upload --fqbn
-  arduino:avr:nano:cpu=atmega328`). Its EEPROM settings are kept.
+- Flash the sequencer firmware (`firmware_1.hex`, bundled with the config app; or
+  `arduino-cli compile/upload --fqbn arduino:avr:nano:cpu=atmega328`). It is still version 1
+  (never released, so no EEPROM migration). On a board that ran an earlier pre-release
+  build, check "Boot Hold" (Doors tab, next to the door speeds) in the config app after flashing: that setting occupies the
+  bytes where the old build kept its last switch state. Anything above 60 s reads as the
+  20 s default; a smaller stray value would not, so set it explicitly. Opening the config
+  app's serial connection resets the board, which restarts the hold. A signal loss does not
+  restart the hold: after the signal returns the doors follow the switch at once.
 
 ### Suggested order
 
@@ -239,9 +250,12 @@ and nozzle move at power-up and on mode changes even when disarmed: keep fingers
 the linkages. Watch with Mission Planner: `DOOR_ST`, `DOOR_PWM`, `VTOL_DLY`, `TILT_POS`,
 `LIFT_PWM`, `NOZ_EST`, `DOOR_AS` on the Quick tab, `DOOR_DEBUG 1` on the bench (0 for flight).
 
-1. **Sequencer alone** (servo tester on its input): boot pose (nozzle doors open), each
-   state's endpoints with no binding, directions, and the measured closed→MID time.
-   Signal-loss: after a valid signal, remove it and check MID within about 0.5 s.
+1. **Sequencer alone** (servo tester on its input): every door at MID from power-up for
+   the whole `Boot Hold`, then the commanded state; each state's endpoints with no
+   binding; directions; the measured closed→MID time. Signal-loss: after a valid signal,
+   remove it and check MID within about 0.5 s. Then, with the nozzle connected: power
+   the system up with the nozzle vertical and check it is fully home before `Boot Hold`
+   ends (time its homing; 10–15 s is the expected worst case).
 2. **Flight controller + sequencer, disarmed.** Set the door output and the matching
    settings above. Disarmed, a VTOL mode tilts the nozzle down at `Q_TILT_RATE_DN` and
    MANUAL tilts at 90°/s or more, so the nozzle speed can be measured without arming: from
@@ -339,7 +353,8 @@ down behind a closed door is not a concern; the nozzle is.
    holds the doors open in VTOL for longer than its 1 s retry, so they don't drop to MID
    between retries. Confirmed in SITL (10g), harness scenarios 6 and 11. **Not covered:**
    before the script first runs after boot, the door output sends no pulses at all; the
-   sequencer holds the nozzle doors open until it sees a valid signal.
+   sequencer holds every door at MID until it sees a valid signal and its power-up hold
+   has run.
 
 ### Failure-mode review (2026-11-03)
 
