@@ -14,7 +14,8 @@ work, so the context survives between sessions.
   (`F35B_sitl/last_results.md`) and 40 with 3 skipped on the F-35B in RealFlight
   (`F35B_sitl/last_results_realflight.md`). Settle finding 5, do the hardware steps under
   Next steps, and bench-test before flying it.
-- **Hardware bring-up starts next**, in a new session: read "Hardware bring-up" below first.
+- **Hardware bring-up in progress** (see "Hardware bring-up" below, and the log under Next
+  steps). Stage 1 (sequencer) passed on 2026-11-03; stage 2 is next.
 - Developed around July 2026 (files dated 2026-07-05) and committed here on 2026-09-12.
   The original design discussion was not preserved; `F35B.md` and `F35B_TESTPLAN.md` are
   the design record.
@@ -204,8 +205,17 @@ tilt and lift outputs on the aircraft's own parameters.
   output. On the Cube targets `SERVO13` is the rudder (function 26, reversed), so the door
   output is on whichever channel is wired to the sequencer. Set `SERVOx_FUNCTION 94` there,
   `DOOR_FUNC 94`, and that channel's `SERVOx_TRIM` to `DOOR_PART`.
-- `Q_TILT_ANGLE_MAX` is 110 on the boards (105 in the SITL set), so the tilt output's
-  forward and hover readings differ. Recalibrate `DOOR_TILT_FWD` from `TILT_POS`.
+- `Q_TILT_ANGLE_MAX` is 110 in the board defaults (105 in the SITL set and on the first
+  aircraft), so the tilt output's forward and hover readings differ between setups.
+  Recalibrate `DOOR_TILT_FWD` from `TILT_POS`. The tilt output spans `Q_TILT_ANGLE_MAX`
+  degrees, not 90: forward is one end of the range and the nozzle points straight down
+  (hover) at (`Q_TILT_ANGLE_MAX` − 90) / `Q_TILT_ANGLE_MAX` of the range from the other end
+  (14% at 105, 18% at 110); the rest is reverse tilt.
+- Forward may be either end of the tilt output's PWM range: the SITL set reverses it
+  (forward 1010), the board defaults don't (forward ≈ 1900).
+- The board defaults put VTOL modes on `FLTMODE_CH` (QSTABILIZE on position 1, QLOITER on
+  4), which bypasses the door gate, and `RC8_OPTION 153` (arm/disarm), where SITL had the
+  selector. Move the selector and make `FLTMODE_CH` a MANUAL/FBWA override first.
 - `ARSPD_TYPE 0` on the boards: no airspeed sensor, so `DOOR_AS` (and the partial/full
   thresholds) run on the synthetic estimate.
 - `FS_LONG_ACTN 1` and `Q_RTL_MODE 1` on the boards: a long RC failsafe ends in QRTL, a
@@ -217,13 +227,17 @@ tilt and lift outputs on the aircraft's own parameters.
 
 1. `SERVOx_TRIM` of the door output = `DOOR_PART`, and inside the sequencer's MID band.
 2. The sequencer's `in_low`/`in_mid`/`in_high` within ±100 µs of `DOOR_CLOSED`/`DOOR_PART`/
-   `DOOR_OPEN` (they are matched against the PWM the flight controller actually outputs, so
-   check `SERVOx_MIN`/`MAX`/`REVERSED` on the door output too).
-3. `DOOR_ENTRY_MS` ≥ the **measured** time for the sequencer to take every door from closed
-   to MID (all but the lift fan door fully open), plus margin. Its configured speeds are
-   nominal: the loop locks to the 50 Hz input frame and slips occasionally.
+   `DOOR_OPEN`. The script's commands are raw PWM, so `SERVOx_MIN`/`MAX`/`REVERSED` of the
+   door output don't change them; check what the sequencer actually reads (its `Input:`
+   line), which on the first aircraft is 15–35 µs below the commanded value.
+3. `DOOR_ENTRY_MS` ≥ the **measured physical** time for every door to get from closed to
+   MID (all but the lift fan door fully open), plus margin. The sequencer's speeds are
+   commands: a servo or actuator slower than its ramp lags it (the first aircraft's lift
+   fan door does), and on a 50 Hz input the loop slips frames.
 4. `DOOR_NOZ_MS` ≥ the **measured** time for the physical nozzle to cross the tilt output's
-   full range (`SERVOx_MIN` to `SERVOx_MAX` of the `DOOR_TILT_FN` output), plus margin.
+   full range (`SERVOx_MIN` to `SERVOx_MAX` of the `DOOR_TILT_FN` output), plus margin. A
+   switch to MANUAL from a hover only sweeps part of the range (86% at `Q_TILT_ANGLE_MAX`
+   105), so scale the measured time: full range ÷ the `TILT_POS` span swept.
 5. `DOOR_TILT_FWD` from `TILT_POS` with the nozzle fully forward, nudged about 10 µs toward
    mid-travel. `DOOR_LIFT_FN` = the lift fan motor's output function; `DOOR_LIFT_OFF`
    between `LIFT_PWM` stopped and idling.
@@ -407,7 +421,98 @@ sensors). Decisions:
 2. Decide the RTL/AUTO auto-transition mitigation (finding 5) before real flight. At
    minimum, choose failsafe actions and mission legs that don't enter VTOL unplanned.
 3. Hardware bring-up: follow "Hardware bring-up" above, and record what is measured and
-   set (door output channel, `DOOR_ENTRY_MS`, `DOOR_NOZ_MS`, `DOOR_TILT_FWD`,
-   `DOOR_LIFT_OFF`, sequencer calibration) here.
+   set here (log below). Stage 1 passed; stage 2 (FC + sequencer, disarmed) is next.
+
+### Bring-up log: first aircraft
+
+**Aircraft (as found, 2026-11-03).** Cube Orange+ (`CubeOrangePlus-F35B`), ArduPlane 4.6.3
+from this branch at `03037e3a` (later commits change only other boards' defaults).
+`SCR_ENABLE 0`, so no `DOOR_` parameters yet. `Q_TILT_ANGLE_MAX 105` (kept; the board
+default is 110), `ARSPD_TYPE 0`, `BRD_SAFETY_DEFLT 0`, `Q_ASSIST_SPEED -1` (assist only in
+transitions), no DShot (`SERVO_BLH_MASK 0`).
+
+| | Output | Settings |
+|---|---|---|
+| Door signal to the sequencer | `SERVO12` (AUX4) | function 94, trim 1500 (= `DOOR_PART`), 1100–1900, not reversed. AUX4 shares TIM1 with motors 1/2 (AUX1/2), so it runs at `Q_RC_SPEED` 490 Hz. |
+| Nozzle tilt | `SERVO16`, function 41 | 1100–1900, not reversed: forward is **1900**. The Cube has no pin 15/16; the nozzle controller gets them over SBUS out (`SERIAL6_PROTOCOL 22`, 50 Hz). |
+| Lift fan | `SERVO1`, function 35 (motor 3) | 1000–2000. So `DOOR_LIFT_FN 35`. |
+
+Still to set up in stage 2: `FLTMODE_CH 5` carries QSTABILIZE (1) and QLOITER (4), and
+`RC8_OPTION 153` is arm/disarm; the selector needs its own channel and `FLTMODE_CH` a
+MANUAL/FBWA override.
+
+**Sequencer (firmware v1 from `ca95edf`, EEPROM v1).**
+
+| Out | Door | Closed | Open | Drive |
+|---|---|---|---|---|
+| 1 | Lift fan door | 920 | 2070 | linear actuator |
+| 2, 3 | Lift exhaust | 1900, 1115 | 1075, 1950 | servo |
+| 4, 5 | Aux inlet | 1115, 1855 | 1965, 1030 | servo |
+| 6, 7 | Nozzle doors | 1060, 1985 | 1960, 1085 | servo |
+
+Open/close speed 1500 ms; lift fan door open/close **4500 ms** (was 2000, changed
+2026-11-03, see below); Fan Mid 65%; input calibration 1000 / 1500 / 2000 (= `DOOR_CLOSED` /
+`DOOR_PART` / `DOOR_OPEN`). `safe_start` is stored but never read by the firmware.
+
+**Stage 1, sequencer alone (passed 2026-11-03).** Driven from the flight controller rather
+than a servo tester: `SERVO12_FUNCTION 135` (Trim) outputs `SERVO12_TRIM`, refreshed at
+1 Hz, so the trim value commands the doors without the script (see finding 9). The
+sequencer's serial status was logged throughout. A dry run with the servo rail unpowered
+came first, ending at HIGH so that powering the rail moved nothing.
+
+- Input: the sequencer reads the 490 Hz signal 15–35 µs low with about 20 µs jitter
+  (2000 → 1946–1986, 1500 → 1472–1492, 1000 → 971–999); worst case 46 µs inside a band.
+- Commanded ramps run at exactly 20 ms per step on the 490 Hz input (no frame slips).
+  Closed→MID 1.46–1.62 s for the general doors.
+- **The lift fan door's linear actuator is slower than its ramp:** physically 4.3 s per
+  full stroke either way, and **2.8 s closed→MID** (65%), against 1.3 s commanded at the
+  old 2000 ms speed. The other doors track their ramps. Its speeds were raised to 4500 ms
+  so the ramp governs it (closed→MID now 2.9–3.1 s commanded).
+- Endpoints, directions and the output map checked on every door; no binding.
+- Between bands (1250, 1750) the state holds.
+- Signal loss (lead unplugged): MID 0.5–0.8 s after the last valid pulse (25 frames × the
+  25 ms `pulseIn` timeout ≈ 0.63 s, not 0.5 s); `Input: 0` held steady with the servos
+  powered (no floating-pin noise). Recovers on reconnect.
+- Boot pose (reset with no signal, last state LOW): nozzle doors snap open, the others
+  snap to the saved state; on signal the nozzle doors ramp closed. No twitch at attach.
+
+**Values so far.**
+
+| Parameter | Value | Source |
+|---|---|---|
+| Door output | `SERVO12`, trim 1500 | as found; matches rule 1 |
+| Sequencer input calibration | 1000 / 1500 / 2000 | matches rule 2 (reads 15–35 µs low) |
+| `DOOR_ENTRY_MS` | **4000** (to set in stage 2) | lift fan door 2.8 s closed→MID unloaded, +40% for air load |
+| `DOOR_LIFT_FN` | 35 | `SERVO1` |
+| `DOOR_TILT_FN` | 41 | `SERVO16` |
+| `DOOR_TILT_FWD` | stage 2 | expect ≈ 1890 (forward is the high end) |
+| `DOOR_LIFT_OFF` | stage 2 | |
+| `DOOR_NOZ_MS` | stage 2 | scale the MANUAL-from-hover sweep (86% of the range at 105) |
+
+**Findings from bring-up.**
+
+8. **Finding 5 is wide open on this aircraft.** With `FS_LONG_ACTN 1`, `Q_RTL_MODE 1` and
+   `RTL_RADIUS 1000`, a long RC failsafe (3 s) from fixed-wing enters RTL, which switches
+   to QRTL immediately anywhere within 1 km of home: an ungated VTOL entry at cruise speed
+   with the doors closed. The short failsafe (FBWA, or QLAND from a VTOL mode) and the
+   other failsafes (battery, fence, GCS: all off) are not a concern. Options: (a)
+   `Q_RTL_MODE 0`; (b) `FS_LONG_ACTN 2` (glide); (c) a script change that opens the doors
+   to MID while armed with RC invalid, about 1.5–2.5 s before the QRTL switch, which is
+   less than the lift fan door's 2.8–2.9 s to MID. **Decide before stage 5.**
+9. **Bench method: `SERVOx_FUNCTION 135` latches.** Switching the door output back to 94 at
+   runtime leaves the last trim value on the wire (raw PWM), so the doors hold that state
+   with no script. It clears at a reboot or when the script starts (`set_output_scaled`
+   first). Reboot after using it, and check the output reads 0 before trusting it.
+10. **Sequencer reset during a signal loss snaps the doors.** The boot pose writes the saved
+    state with no ramp, so a reset (e.g. a brownout) while the doors sit at MID after a lost
+    signal moves them to the last commanded state at full speed. Rare; not yet decided.
+11. **Selector order.** The script acts on any selector position held for one 50 ms cycle.
+    If the selector passes through intermediate positions (rotary knob, mixed switches),
+    don't put MANUAL or other fixed-wing positions between VTOL positions, or a VTOL→VTOL
+    move from a hover sets MANUAL on the way.
+12. **Minor sequencer notes:** each serial command stalls the loop for about 1 s
+    (`Serial.readString` timeout), so configure on the bench only; `move_toward` truncates
+    fractional steps, so opening runs up to 4% slower than the configured speed and
+    closing slightly faster.
 4. Fix the documentation drift and regenerate or delete the HTML test plan.
 5. Consider the minor findings, especially checking `set_mode()` return values.
