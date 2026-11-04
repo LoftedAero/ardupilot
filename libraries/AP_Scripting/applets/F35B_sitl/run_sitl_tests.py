@@ -84,6 +84,10 @@ PWM_TOL = 30
 # A 0.75 s debounce can measure as short as this: DOOR_AS arrives at ~5 Hz, so a crossing is seen
 # up to 0.2 s late, and the outputs are sampled at 10 Hz. No debounce at all would read 0-0.3 s.
 DEBOUNCE_MIN_S = 0.45
+# Flight tests climb to these heights (m above home) in a hover before anything that loses
+# height: a transition to fixed-wing, or the MANUAL bailout from a hover (7a).
+SAFE_ALT = 100
+MANUAL_ALT = 120
 MAV_CMD_SCRIPTING = 42701
 SCRIPTING_CMD_STOP, SCRIPTING_CMD_STOP_AND_RESTART = 2, 3
 
@@ -252,8 +256,10 @@ class Link:
         self.tilt_span = None      # tilt output's SERVOx_MAX - SERVOx_MIN, for the nozzle estimate
         self.noz = None            # nozzle position estimate (tilt-output PWM), as the script models it
         self.noz_at = None
-        self.home_since = None     # sim_ms when the outputs read stowed and the estimate read forward
-        self.close_holds = []      # (s the outputs had read stowed, s the estimate needed) at each close
+        self.tilt_fwd_since = None  # sim_ms when the tilt output last started reading forward
+        self.lift_off_since = None  # sim_ms when the lift output last started reading off
+        self.noz_fwd_since = None   # sim_ms when the nozzle estimate last started reading forward
+        self.closes = []            # timeline at each door close: dict of sim_ms values
 
     # -- connection --------------------------------------------------------
     def connect(self, wall_timeout=90):
@@ -381,6 +387,16 @@ class Link:
                 self.stowed_since = self.sim_ms
         else:
             self.stowed_since = None
+        if fwd:
+            if self.tilt_fwd_since is None:
+                self.tilt_fwd_since = self.sim_ms
+        else:
+            self.tilt_fwd_since = None
+        if off:
+            if self.lift_off_since is None:
+                self.lift_off_since = self.sim_ms
+        else:
+            self.lift_off_since = None
         # The script's nozzle model, run independently on the sampled outputs: the nozzle follows
         # the tilt output at most the output's full range per DOOR_NOZ_MS.
         noz_ms = self.params.get("DOOR_NOZ_MS", 3500)
@@ -391,11 +407,11 @@ class Link:
             self.noz = min(tilt, self.noz + step) if self.noz < tilt else max(tilt, self.noz - step)
         self.noz_at = self.sim_ms
         noz_fwd = self.nacelles_fwd(self.noz)
-        if fwd and off and noz_fwd:
-            if self.home_since is None:
-                self.home_since = self.sim_ms
+        if noz_fwd:
+            if self.noz_fwd_since is None:
+                self.noz_fwd_since = self.sim_ms
         else:
-            self.home_since = None
+            self.noz_fwd_since = None
         closing = (self.door_is(door, "CLOSED") and self.prev_door is not None
                    and not self.door_is(self.prev_door, "CLOSED"))
         self.prev_door = door
@@ -409,10 +425,8 @@ class Link:
         # The tilt output is a command and the nozzle lags it, so the doors must not close before
         # the nozzle estimate reads forward (allowing 0.2 s of nozzle travel for the sampling).
         if closing:
-            held = (self.sim_ms - self.stowed_since) / 1000.0 if self.stowed_since is not None else 0.0
-            need = ((self.home_since - self.stowed_since) / 1000.0
-                    if self.home_since is not None and self.stowed_since is not None else None)
-            self.close_holds.append((held, need))
+            self.closes.append(dict(close=self.sim_ms, tilt=self.tilt_fwd_since, lift=self.lift_off_since,
+                                    noz=self.noz_fwd_since))
             tf = self.params.get("DOOR_TILT_FWD", 1900)
             short = (tf - self.noz) if tf >= 1500 else (self.noz - tf)
             tol = (self.tilt_span or 1000) * 200 / max(noz_ms, 1)
@@ -553,6 +567,8 @@ class Runner:
         self.results = []         # (id, title, status, detail)
         self.cal = {}
         self.flight_abort = None
+        self.alt_sim_ms = None     # for check_alt's stopped-simulation check
+        self.alt_wall = 0.0
 
     # -- bookkeeping -------------------------------------------------------
     def run(self, tid, title, fn, flight=False):
@@ -572,6 +588,11 @@ class Runner:
         except Abort as e:
             self.flight_abort = str(e)
             self.record(tid, title, "FAIL", f"aborted flight sequence: {e}")
+            # leave the aircraft hovering rather than in whatever the test was doing (an external
+            # VTOL entry, so the doors open reactively: not a finding)
+            self.L.open_window("abort recovery")
+            self.L.set_rc(ch3=1500)
+            self.L.gcs_mode("QLOITER")
         except Exception as e:
             self.record(tid, title, "ERROR", f"{type(e).__name__}: {e}")
             traceback.print_exc()
@@ -660,9 +681,32 @@ class Runner:
             return None, samples[change][5], None
         return (samples[change][0] - samples[start][0]) / 1000.0, samples[change][5], samples[start][5]
 
-    def check_alt(self, min_alt=8):
-        if self.L.rel_alt < min_alt:
-            raise Abort(f"altitude {self.L.rel_alt:.1f} m below {min_alt} m in {self.L.mode}")
+    def climb_hover(self, target_m, timeout_s=150):
+        """Climb in the current VTOL mode to target_m before something that loses height. Full
+        stick: the climb rate is the VTOL mode's limit (Q_PILOT_SPD_UP)."""
+        L = self.L
+        if L.mode not in VTOL_MODES:
+            raise Abort(f"needs a hover to climb, but the mode is {L.mode}")
+        if L.rel_alt >= target_m:
+            return
+        L.set_rc(ch3=2000)
+        ok = L.wait(lambda: L.rel_alt >= target_m, timeout_s)
+        L.set_rc(ch3=1500)
+        if not ok:
+            raise Abort(f"climb stalled at {L.rel_alt:.1f} m (wanted {target_m} m)")
+        L.sleep(2)
+
+    def check_alt(self, min_alt=25):
+        L = self.L
+        if L.rel_alt < min_alt:
+            raise Abort(f"altitude {L.rel_alt:.1f} m below {min_alt} m in {L.mode}")
+        # RealFlight stops simulation time after a crash, and SITL stops sending with it, so the
+        # last altitude never changes and the flight loops (counted in sim time) would never end
+        now = time.time()
+        if L.sim_ms != self.alt_sim_ms:
+            self.alt_sim_ms, self.alt_wall = L.sim_ms, now
+        elif now - self.alt_wall > 5:
+            raise Abort(f"simulation time stopped for 5 s in {L.mode} (crashed or paused in RealFlight?)")
 
     # -- setup -------------------------------------------------------------
     def setup(self):
@@ -1148,11 +1192,8 @@ class Runner:
         self.enter_vtol_via_selector("QLOITER")
         L.set_rc(ch3=1000)
         L.arm()
-        L.set_rc(ch3=1800)
-        if not L.wait(lambda: L.rel_alt >= 50, 60):
-            raise Abort(f"climb stalled at {L.rel_alt:.1f} m")
-        L.set_rc(ch3=1500)
-        L.sleep(3)
+        self.climb_hover(SAFE_ALT)
+        L.sleep(1)
         return f"armed in QLOITER, hovering at {L.rel_alt:.0f} m"
 
     def f_1b(self):
@@ -1189,6 +1230,7 @@ class Runner:
     def f_3c(self):
         """Outbound; also records the data for 4a, 5a and 5b."""
         L = self.L
+        self.climb_hover(SAFE_ALT)
         mark = L.sim_ms
         L.set_rc(ch3=1900)
         L.select("FBWA")
@@ -1198,6 +1240,9 @@ class Runner:
             L.pump()
             self.check_alt()
         self.check(L.door_st() == 0, f"doors never closed (DOOR_ST {L.door_st()}, airspeed {L.airspeed:.1f})")
+        # DOOR_ST can arrive before the servo sample showing the closed door
+        self.check(L.wait(lambda: any(s[0] >= mark and L.door_is(s[2], "CLOSED") for s in L.samples[-20:]), 2),
+                   "DOOR_ST reads closed but the door output never did")
         # all timings from the same servo samples: first closed sample, and when the nacelles
         # last arrived forward / the lift motor last stopped before it
         samples = [s for s in L.samples if s[0] >= mark]
@@ -1346,35 +1391,45 @@ class Runner:
 
     def f_7a(self):
         L = self.L
-        L.set_rc(ch3=1800)
-        L.wait(lambda: L.rel_alt >= 80, 40)
-        L.set_rc(ch3=1500)
-        L.sleep(2)
+        self.climb_hover(MANUAL_ALT)
         mark = L.sim_ms
         L.set_rc(ch5=OVR_MANUAL)
         self.check(L.wait(lambda: L.mode == "MANUAL", 1), f"MANUAL not immediate (mode {L.mode})")
         L.set_rc(ch3=1800)
+        # MANUAL from a hover is a bailout: leave it as soon as the tilt output reads forward (about
+        # 1 s at 90 deg/s). The nozzle estimate doesn't depend on the mode, so the doors still wait
+        # for it in FBWA. Staying in MANUAL until the doors close crashed the RealFlight model.
+        start = L.sim_ms
+        while L.sim_ms - start < 3000 and not L.nacelles_fwd(L.outputs()[1]):
+            L.pump()
+            self.check_alt()
+        manual_s = (L.sim_ms - mark) / 1000
+        L.set_rc(ch5=OVR_REST, ch3=1900)
+        self.check(L.wait(lambda: L.mode == "FBWA", 2), f"override rest did not give FBWA (mode {L.mode})")
         start = L.sim_ms
         while L.sim_ms - start < 30000 and L.door_st() != 0:
             L.pump()
             self.check_alt()
-        self.check(L.door_st() == 0, f"doors did not close in MANUAL (DOOR_ST {L.door_st()})")
-        closed_s = (L.sim_ms - mark) / 1000
+        self.check(L.door_st() == 0, f"doors did not close (DOOR_ST {L.door_st()})")
         self.no_violations_since(mark)
         # MANUAL tilts at 90 deg/s or more, faster than the nozzle: the doors must wait for the estimate
-        held, need = L.close_holds[-1] if L.close_holds else (0.0, None)
-        self.check(need is not None and need >= 0.5,
-                   f"the tilt output was not faster than the nozzle estimate (wait {need}); nothing to test")
-        self.check(held >= need - 0.2, f"doors closed {held:.2f} s after the outputs read stowed; the nozzle "
-                   f"estimate needed {need:.2f} s")
-        L.set_rc(ch5=OVR_REST, ch3=1900)
-        self.check(L.wait(lambda: L.mode == "FBWA", 2), f"override rest did not give FBWA (mode {L.mode})")
+        c = L.closes[-1] if L.closes else None
+        self.check(c is not None and c["tilt"] is not None and c["noz"] is not None,
+                   "no close with the tilt output and nozzle estimate both forward")
+        rel = {k: (v - mark) / 1000.0 for k, v in c.items() if v is not None}
+        lag = rel["noz"] - rel["tilt"]
+        self.check(lag >= 0.5, f"the nozzle estimate trailed the tilt output by only {lag:.1f} s; the MANUAL "
+                   f"swing wasn't faster than the nozzle, so nothing was tested")
+        self.check(rel["close"] >= rel["noz"] - 0.2, f"doors closed at +{rel['close']:.1f} s, before the nozzle "
+                   f"estimate read forward at +{rel['noz']:.1f} s")
         start = L.sim_ms
         while L.sim_ms - start < 10000:
             L.pump()
             self.check_alt()
-        return (f"MANUAL immediately; doors closed after {closed_s:.1f} s, {held:.1f} s after the outputs read "
-                f"stowed (nozzle estimate needed {need:.1f} s at DOOR_NOZ_MS {L.params.get('DOOR_NOZ_MS', 3500):.0f})")
+        lift = f", lift off +{rel['lift']:.1f} s" if "lift" in rel else ""
+        return (f"MANUAL immediately, back to FBWA after {manual_s:.1f} s. After the switch: tilt output forward "
+                f"+{rel['tilt']:.1f} s, nozzle estimate forward +{rel['noz']:.1f} s{lift}, doors closed "
+                f"+{rel['close']:.1f} s (DOOR_NOZ_MS {L.params.get('DOOR_NOZ_MS', 3500):.0f})")
 
     def f_4d(self):
         L = self.L
@@ -1406,6 +1461,7 @@ class Runner:
 
     def f_8d(self):
         L = self.L
+        self.climb_hover(SAFE_ALT)
         L.set_rc(ch3=1900)
         L.select("FBWA")
         self.check(L.wait(lambda: L.mode == "FBWA", 1), f"no FBWA (mode {L.mode})")
@@ -1452,10 +1508,9 @@ class Runner:
         bad = [v for v in L.violations if v[3] is None]
         expected = [v for v in L.violations if v[3] is not None]
         self.check(not bad, f"{len(bad)} violation(s); first at t={bad[0][0] / 1000:.1f}s: {bad[0][2]}" if bad else "")
-        holds = L.close_holds
-        waits = [n for _, n in holds if n is not None]
-        hold_txt = (f"{len(holds)} close(s), none before the nozzle estimate read forward (longest wait for it "
-                    f"{max(waits):.1f} s)" if waits else f"{len(holds)} close(s)")
+        waits = [(c["noz"] - c["tilt"]) / 1000.0 for c in L.closes if c["noz"] is not None and c["tilt"] is not None]
+        hold_txt = (f"{len(L.closes)} close(s), none before the nozzle estimate read forward (it trailed the tilt "
+                    f"output by up to {max(waits):.1f} s)" if waits else f"{len(L.closes)} close(s)")
         return (f"{len(L.samples)} output samples; doors never closed on active VTOL hardware and nothing moved "
                 f"during a pending entry; {hold_txt}; {len(expected)} sample(s) inside the documented "
                 f"external-entry windows")
@@ -1572,7 +1627,7 @@ def main():
         if not args.ground_only:
             print("Flight tests")
             for tid, title, fn in [
-                ("F0", "Arm in QLOITER and climb to 50 m", runner.f_takeoff),
+                ("F0", f"Arm in QLOITER and climb to {SAFE_ALT} m", runner.f_takeoff),
                 ("1b", "TILT_POS moves with the nacelles in hover", runner.f_1b),
                 ("1c", "LIFT_PWM: lift motor running vs stopped; calibrate", runner.f_1c),
                 ("3c", "Outbound: QLOITER -> FBWA", runner.f_3c),

@@ -9,11 +9,11 @@ work, so the context survives between sessions.
 - **Preliminary.** Only the DOORS subsystem exists. The automated SITL tests cover most of
   `F35B_TESTPLAN.md`; the manual items have no recorded results.
 - **Not flight-tested.** Review findings 1–4 were fixed on 2026-11-01, findings 6–7 on
-  2026-11-02, and revised on 2026-11-03 after the failure-mode review. The automated SITL
-  suite passes 43/43 on the stand-in tiltrotor model (`F35B_sitl/last_results.md`). The
-  RealFlight results (`F35B_sitl/last_results_realflight.md`, 40 with 3 skipped) are from
-  2026-11-02, **before** the nozzle estimate and MID trim: rerun `--realflight`. Settle
-  finding 5, do the hardware steps under Next steps, and bench-test before flying it.
+  2026-11-02, and revised on 2026-11-03 after the failure-mode review. On 2026-11-03 the
+  automated SITL suite passed 43/43 on the stand-in tiltrotor model
+  (`F35B_sitl/last_results.md`) and 40 with 3 skipped on the F-35B in RealFlight
+  (`F35B_sitl/last_results_realflight.md`). Settle finding 5, do the hardware steps under
+  Next steps, and bench-test before flying it.
 - Developed around July 2026 (files dated 2026-07-05) and committed here on 2026-09-12.
   The original design discussion was not preserved; `F35B.md` and `F35B_TESTPLAN.md` are
   the design record.
@@ -133,6 +133,16 @@ runs hide, both fixed:
   last time seen. Right after a reboot, the new boot's first messages tied with the old
   boot's last ones, and 9d counted the pre-reboot gated entry as a post-reboot one. The
   runner now steps the clock 1 ms at each reboot.
+
+Flight tests climb in a hover to 100 m before each outbound transition (3c, 8d) and to
+120 m before 7a, and abort the flight sequence below 25 m. 7a is a bailout from a hover:
+staying in MANUAL until the doors closed (about 3.7 s with the nozzle wait) crashed the
+RealFlight model, so the test switches back to FBWA as soon as the tilt output reads
+forward and watches the doors close there. After a crash RealFlight stops simulation time
+and SITL goes silent, so the runner aborts if sim time stops for 5 s; after any abort it
+puts the aircraft in QLOITER. Each new SITL connection resets the RealFlight aircraft
+(FlightAxis `ResetAircraft`), so there is nothing to reset by hand between runs; with no
+SITL connected, the aircraft flies uncontrolled.
 
 A GCS can watch a run without disturbing it on SITL's spare MAVLink ports, TCP 5762 or
 5763. The runner uses 5760. Don't change modes or parameters from it, and keep any GCS
