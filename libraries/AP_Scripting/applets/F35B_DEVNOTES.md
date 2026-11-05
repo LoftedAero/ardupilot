@@ -15,7 +15,8 @@ work, so the context survives between sessions.
   (`F35B_sitl/last_results_realflight.md`). Settle finding 5, do the hardware steps under
   Next steps, and bench-test before flying it.
 - **Hardware bring-up in progress** (see "Hardware bring-up" below, and the log under Next
-  steps). Stage 1 (sequencer) passed on 2026-11-03; stage 2 is next.
+  steps). Stage 1 (sequencer) passed on 2026-11-03, and the sequencer's power-up hold
+  (firmware `54b6d26`) on 2026-11-05 with a 30 s hold; stage 2 is next.
 - Developed around July 2026 (files dated 2026-07-05) and committed here on 2026-09-12.
   The original design discussion was not preserved; `F35B.md` and `F35B_TESTPLAN.md` are
   the design record.
@@ -187,8 +188,9 @@ tilt and lift outputs on the aircraft's own parameters.
   - **Every door holds MID** for `Boot Hold` after power-up (default 20 s, set in the
     config app as "Boot Hold") and whenever the signal isn't trustworthy: before the
     first valid signal, and after losing it (about 0.5 s) until it returns. The nozzle
-    homes slowly at power-up (10–15 s from vertical) and powers up with the sequencer, so
-    the hold is timed from the sequencer's own power-up. The switch is still read during
+    homes slowly at power-up and powers up with the sequencer, so the hold is timed from
+    the sequencer's own power-up. Measured on the first aircraft: **18 s** from the 105°
+    reverse limit, with the Cube booting from the same battery; Boot Hold set to **30 s**. The switch is still read during
     the hold, so the doors go straight to the commanded state when it ends.
   - Configured over USB by the F-35B Door Sequencer config app. In config mode it ignores
     the flight controller (bench only).
@@ -268,8 +270,11 @@ the linkages. Watch with Mission Planner: `DOOR_ST`, `DOOR_PWM`, `VTOL_DLY`, `TI
    the whole `Boot Hold`, then the commanded state; each state's endpoints with no
    binding; directions; the measured closed→MID time. Signal-loss: after a valid signal,
    remove it and check MID within about 0.5 s. Then, with the nozzle connected: power
-   the system up with the nozzle vertical and check it is fully home before `Boot Hold`
-   ends (time its homing; 10–15 s is the expected worst case).
+   the whole system up the way the aircraft does (no USB on the sequencer or the flight
+   controller) with the nozzle at its reverse limit, the worst case, and check it is
+   fully home well before `Boot Hold` ends. Measure the homing with the doors commanded MID
+   first, so they can't close on it. The first aircraft took 18 s, more than the 10–15 s
+   first estimated; the 20 s default would have left 2 s.
 2. **Flight controller + sequencer, disarmed.** Set the door output and the matching
    settings above. Disarmed, a VTOL mode tilts the nozzle down at `Q_TILT_RATE_DN` and
    MANUAL tilts at 90°/s or more, so the nozzle speed can be measured without arming: from
@@ -421,7 +426,10 @@ sensors). Decisions:
 2. Decide the RTL/AUTO auto-transition mitigation (finding 5) before real flight. At
    minimum, choose failsafe actions and mission legs that don't enter VTOL unplanned.
 3. Hardware bring-up: follow "Hardware bring-up" above, and record what is measured and
-   set here (log below). Stage 1 passed; stage 2 (FC + sequencer, disarmed) is next.
+   set here (log below). Stage 1 passed, and the sequencer's power-up hold firmware was
+   checked on 2026-11-05; stage 2 (FC + sequencer, disarmed) is next.
+4. Fix the documentation drift and regenerate or delete the HTML test plan.
+5. Consider the minor findings, especially checking `set_mode()` return values.
 
 ### Bring-up log: first aircraft
 
@@ -441,7 +449,8 @@ Still to set up in stage 2: `FLTMODE_CH 5` carries QSTABILIZE (1) and QLOITER (4
 `RC8_OPTION 153` is arm/disarm; the selector needs its own channel and `FLTMODE_CH` a
 MANUAL/FBWA override.
 
-**Sequencer (firmware v1 from `ca95edf`, EEPROM v1).**
+**Sequencer** (firmware v1 from `ca95edf` for stage 1; from `54b6d26`, with the power-up
+hold, since 2026-11-05; EEPROM v1).
 
 | Out | Door | Closed | Open | Drive |
 |---|---|---|---|---|
@@ -452,7 +461,8 @@ MANUAL/FBWA override.
 
 Open/close speed 1500 ms; lift fan door open/close **4500 ms** (was 2000, changed
 2026-11-03, see below); Fan Mid 65%; input calibration 1000 / 1500 / 2000 (= `DOOR_CLOSED` /
-`DOOR_PART` / `DOOR_OPEN`). `safe_start` is stored but never read by the firmware.
+`DOOR_PART` / `DOOR_OPEN`); **Boot Hold 30000 ms** (set 2026-11-05). `safe_start` is stored
+but never read by the firmware.
 
 **Stage 1, sequencer alone (passed 2026-11-03).** Driven from the flight controller rather
 than a servo tester: `SERVO12_FUNCTION 135` (Trim) outputs `SERVO12_TRIM`, refreshed at
@@ -475,6 +485,34 @@ came first, ending at HIGH so that powering the rail moved nothing.
   powered (no floating-pin noise). Recovers on reconnect.
 - Boot pose (reset with no signal, last state LOW): nozzle doors snap open, the others
   snap to the saved state; on signal the nozzle doors ramp closed. No twitch at attach.
+  (Behavior of `ca95edf`; superseded by the power-up hold below.)
+
+**Power-up hold, firmware `54b6d26` (checked 2026-11-05).** Same Trim method for the door
+command; logged over USB except where the power-up itself was the test.
+
+- N1, after flashing: every setting kept; Boot Hold read **56320 ms**, a stray value: its
+  low byte was the old build's last state (0), its high byte 0xDC was left in EEPROM by
+  an earlier build. Under 60000, so used as-is. Set explicitly.
+- N2, nozzle homing: whole system powered from the battery (no USB on the sequencer or
+  the Cube), nozzle at its 105° reverse limit, doors commanded MID: **18 s** to fully
+  home, at a steady speed, including the Cube's boot. Boot Hold set to **30 s** (+67%).
+- N3, the same power-up with the doors commanded LOW: every door at MID from power-up,
+  nozzle home at 18 s, doors closing just after 30 s: **12 s of margin**. On a power-up
+  the hold runs from power-on; after a USB reset the bootloader adds about 1.5 s.
+- N4, power-up with no signal: MID 47 s past the reset; on connecting, the doors were
+  closing within 170 ms.
+- N5, signal loss inside the hold: no motion, and the doors still closed 30.0 s after
+  start (the hold is not restarted). After the hold: MID 0.5 s after the loss, closing
+  within 160 ms of the return.
+- N6, Nano reset with the Cube running: MID for the full hold although LOW arrived 3 s
+  in; closed at 30.1 s.
+- N7, Boot Hold 0: the doors follow as soon as the signal is valid. Restored to 30000 and
+  confirmed after a reset.
+- N8, Cube-only reboot (doors commanded MID): the door signal stops about 1.3 s after the
+  reboot command and returns about 12 s after it; the doors sit at MID meanwhile. **The
+  nozzle does not re-home** when its SBUS feed returns, so the script's ground nozzle wait
+  (`DOOR_NOZ_MS`) is enough after a Cube-only reboot.
+- Status dump captured for the config app's `test/board-capture.txt`.
 
 **Values so far.**
 
@@ -482,6 +520,7 @@ came first, ending at HIGH so that powering the rail moved nothing.
 |---|---|---|
 | Door output | `SERVO12`, trim 1500 | as found; matches rule 1 |
 | Sequencer input calibration | 1000 / 1500 / 2000 | matches rule 2 (reads 15–35 µs low) |
+| Sequencer Boot Hold | **30000 ms** | nozzle homing 18 s worst case (N2), +67% |
 | `DOOR_ENTRY_MS` | **4000** (to set in stage 2) | lift fan door 2.8 s closed→MID unloaded, +40% for air load |
 | `DOOR_LIFT_FN` | 35 | `SERVO1` |
 | `DOOR_TILT_FN` | 41 | `SERVO16` |
@@ -503,9 +542,12 @@ came first, ending at HIGH so that powering the rail moved nothing.
    runtime leaves the last trim value on the wire (raw PWM), so the doors hold that state
    with no script. It clears at a reboot or when the script starts (`set_output_scaled`
    first). Reboot after using it, and check the output reads 0 before trusting it.
-10. **Sequencer reset during a signal loss snaps the doors.** The boot pose writes the saved
-    state with no ramp, so a reset (e.g. a brownout) while the doors sit at MID after a lost
-    signal moves them to the last commanded state at full speed. Rare; not yet decided.
+10. **Sequencer reset during a signal loss snaps the doors.** With `ca95edf` the boot pose
+    wrote the saved state with no ramp, so a reset (e.g. a brownout) while the doors sat at
+    MID after a lost signal moved them at full speed. **Resolved by `54b6d26`:** the boot
+    pose is MID. What remains: a reset with the doors closed snaps them to MID at full
+    speed and holds MID for the whole Boot Hold (30 s), even in a hover where the FC
+    commands fully open. The owner confirmed MID (lift fan door 65%) is enough to hover.
 11. **Selector order.** The script acts on any selector position held for one 50 ms cycle.
     If the selector passes through intermediate positions (rotary knob, mixed switches),
     don't put MANUAL or other fixed-wing positions between VTOL positions, or a VTOL→VTOL
@@ -513,6 +555,13 @@ came first, ending at HIGH so that powering the rail moved nothing.
 12. **Minor sequencer notes:** each serial command stalls the loop for about 1 s
     (`Serial.readString` timeout), so configure on the bench only; `move_toward` truncates
     fractional steps, so opening runs up to 4% slower than the configured speed and
-    closing slightly faster.
-4. Fix the documentation drift and regenerate or delete the HTML test plan.
-5. Consider the minor findings, especially checking `set_mode()` return values.
+    closing slightly faster. At small steps the effect grows: the lift fan door at 4500 ms
+    steps 5.1 µs, which opens at 5 per step (about 4.6 s per stroke) but closes at 6
+    (about 3.8 s), so its closing ramp again runs ahead of the 4.3 s actuator. Closing
+    speed affects no safety logic.
+13. **Power-up hold, the measured worst case.** The nozzle's homing (18 s) was longer than
+    the 10–15 s first estimated and close to the firmware's 20 s default. Measure it on
+    each airframe, from the reverse limit and with the flight controller booting from the
+    same battery, before trusting the default.
+14. **Flashing over a used board needs Boot Hold checked.** Our board read 56320 ms after
+    flashing `54b6d26` (see N1). A stray value close to zero would mean no hold at all.
