@@ -16,7 +16,8 @@ work, so the context survives between sessions.
   Next steps, and bench-test before flying it.
 - **Hardware bring-up in progress** (see "Hardware bring-up" below, and the log under Next
   steps). Stage 1 (sequencer) passed on 2026-11-03, and the sequencer's power-up hold
-  (firmware `54b6d26`) on 2026-11-05 with a 30 s hold; stage 2 is next.
+  (firmware `54b6d26`) on 2026-11-05 with a 30 s hold. Stage 2 (FC + sequencer, disarmed)
+  measured and set everything but the armed lift idle on 2026-11-05; stage 3 is next.
 - Developed around July 2026 (files dated 2026-07-05) and committed here on 2026-09-12.
   The original design discussion was not preserved; `F35B.md` and `F35B_TESTPLAN.md` are
   the design record.
@@ -427,7 +428,8 @@ sensors). Decisions:
    minimum, choose failsafe actions and mission legs that don't enter VTOL unplanned.
 3. Hardware bring-up: follow "Hardware bring-up" above, and record what is measured and
    set here (log below). Stage 1 passed, and the sequencer's power-up hold firmware was
-   checked on 2026-11-05; stage 2 (FC + sequencer, disarmed) is next.
+   checked on 2026-11-05; stage 2 (FC + sequencer, disarmed) done the same day, except the
+   armed lift idle (stage 4). Stage 3 (bench ground tests) is next.
 4. Fix the documentation drift and regenerate or delete the HTML test plan.
 5. Consider the minor findings, especially checking `set_mode()` return values.
 
@@ -445,9 +447,8 @@ transitions), no DShot (`SERVO_BLH_MASK 0`).
 | Nozzle tilt | `SERVO16`, function 41 | 1100–1900, not reversed: forward is **1900**. The Cube has no pin 15/16; the nozzle controller gets them over SBUS out (`SERIAL6_PROTOCOL 22`, 50 Hz). |
 | Lift fan | `SERVO1`, function 35 (motor 3) | 1000–2000. So `DOOR_LIFT_FN 35`. |
 
-Still to set up in stage 2: `FLTMODE_CH 5` carries QSTABILIZE (1) and QLOITER (4), and
-`RC8_OPTION 153` is arm/disarm; the selector needs its own channel and `FLTMODE_CH` a
-MANUAL/FBWA override.
+As found, `FLTMODE_CH 5` carried QSTABILIZE (1) and QLOITER (4), and `RC8_OPTION 153` is
+arm/disarm. Set up in stage 2 (below): CH5 as the override, CH9 as the selector.
 
 **Sequencer** (firmware v1 from `ca95edf` for stage 1; from `54b6d26`, with the power-up
 hold, since 2026-11-05; EEPROM v1).
@@ -514,6 +515,42 @@ command; logged over USB except where the power-up itself was the test.
   (`DOOR_NOZ_MS`) is enough after a Cube-only reboot.
 - Status dump captured for the config app's `test/board-capture.txt`.
 
+**Stage 2, flight controller + sequencer, disarmed (2026-11-05).** Mission Planner on the
+Cube's USB, with its MAVLink mirror giving a second link for logging and parameter writes.
+ESCs unpowered throughout.
+
+- **Switches (FrSky ETHOS).** CH5 is the override: a logic switch `A and B` of two
+  switches drives CH5 through a free mix (weight −100%), so it reads 2006 at rest and 982
+  only with both flipped. `FLTMODE_CH 5`, `FLTMODE1 0` (MANUAL), `FLTMODE2`–`6` = 5 (FBWA),
+  so only a solid low selects MANUAL. Tested: one switch alone does nothing; returning
+  either ends the override. CH9, a 3-position switch, is the selector: 982 / 1495 / 2006,
+  i.e. bands 1 / 4 / 6. `DOOR_MODE_CH 9`, `DOOR_MODE1`/`2` = 17 (QSTABILIZE),
+  `DOOR_MODE3`/`4` = 19 (QLOITER), `DOOR_MODE5`/`6` = 5 (FBWA). Pairing the bands keeps
+  1495 safe, 5 µs above the 1490 boundary. `RC5_OPTION`, `RC9_OPTION` 0. Receiver
+  failsafe should be "No pulses".
+- **Install.** `SERVO12_FUNCTION 94`, trim 1500, `SCR_ENABLE 1`, reboot. `F35B.lua` on the
+  SD card read back over MAVFTP, byte-identical to the repo's, and the only script.
+- **Dry run of the mode changes** with the servo rail unpowered, every step as designed:
+  gated entry (4.0 s, then the mode), VTOL→VTOL instant, MANUAL from a hover (doors
+  wait for `NOZ_EST`), "MANUAL override active – selector ignored", a pending entry
+  dropped when the selector returns, and "mode changed, VTOL entry cancelled" when the
+  override flips during the wait. With no GPS there is no airspeed estimate (`DOOR_AS
+  -1`), so the doors use OPEN, never PART, on the bench.
+- **Matching.** Trim 1500 = `DOOR_PART`, inside the MID band. The sequencer reads
+  1965–1986 for OPEN and 972–993 for CLOSED (1472–1492 for MID in stage 1).
+- **Tilt.** `TILT_POS` 1900 forward and **1214** in a disarmed QLOITER hover (as predicted
+  for `Q_TILT_ANGLE_MAX 105`). `DOOR_TILT_FWD 1890`.
+- **Nozzle speed.** Deploy (QLOITER) 3 s per 90°, following its command, which
+  `Q_TILT_RATE_UP` limits to about 2.6 s. Stow (MANUAL, command in 0.9 s) **2.7 s per 90°**:
+  the nozzle's own top speed. 90° is 686 of the tilt output's 800 µs, so a full range takes
+  3.15 s. `DOOR_NOZ_MS 4500` (+43%; but see finding 17). Verified: a MANUAL bailout from
+  hover closed the doors 3.8 s after the flip, about 1.1 s after the nozzle was home, on
+  video. During the measurement `DOOR_NOZ_MS` was 15000, so the doors couldn't close early.
+- **Lift.** `LIFT_PWM` 1000 disarmed. Armed idle is 1100 by calculation
+  (`Q_M_SPIN_ARM 0.1`); confirm in stage 4, not by force-arming on the bench.
+- Pre-arm still reports "3D Accel calibration needed" and "Compass not calibrated": do
+  both before stage 4.
+
 **Values so far.**
 
 | Parameter | Value | Source |
@@ -521,12 +558,15 @@ command; logged over USB except where the power-up itself was the test.
 | Door output | `SERVO12`, trim 1500 | as found; matches rule 1 |
 | Sequencer input calibration | 1000 / 1500 / 2000 | matches rule 2 (reads 15–35 µs low) |
 | Sequencer Boot Hold | **30000 ms** | nozzle homing 18 s worst case (N2), +67% |
-| `DOOR_ENTRY_MS` | **4000** (to set in stage 2) | lift fan door 2.8 s closed→MID unloaded, +40% for air load |
+| `DOOR_ENTRY_MS` | **4000** (set) | lift fan door 2.8 s closed→MID unloaded, +40% for air load |
 | `DOOR_LIFT_FN` | 35 | `SERVO1` |
 | `DOOR_TILT_FN` | 41 | `SERVO16` |
-| `DOOR_TILT_FWD` | stage 2 | expect ≈ 1890 (forward is the high end) |
-| `DOOR_LIFT_OFF` | stage 2 | |
-| `DOOR_NOZ_MS` | stage 2 | scale the MANUAL-from-hover sweep (86% of the range at 105) |
+| `DOOR_TILT_FWD` | **1890** | `TILT_POS` 1900 forward, 1214 hover |
+| `DOOR_LIFT_OFF` | 1050 (provisional) | 1000 stopped; idle 1100 calculated, to confirm in stage 4 |
+| `DOOR_NOZ_MS` | **4500** | stow 2.7 s per 90° = 3.15 s per full range, +43% |
+| `DOOR_PART_AS` / `DOOR_FULL_AS` | 5 / 15 | the RealFlight F-35B values; revisit before stage 5 |
+| `DOOR_DEBUG` | 1 | bench; set 0 for flight |
+| Override / selector | CH5 / CH9 | see stage 2 |
 
 **Findings from bring-up.**
 
@@ -565,3 +605,28 @@ command; logged over USB except where the power-up itself was the test.
     same battery, before trusting the default.
 14. **Flashing over a used board needs Boot Hold checked.** Our board read 56320 ms after
     flashing `54b6d26` (see N1). A stray value close to zero would mean no hold at all.
+15. **The script acts on the selector when it starts.** Its first reading counts as a
+    position change, so a selector on a VTOL position starts a gated entry (test plan 9d).
+    `INITIAL_MODE 0` hides this only while the vehicle is still in MANUAL: when
+    `DOOR_ENABLE` was set to 1 with the Cube in FBWA (CH5 at rest) and CH9 low, it entered
+    QSTABILIZE 4 s later and the nozzle deployed, disarmed. Safe (doors first), but a
+    surprise. Put the selector on its fixed-wing position before any power-up, reboot or
+    script start, unless the VTOL entry is wanted.
+16. **On the bench, unplug the sequencer's USB before powering the servo rail.** A
+    USB-powered Nano is already running, so its power-up hold doesn't start when the rail
+    and the nozzle power up. Only the script's ground nozzle wait (`DOOR_NOZ_MS` after the
+    Cube boots, about 12 + 4.5 s) would then stand between a homing nozzle (up to 18 s) and
+    closing doors. In the aircraft they all power up together and the hold covers it.
+17. **What the nozzle estimate relies on.** `NOZ_EST` moves at one rate in both
+    directions. Moving away from forward it lags the real nozzle, so it sits further
+    forward than the nozzle. If it reached the deployed position, coming back takes it the
+    full distance at its own rate, which `DOOR_NOZ_MS` sizes. If the deploy was cut short
+    before it got there (a short hover, an aborted entry), it comes back in exactly the
+    time it spent moving away, **whatever `DOOR_NOZ_MS` is**, and that is enough only if
+    **the real nozzle deploys no faster than it stows**. Measured: deploy 3.0 s per 90°,
+    stow 2.7 s, so it holds on the bench. But the deploy command (`Q_TILT_RATE_UP`) allows
+    about 2.6 s per 90°, 5% faster than the stow: a nozzle that kept up with it (e.g.
+    with air load helping the deploy or slowing the stow) could meet closing doors a
+    fraction of a second early after a short dwell. **Open: make the estimate follow a
+    deploy at once and rate-limit only the stow**, which removes the dependence. Until
+    then, recheck both speeds if `Q_TILT_RATE_UP` or the nozzle changes.
