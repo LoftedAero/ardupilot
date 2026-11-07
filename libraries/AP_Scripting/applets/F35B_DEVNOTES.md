@@ -627,6 +627,23 @@ stayed FBWA; CH9 back to FBWA afterwards gave only "sel pos 6 -> mode 5 (cur 5)"
 - Not repeated on hardware (script logic only, passing in SITL; nothing physical to add):
   10a, 10d, 5c, 10e, 9d.
 
+**Stage 4 on the bench, armed with the ESCs unpowered (2026-11-06).** Accel and compass not
+yet calibrated, so force-armed (`MAV_CMD_COMPONENT_ARM_DISARM` with 21196) with nothing able
+to spin; lift fan checked through `LIFT_PWM`. Throttle is CH1 (`RCMAP_THROTTLE 1`).
+- **9c.** Armed in FBWA, selector to QLOITER: `LIFT_PWM` stayed 1000 for the whole 4 s gate,
+  then 1028 → 1058 → 1100 within 0.3 s of QLOITER (`Q_M_SPOOL_TIME 0.25`).
+- **1c.** Armed idle `LIFT_PWM` **1100** (`Q_M_SPIN_ARM 0.1`, `Q_M_PWM_MIN`/`MAX` 1000/2000);
+  throttle up raised it to 1820, throttle low brought it to 1150 (`Q_M_SPIN_MIN`) and to 1100
+  once landed was detected (about 4 s). `DOOR_LIFT_OFF 1050` confirmed.
+- **5b.** FBWA from QLOITER, armed on the ground: "Transition airspeed wait" (no airspeed), the
+  nozzle held near hover and the lift fan under VTOL control, doors open throughout (correct).
+  MANUAL to get out: `LIFT_PWM` 1000 within 0.6 s, tilt output forward at 1.0 s, doors closed
+  at 3.8 s behind the nozzle estimate. See finding 21.
+- Selector moves during the airspeed wait started gated entries (the transition is not a
+  VTOL mode for `in_vtol_mode()`); harmless with the doors already open, cancelled by MANUAL.
+- Disarmed at the end. Still to do with power: the same checks with the ESCs powered and the
+  aircraft restrained, after the accel and compass calibrations (owner).
+
 **Pre-flight decisions (2026-11-06).**
 
 - **Failsafe:** kept `FS_LONG_ACTN 1`, `Q_RTL_MODE 1`, now with `RTL_RADIUS 100`; the owner
@@ -655,7 +672,7 @@ stayed FBWA; CH9 back to FBWA afterwards gave only "sel pos 6 -> mode 5 (cur 5)"
 | `DOOR_LIFT_FN` | 35 | `SERVO1` |
 | `DOOR_TILT_FN` | 41 | `SERVO16` |
 | `DOOR_TILT_FWD` | **1890** | `TILT_POS` 1900 forward, 1214 hover |
-| `DOOR_LIFT_OFF` | 1050 (provisional) | 1000 stopped; idle 1100 calculated, to confirm in stage 4 |
+| `DOOR_LIFT_OFF` | **1050** | 1000 stopped, armed idle **1100** measured (stage 4 on the bench) |
 | `DOOR_NOZ_MS` | **4500** | stow 2.7 s per 90° = 3.15 s per full range, +43% |
 | `DOOR_PART_AS` / `DOOR_FULL_AS` | 5 / 15 | kept 2026-11-06 (see pre-flight decisions) |
 | `DOOR_DEBUG` | 1 | bench; set 0 for flight |
@@ -765,3 +782,11 @@ stayed FBWA; CH9 back to FBWA afterwards gave only "sel pos 6 -> mode 5 (cur 5)"
     minus about 3.4 s. At a full power-up the sequencer's Boot Hold and the nozzle's
     homing cover it. A firmware fix, if ever wanted: in `Tiltrotor::setup()`, start
     `current_tilt` at forward and set the tilt output before the first S.Bus frame.
+21. **Fixed wing selected while armed on the ground winds up the lift fan.** From QLOITER,
+    armed, FBWA on the ground enters "Transition airspeed wait": the nozzle stays near
+    hover and the VTOL motors stay under control. After a throttle blip, `LIFT_PWM` kept
+    climbing with the throttle at low (about 1350 to 1600 over 8 s): the controller winds up
+    because the aircraft can't move. With the ESCs powered that is the lift fan spinning up
+    on the ground. Not a script issue (the doors correctly stay open), but a handling rule:
+    on the ground with the nozzle down, disarm before selecting fixed wing, or use MANUAL to
+    get out.
