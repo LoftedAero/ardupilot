@@ -435,7 +435,9 @@ sensors). Decisions:
 
 1. Run `F35B_offline/run.sh` and `F35B_sitl/run_sitl_tests.py` after every script change,
    and commit the updated `last_results.md`. Run `--realflight` too when RealFlight is
-   available, and commit `last_results_realflight.md`.
+   available, and commit `last_results_realflight.md`. **Pending:** `last_results_realflight.md`
+   predates `dd87c0d525` and `651b1f859e` (2026-11-06); the owner will rerun `--realflight`
+   on the machine that has RealFlight.
 2. RTL/AUTO auto-transition (finding 5): for the first aircraft the owner accepted the
    RC-failsafe QRTL entry as is (bring-up finding 8, 2026-11-06). Still plan AUTO mission
    legs so they don't enter VTOL unplanned.
@@ -606,6 +608,24 @@ first MAVFTP put failed again (finding 19), the retry read back identical; Cube 
 (finding 20 seen). Bench check of the re-enable: `DOOR_ENABLE 0` (doors to MID), CH9 moved
 to QLOITER while disabled, `DOOR_ENABLE 1`: "doors closed" at once, no selector action, mode
 stayed FBWA; CH9 back to FBWA afterwards gave only "sel pos 6 -> mode 5 (cur 5)".
+
+**More ground tests on script `651b1f859e` (2026-11-06).** Disarmed, ESCs unpowered.
+- **6a.** QLOITER → QSTABILIZE via the selector: immediate ("VTOL->VTOL 17 now"), no gate.
+- **7f.** MANUAL 2 s into a gated entry: "mode changed, VTOL entry cancelled", doors closed at
+  once, stayed MANUAL.
+- **8e** (GCS FBWB instead of RTL, since a disarmed RTL could switch to QRTL): sent 1.6 s
+  into the gate; cancelled, doors closed, stayed FBWB.
+- **8b.** GCS FBWA in QLOITER with the selector left on QLOITER: stayed FBWA; doors closed
+  3.9 s later behind the nozzle estimate.
+- **8a, ungated entry on purpose.** GCS QHOVER from FBWA: "VTOL entered externally", doors
+  commanded full 0.1 s after the mode change, the tilt output started 0.6 s after it and
+  reached 90° about 3 s later, alongside the doors (lift fan door about 2.8 s to MID). The
+  owner saw the doors get out of the way of the nozzle. Supports accepting the failsafe
+  QRTL entry (finding 8).
+- **10c.** 16 selector moves in about 5 s: each restarted or dropped the pending entry, no
+  mode change, nozzle never moved, doors closed on the final FBWA.
+- Not repeated on hardware (script logic only, passing in SITL; nothing physical to add):
+  10a, 10d, 5c, 10e, 9d.
 
 **Pre-flight decisions (2026-11-06).**
 
