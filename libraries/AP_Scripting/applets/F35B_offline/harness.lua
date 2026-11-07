@@ -19,7 +19,7 @@ local fh = assert(io.open(SCRIPT, "r"))
 local SRC = fh:read("a")
 fh:close()
 
-local MODE_NAME = { [0]="MANUAL", [5]="FBWA", [11]="RTL", [17]="QSTABILIZE", [18]="QHOVER", [19]="QLOITER" }
+local MODE_NAME = { [0]="MANUAL", [5]="FBWA", [11]="RTL", [17]="QSTABILIZE", [18]="QHOVER", [19]="QLOITER", [20]="QLAND", [21]="QRTL" }
 local function mode_name(m) return MODE_NAME[m] or tostring(m) end
 local VTOL = { [17]=true, [18]=true, [19]=true, [20]=true, [21]=true, [22]=true, [23]=true, [25]=true }
 
@@ -42,6 +42,7 @@ local function new_world(overrides)
       armed = true, aspd = 20.0, rc = { [8] = 2000 }, rc_valid = true, aspd_error = false,
       srv = { [41] = 1000, [35] = 1000 },
       set_mode_calls = 0, door_pwm = nil, door_lapse = 0, door_trim = 1500,
+      texts = {}, reject = {},
       servo_func = { [8] = 41, [13] = 94 },
       servo_range = { [8] = { 1000, 2000 }, [13] = { 1000, 2000 } },
       P = {
@@ -108,7 +109,10 @@ local function new_world(overrides)
       end,
    }
    gcs = {
-      send_text = function(_, _, txt) out("    [t=%5.2fs] GCS: %s", S.now / 1000, txt) end,
+      send_text = function(_, _, txt)
+         out("    [t=%5.2fs] GCS: %s", S.now / 1000, txt)
+         S.texts[#S.texts + 1] = txt
+      end,
       send_named_float = function() end,
    }
    vehicle = {
@@ -116,6 +120,10 @@ local function new_world(overrides)
       get_control_mode_reason = function() return S.reason end,
       set_mode = function(_, m)
          S.set_mode_calls = S.set_mode_calls + 1
+         if S.reject[m] then
+            out("    [t=%5.2fs] script set_mode(%s) refused", S.now / 1000, mode_name(m))
+            return false
+         end
          out("    [t=%5.2fs] script set_mode(%s)", S.now / 1000, mode_name(m))
          S.mode, S.reason, S.in_vtol = m, REASON_SCRIPTING, VTOL[m] or false
          return true
@@ -138,6 +146,14 @@ end
 local function door_out()
    if S.door_pwm ~= nil and S.now < S.door_lapse then return S.door_pwm end
    return S.door_trim
+end
+
+-- true if any GCS text so far matches the Lua pattern
+local function said(pat)
+   for _, t in ipairs(S.texts) do
+      if t:find(pat) then return true end
+   end
+   return false
 end
 
 local function external_mode(m, reason, label)
@@ -300,6 +316,73 @@ local scenarios = {
          new_world()
          run_until(100)
          return door_out() == S.P.DOOR_CLOSED, "closed from the first cycle"
+      end,
+   },
+   {
+      name = "DOOR_ENABLE 0 then 1: the estimate kept up while disabled",
+      run = function()
+         -- disabled in a hover; much later a MANUAL bailout, then re-enabled at once
+         new_world({ mode = 18, in_vtol = true, aspd = 0, srv = { [41] = 1800, [35] = 1500 } })
+         run_until(2000)
+         S.P.DOOR_ENABLE = 0
+         run_until(6000)
+         external_mode(0, REASON_RC_COMMAND, "pilot override")
+         S.srv[41], S.srv[35] = 1000, 1000
+         run_until(6300)
+         S.P.DOOR_ENABLE = 1
+         out("    [t=%5.2fs] DOOR_ENABLE 1", S.now / 1000)
+         run_until(6000 + 2600)
+         local still_open = (door_out() ~= S.P.DOOR_CLOSED)
+         run_until(6000 + 2900)
+         return still_open and door_out() == S.P.DOOR_CLOSED,
+                "open 2.6 s after the stow (re-enabled at 0.3 s), closed by 2.9 s (estimate 2.77 s)"
+      end,
+   },
+   {
+      name = "DOOR_ENABLE 0 then 1: a selector move made while disabled is not acted on",
+      run = function()
+         new_world()
+         run_until(1000)
+         S.P.DOOR_ENABLE = 0
+         run_until(1500)
+         S.rc[8] = 1500
+         out("    [t=%5.2fs] selector -> QLOITER while disabled", S.now / 1000)
+         run_until(3000)
+         S.P.DOOR_ENABLE = 1
+         out("    [t=%5.2fs] DOOR_ENABLE 1", S.now / 1000)
+         run_until(9000)
+         return S.mode == 5 and S.set_mode_calls == 0 and door_out() == S.P.DOOR_CLOSED,
+                "stayed FBWA, no set_mode, doors closed"
+      end,
+   },
+   {
+      name = "a rejected VTOL mode is reported and the doors close",
+      run = function()
+         new_world()
+         S.reject[19] = true
+         run_until(1000)
+         S.rc[8] = 1500
+         run_until(6000)
+         return S.mode == 5 and said("mode 19 rejected") and not said("entering VTOL")
+                and door_out() == S.P.DOOR_CLOSED,
+                "FBWA, 'mode 19 rejected', no 'entering VTOL', doors closed"
+      end,
+   },
+   {
+      name = "external VTOL entry warns from fixed wing only",
+      run = function()
+         new_world({ mode = 19, reason = REASON_SCRIPTING, in_vtol = true, aspd = 0,
+                     rc = { [8] = 1500 }, srv = { [41] = 1800, [35] = 1500 } })
+         run_until(1000)
+         external_mode(20, REASON_RADIO_FAILSAFE, "failsafe")
+         run_until(2000)
+         local quiet = not said("entered externally")
+         new_world()
+         run_until(1000)
+         external_mode(21, REASON_RADIO_FAILSAFE, "failsafe")
+         run_until(2000)
+         return quiet and said("entered externally"),
+                "no warning QLOITER -> QLAND; warning FBWA -> QRTL"
       end,
    },
    {

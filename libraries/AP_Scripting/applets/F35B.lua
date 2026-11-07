@@ -187,6 +187,7 @@ local latch_want_since = nil         -- millis() when the opposite band state fi
 local vtol_reached_full = false      -- true once the doors have opened fully in the current VTOL session
 local door_last_state = nil          -- for edge-triggered gcs:send_text
 local door_warned_nonscript = false
+local door_was_vtol = false          -- in_vtol on the previous enabled cycle (external-entry warning)
 local door_tilt_pos = 0              -- last read nacelle-tilt output PWM (0 = no reading), for telemetry
 local door_lift_pwm = 0              -- last read dedicated lift-motor output PWM, for telemetry
 local door_aspd = nil                -- last airspeed estimate (m/s) this cycle
@@ -201,6 +202,16 @@ local function dbg(fmt, ...)
    if doors.DEBUG:get() > 0 then
       gcs:send_text(MAV_SEVERITY_INFO, "F35B " .. string.format(fmt, ...))
    end
+end
+
+-- vehicle:set_mode() refuses a mode the vehicle can't enter (an invalid DOOR_MODEx, or a
+-- mode whose checks fail): say so instead of failing silently
+local function set_mode_checked(m)
+   if vehicle:set_mode(m) then
+      return true
+   end
+   gcs:send_text(MAV_SEVERITY_WARNING, string.format("F35B: mode %d rejected", m))
+   return false
 end
 
 local function door_selected_mode()
@@ -461,14 +472,18 @@ local function doors_update()
 
    -- Detect a VTOL entry the script did not command (GCS / failsafe / AUTO leg).
    -- We cannot withhold these, so just open the doors immediately and warn once.
+   -- Within VTOL (e.g. a failsafe QLAND from a hover) the doors are already open: no warning.
    if in_vtol and reason ~= MODE_REASON_SCRIPTING then
       if not door_warned_nonscript then
-         gcs:send_text(MAV_SEVERITY_WARNING, "F35B: VTOL entered externally - opening doors")
+         if not door_was_vtol then
+            gcs:send_text(MAV_SEVERITY_WARNING, "F35B: VTOL entered externally - opening doors")
+         end
          door_warned_nonscript = true
       end
    else
       door_warned_nonscript = false
    end
+   door_was_vtol = in_vtol
 
    local pos, target = door_selected_mode()
 
@@ -487,7 +502,7 @@ local function doors_update()
          if is_vtol_mode[target] then
             if in_vtol then
                -- already in a VTOL mode: doors are open, switch immediately (no delay)
-               vehicle:set_mode(target)
+               set_mode_checked(target)
                dbg("VTOL->VTOL %d now", target)
             else
                -- coming from fixed wing: open doors to operating clearance, then enter VTOL
@@ -498,7 +513,7 @@ local function doors_update()
             end
          else
             -- fixed-wing target: always safe to switch immediately
-            vehicle:set_mode(target)
+            set_mode_checked(target)
             dbg("FW %d now", target)
          end
       end
@@ -522,15 +537,18 @@ local function doors_update()
       local elapsed = (now - door_entry_start):tofloat()
       local entry_ms = doors.ENTRY_MS:get()
       local remaining = math.max(0.0, (entry_ms - elapsed) / 1000.0)
-      if elapsed >= entry_ms then
-         dbg("entering VTOL %d", pending_vtol_target)
-         vehicle:set_mode(pending_vtol_target)
-         pending_vtol_target = nil
+      if elapsed < entry_ms then
+         door_announce(DOOR_ST.OPENING, remaining)
+         return DOOR_ST.OPENING, pwm, remaining
+      end
+      local target = pending_vtol_target
+      pending_vtol_target = nil
+      dbg("entering VTOL %d", target)
+      if set_mode_checked(target) then
          gcs:send_text(MAV_SEVERITY_INFO, "F35B: doors open - entering VTOL")
          return DOOR_ST.OPENING, pwm, 0.0
       end
-      door_announce(DOOR_ST.OPENING, remaining)
-      return DOOR_ST.OPENING, pwm, remaining
+      -- rejected: still in fixed wing, so carry on below (the doors close once all is stowed)
    end
 
    -- VTOL geometry / propulsion active: in a VTOL mode, the nacelles are not yet fully forward
@@ -573,8 +591,28 @@ local telem_count = 0
 local DBG_HEARTBEAT_MS = 2000        -- when DOOR_DEBUG > 0, print a status line this often
 local dbg_hb_ms = uint32_t(0)
 
+-- DOOR_ENABLE 0: command nothing (the door output lapses to its trim), but keep tracking the
+-- nozzle and the selector, so re-enabling starts from the real state: the estimate is current,
+-- and a selector move made while disabled is not acted on.
+local function doors_watch()
+   local tilt_fn = math.floor(doors.TILT_FN:get())
+   local tilt_pos = 0
+   if tilt_fn > 0 then
+      tilt_pos = SRV_Channels:get_output_pwm(tilt_fn) or 0
+   end
+   nozzle_estimate(millis(), tilt_pos, tilt_fn, doors.TILT_FWD:get(), arming:is_armed())
+   local pos = door_selected_mode()
+   if pos ~= nil then
+      door_last_pos = pos
+   end
+   pending_vtol_target = nil
+   door_last_state = nil                -- announce the door state again on re-enable
+end
+
 local function update()
-   if doors.ENABLE:get() > 0 then
+   if doors.ENABLE:get() <= 0 then
+      doors_watch()
+   else
       local state, pwm, delay = doors_update()
       telem_count = telem_count + 1
       if telem_count >= TELEM_DECIMATE then

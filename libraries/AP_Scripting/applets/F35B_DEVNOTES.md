@@ -20,7 +20,11 @@ work, so the context survives between sessions.
   measured and set everything but the armed lift idle on 2026-11-05. Stage 3 (bench ground
   tests) passed on 2026-11-06; stage 4 (powered, restrained) is next.
   On 2026-11-06 the nozzle estimate was changed to follow a deploy at once (bring-up
-  finding 17): offline 13/13, SITL 43/43.
+  finding 17): offline 13/13, SITL 43/43. Later the same day, `DOOR_ENABLE` 0→1 starts
+  from the real state (bring-up finding 18), refused modes are reported and the
+  external-entry warning is limited to entries from fixed wing (minor findings): offline
+  17/17, SITL 43/43 (4e skipped on a first run when its airspeed never crossed the
+  threshold; passed on the rerun).
 - Developed around July 2026 (files dated 2026-07-05) and committed here on 2026-09-12.
   The original design discussion was not preserved; `F35B.md` and `F35B_TESTPLAN.md` are
   the design record.
@@ -67,10 +71,12 @@ directory, syntax-checks `F35B.lua` with it, then runs `harness.lua`. The harnes
 bindings and drives the script's scheduler through scenarios using the test-plan
 parameters. It exits non-zero if any scenario fails.
 
-**Expected: 13/13 pass.** Scenarios 2–6 cover findings 1–4; each failed against the unfixed
+**Expected: 17/17 pass.** Scenarios 2–6 cover findings 1–4; each failed against the unfixed
 script (commit `fe69b53045`). Scenarios 7, 8, 11 and 12 cover the nozzle estimate (finding
-6), 9–10 a deploy cut short (bring-up finding 17; both failed against `f0cb529b6b`), and 13
-the fail-to-MID lapse (finding 7). Add a scenario for each new fix or behavior. To check a different copy of the script, pass its path:
+6), 9–10 a deploy cut short (bring-up finding 17; both failed against `f0cb529b6b`), 13–14
+`DOOR_ENABLE` 0 then 1 (bring-up finding 18), 15 a rejected mode and 16 the external-entry
+warning (the minor findings), 13–16 each failing against `dd87c0d525`, and 17 the
+fail-to-MID lapse (finding 7). Add a scenario for each new fix or behavior. To check a different copy of the script, pass its path:
 `run.sh path/to/F35B.lua`.
 
 ArduPilot's Lua strips `print`, `loadfile`, `dofile`, `select` and `os`, so the harness
@@ -399,13 +405,14 @@ sensors). Decisions:
 
 ### Minor
 
-- `vehicle:set_mode()` return values are unchecked, so an invalid `DOOR_MODEx` fails
-  silently.
+- ~~`vehicle:set_mode()` return values are unchecked, so an invalid `DOOR_MODEx` fails
+  silently.~~ Fixed 2026-11-06: "F35B: mode N rejected"; a refused VTOL entry ends the
+  pending entry and the doors close normally.
 - On the first inbound entry after boot, the doors are commanded full for about 0.75 s
   before partial, because the partial/full debounce starts from "full".
-- After a non-script mode change within VTOL (e.g. a failsafe QLAND from QLOITER), the
+- ~~After a non-script mode change within VTOL (e.g. a failsafe QLAND from QLOITER), the
   script still sends "VTOL entered externally - opening doors", although the doors are
-  already open.
+  already open.~~ Fixed 2026-11-06: the warning is sent only for an entry from fixed wing.
 
 ### Documentation drift
 
@@ -429,8 +436,9 @@ sensors). Decisions:
 1. Run `F35B_offline/run.sh` and `F35B_sitl/run_sitl_tests.py` after every script change,
    and commit the updated `last_results.md`. Run `--realflight` too when RealFlight is
    available, and commit `last_results_realflight.md`.
-2. Decide the RTL/AUTO auto-transition mitigation (finding 5) before real flight. At
-   minimum, choose failsafe actions and mission legs that don't enter VTOL unplanned.
+2. RTL/AUTO auto-transition (finding 5): for the first aircraft the owner accepted the
+   RC-failsafe QRTL entry as is (bring-up finding 8, 2026-11-06). Still plan AUTO mission
+   legs so they don't enter VTOL unplanned.
 3. Hardware bring-up: follow "Hardware bring-up" above, and record what is measured and
    set here (log below). Stage 1 passed, and the sequencer's power-up hold firmware was
    checked on 2026-11-05; stage 2 (FC + sequencer, disarmed) done the same day, except the
@@ -438,7 +446,8 @@ sensors). Decisions:
    nozzle-estimate change (finding 17) installed. Next, stage 4 (powered, restrained):
    accelerometer and compass calibration first, then confirm `DOOR_LIFT_OFF` armed.
 4. Fix the documentation drift and regenerate or delete the HTML test plan.
-5. Consider the minor findings, especially checking `set_mode()` return values.
+5. Consider the remaining minor finding (full for 0.75 s on the first entry after boot);
+   the other two were fixed on 2026-11-06.
 
 ### Bring-up log: first aircraft
 
@@ -592,6 +601,23 @@ behaved as `F35B_TESTPLAN.md` describes; times from a recorder on the mirror.
 - **Signal lead unplugged at the sequencer** with the script running: doors to MID, back to
   closed on replug; the nozzle (S.Bus) unaffected.
 
+**Pre-flight decisions (2026-11-06).**
+
+- **Failsafe:** kept `FS_LONG_ACTN 1`, `Q_RTL_MODE 1`, now with `RTL_RADIUS 100`; the owner
+  accepts the ungated QRTL entry (finding 8).
+- **RC loss is detected.** RC failsafe actions run while disarmed too (nothing in
+  `failsafe_short_on_event` / `failsafe_long_on_event` checks arming), so the bench check ran
+  with `FS_LONG_TIMEOUT` raised to 30 and restored to 3 afterwards. Transmitter off for
+  about 15 s in FBWA: "Throttle failsafe on" and "RC Short Failsafe On", mode stayed FBWA,
+  no CH5/CH9 value changed (the receiver substitutes no positions), the script acted on no
+  selector edge; both cleared when the transmitter came back.
+- **Airspeed thresholds kept at 5 / 15.** With no airspeed sensor, `DOOR_AS` is GPS
+  groundspeed corrected by EKF3's wind estimate, which is learned only in fixed-wing flight
+  (mostly turns). Until it has converged, the error is about the wind speed: on an inbound
+  entry into a headwind the doors go full at about 15 + headwind real airspeed. The owner
+  accepts full open at about 20 m/s. For the first flights: light wind, some fixed-wing turns
+  before the first inbound entry, and compare `DOOR_AS` with GPS groundspeed in the logs.
+
 **Values so far.**
 
 | Parameter | Value | Source |
@@ -605,7 +631,7 @@ behaved as `F35B_TESTPLAN.md` describes; times from a recorder on the mirror.
 | `DOOR_TILT_FWD` | **1890** | `TILT_POS` 1900 forward, 1214 hover |
 | `DOOR_LIFT_OFF` | 1050 (provisional) | 1000 stopped; idle 1100 calculated, to confirm in stage 4 |
 | `DOOR_NOZ_MS` | **4500** | stow 2.7 s per 90° = 3.15 s per full range, +43% |
-| `DOOR_PART_AS` / `DOOR_FULL_AS` | 5 / 15 | the RealFlight F-35B values; revisit before stage 5 |
+| `DOOR_PART_AS` / `DOOR_FULL_AS` | 5 / 15 | kept 2026-11-06 (see pre-flight decisions) |
 | `DOOR_DEBUG` | 1 | bench; set 0 for flight |
 | Override / selector | CH5 / CH9 | see stage 2 |
 
@@ -618,7 +644,15 @@ behaved as `F35B_TESTPLAN.md` describes; times from a recorder on the mirror.
    other failsafes (battery, fence, GCS: all off) are not a concern. Options: (a)
    `Q_RTL_MODE 0`; (b) `FS_LONG_ACTN 2` (glide); (c) a script change that opens the doors
    to MID while armed with RC invalid, about 1.5–2.5 s before the QRTL switch, which is
-   less than the lift fan door's 2.8–2.9 s to MID. **Decide before stage 5.**
+   less than the lift fan door's 2.8–2.9 s to MID. **Decided 2026-11-06: accepted as is.**
+   The owner set `RTL_RADIUS 100` and kept `FS_LONG_ACTN 1`, `Q_RTL_MODE 1`. That moves the
+   switch rather than removing it: RTL switches to QRTL within max(`RTL_RADIUS`, stopping
+   distance) of home (`ModeRTL::switch_QRTL`), and the stopping distance at
+   `AIRSPEED_CRUISE 28` with `Q_TRANS_DECEL 2` is about 196 m. So a long RC failsafe still
+   ends in a QRTL at cruise speed about 200 m out (about 1 s after RTL if already that
+   close), and the doors open only when the script sees it ("VTOL entered externally"),
+   while the VTOL hardware moves at once (SITL 8d). The owner judges that acceptable.
+   `RTL_RADIUS` is also the RTL loiter radius: 100 m at 28 m/s is about a 39° bank.
 9. **Bench method: `SERVOx_FUNCTION 135` latches.** Switching the door output back to 94 at
    runtime leaves the last trim value on the wire (raw PWM), so the doors hold that state
    with no script. It clears at a reboot or when the script starts (`set_output_scaled`
@@ -652,7 +686,9 @@ behaved as `F35B_TESTPLAN.md` describes; times from a recorder on the mirror.
     `DOOR_ENABLE` was set to 1 with the Cube in FBWA (CH5 at rest) and CH9 low, it entered
     QSTABILIZE 4 s later and the nozzle deployed, disarmed. Safe (doors first), but a
     surprise. Put the selector on its fixed-wing position before any power-up, reboot or
-    script start, unless the VTOL entry is wanted.
+    script start, unless the VTOL entry is wanted. (Since the finding-18 fix, setting
+    `DOOR_ENABLE 1` on a running script no longer acts on the selector; a script start or
+    reboot still does.)
 16. **On the bench, unplug the sequencer's USB before powering the servo rail.** A
     USB-powered Nano is already running, so its power-up hold doesn't start when the rail
     and the nozzle power up. Only the script's ground nozzle wait (`DOOR_NOZ_MS` after the
@@ -680,8 +716,11 @@ behaved as `F35B_TESTPLAN.md` describes; times from a recorder on the mirror.
     acted on at re-enable (as at a script start, finding 15), and the estimate jumps to the
     output on the first cycle (its rate limit spans the whole disabled time), so a re-enable
     within a few seconds of a fast stow could close the doors before the nozzle is home.
-    Ground-only in practice; keep the selector on fixed wing and the nozzle forward when
-    toggling it. A fix would clear `door_last_pos` and `noz_est` when disabled.
+    Ground-only in practice. **Fixed 2026-11-06:** while disabled the script keeps
+    updating the estimate and the selector position (commanding nothing), so re-enabling
+    starts from the real state and doesn't act on a selector move made meanwhile. This also
+    changes the first `DOOR_ENABLE 1` after install: it no longer acts on the selector
+    (finding 15 now applies only to a script start or reboot).
 19. **MAVFTP uploads can fail halfway.** Through Mission Planner's mirror, MAVProxy's `ftp
     put` reported "Create failed" and left a truncated `F35B.lua` (720 bytes) on the card;
     the running script was unaffected, but a reboot would have failed to load it (doors at

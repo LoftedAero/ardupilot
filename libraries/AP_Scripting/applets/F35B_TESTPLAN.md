@@ -46,8 +46,8 @@ use). Keep the Messages tab visible.
 - `F35B hb st=S t=T l=L as=A` — ~2 s heartbeat (t/l = tilt/lift PWM)
 
 Production (always on): `doors opening…`, `doors open - entering VTOL`, `doors closed`,
-`VTOL entered externally…`, `MANUAL override active - selector ignored`,
-`mode changed, VTOL entry cancelled`, `Internal Error: …`.
+`VTOL entered externally…` (only from fixed wing), `MANUAL override active - selector ignored`,
+`mode changed, VTOL entry cancelled`, `mode N rejected`, `Internal Error: …`.
 
 ---
 
