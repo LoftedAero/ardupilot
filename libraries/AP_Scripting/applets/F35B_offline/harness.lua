@@ -145,6 +145,30 @@ local function external_mode(m, reason, label)
    out("    [t=%5.2fs] %s -> %s", S.now / 1000, label, mode_name(m))
 end
 
+-- A deploy cut short: the tilt output jumps from forward to `deployed`, stays 0.7 s and jumps
+-- back. A real nozzle may deploy faster than DOOR_NOZ_MS, so the doors must wait the stow from
+-- where the output went (500 us at 1000 us per 3.5 s, minus the 10 us DOOR_TILT_FWD margin:
+-- 1.715 s), not just the 0.7 s the output spent away from forward.
+local function short_deploy(label, tilt_fwd, fwd, deployed)
+   return {
+      name = "deploy cut short (" .. label .. "): doors wait the stow from the output",
+      run = function()
+         new_world({ srv = { [41] = fwd, [35] = 1000 } })
+         S.P.DOOR_TILT_FWD = tilt_fwd
+         run_until(500)
+         local closed_at_start = (door_out() == S.P.DOOR_CLOSED)
+         S.srv[41] = deployed
+         run_until(1200)
+         S.srv[41] = fwd
+         run_until(1200 + 1600)
+         local still_open = (door_out() ~= S.P.DOOR_CLOSED)
+         run_until(1200 + 1800)
+         return closed_at_start and still_open and door_out() == S.P.DOOR_CLOSED,
+                "closed, open 1.6 s after the output returns, closed by 1.8 s (estimate 1.715 s)"
+      end,
+   }
+end
+
 local scenarios = {
    {
       name = "inbound entry waits DOOR_ENTRY_MS, then enters VTOL",
@@ -256,6 +280,8 @@ local scenarios = {
                 "closed within 0.1 s of the output reaching forward"
       end,
    },
+   short_deploy("forward at the low PWM end", 1010, 1000, 1500),
+   short_deploy("forward at the high PWM end", 1990, 2000, 1500),
    {
       name = "boot on the ground: doors wait a full nozzle stroke",
       run = function()

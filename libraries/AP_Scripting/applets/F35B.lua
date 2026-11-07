@@ -288,10 +288,14 @@ local function find_output_range(func)
    return nil, nil
 end
 
--- Estimate where the physical nozzle is: it follows the tilt output, at most the output's full
--- range per DOOR_NOZ_MS. Unknown at script start: on the ground assume fully deployed (the far
--- end from forward), so the doors wait a full stroke after boot; armed (a restart in flight)
--- assume it is where the output says, so the doors don't open at cruise speed.
+-- Estimate where the physical nozzle is, erring away from forward: when the tilt output moves
+-- away from forward (deploying) the estimate follows it at once, however fast the real nozzle
+-- deploys; when it moves toward forward (stowing) the estimate follows at most the output's
+-- full range per DOOR_NOZ_MS. So the estimate reaches forward no sooner than a nozzle that
+-- stows in DOOR_NOZ_MS or less, even after a deploy cut short. Unknown at script start: on the
+-- ground assume fully deployed (the far end from forward), so the doors wait a full stroke
+-- after boot; armed (a restart in flight) assume it is where the output says, so the doors
+-- don't open at cruise speed.
 local function nozzle_estimate(now, tilt_pos, tilt_fn, tfwd, armed)
    if tilt_pos <= 0 then
       noz_est = nil
@@ -317,10 +321,20 @@ local function nozzle_estimate(now, tilt_pos, tilt_fn, tfwd, armed)
    end
    local step = (tilt_range_hi - tilt_range_lo) * (now - noz_ms):tofloat() / full_ms
    noz_ms = now
-   if noz_est < tilt_pos then
-      noz_est = math.min(tilt_pos, noz_est + step)
+   if tfwd >= 1500 then
+      -- forward is the high-PWM end: deploying lowers the output
+      if tilt_pos <= noz_est then
+         noz_est = tilt_pos
+      else
+         noz_est = math.min(tilt_pos, noz_est + step)
+      end
    else
-      noz_est = math.max(tilt_pos, noz_est - step)
+      -- forward is the low-PWM end: deploying raises the output
+      if tilt_pos >= noz_est then
+         noz_est = tilt_pos
+      else
+         noz_est = math.max(tilt_pos, noz_est - step)
+      end
    end
    return noz_est
 end

@@ -4,7 +4,7 @@ Working notes for continuing development of `F35B.lua`. `F35B.md` is the user-fa
 setup and behavior reference; this file records project status, review findings and open
 work, so the context survives between sessions.
 
-## Status (2026-11-03)
+## Status (2026-11-06)
 
 - **Preliminary.** Only the DOORS subsystem exists. The automated SITL tests cover most of
   `F35B_TESTPLAN.md`; the manual items have no recorded results.
@@ -18,6 +18,8 @@ work, so the context survives between sessions.
   steps). Stage 1 (sequencer) passed on 2026-11-03, and the sequencer's power-up hold
   (firmware `54b6d26`) on 2026-11-05 with a 30 s hold. Stage 2 (FC + sequencer, disarmed)
   measured and set everything but the armed lift idle on 2026-11-05; stage 3 is next.
+  On 2026-11-06 the nozzle estimate was changed to follow a deploy at once (bring-up
+  finding 17): offline 13/13, SITL 43/43.
 - Developed around July 2026 (files dated 2026-07-05) and committed here on 2026-09-12.
   The original design discussion was not preserved; `F35B.md` and `F35B_TESTPLAN.md` are
   the design record.
@@ -64,10 +66,10 @@ directory, syntax-checks `F35B.lua` with it, then runs `harness.lua`. The harnes
 bindings and drives the script's scheduler through scenarios using the test-plan
 parameters. It exits non-zero if any scenario fails.
 
-**Expected: 11/11 pass.** Scenarios 2–6 cover findings 1–4; each failed against the unfixed
-script (commit `fe69b53045`). Scenarios 7–10 cover the nozzle estimate (finding 6) and 11
-the fail-to-MID lapse (finding 7). Add a scenario for
-each new fix or behavior. To check a different copy of the script, pass its path:
+**Expected: 13/13 pass.** Scenarios 2–6 cover findings 1–4; each failed against the unfixed
+script (commit `fe69b53045`). Scenarios 7, 8, 11 and 12 cover the nozzle estimate (finding
+6), 9–10 a deploy cut short (bring-up finding 17; both failed against `f0cb529b6b`), and 13
+the fail-to-MID lapse (finding 7). Add a scenario for each new fix or behavior. To check a different copy of the script, pass its path:
 `run.sh path/to/F35B.lua`.
 
 ArduPilot's Lua strips `print`, `loadfile`, `dofile`, `select` and `os`, so the harness
@@ -429,7 +431,8 @@ sensors). Decisions:
 3. Hardware bring-up: follow "Hardware bring-up" above, and record what is measured and
    set here (log below). Stage 1 passed, and the sequencer's power-up hold firmware was
    checked on 2026-11-05; stage 2 (FC + sequencer, disarmed) done the same day, except the
-   armed lift idle (stage 4). Stage 3 (bench ground tests) is next.
+   armed lift idle (stage 4). The nozzle-estimate change (finding 17, 2026-11-06) must be
+   installed on the Cube before stage 3 (bench ground tests), which is next.
 4. Fix the documentation drift and regenerate or delete the HTML test plan.
 5. Consider the minor findings, especially checking `set_mode()` return values.
 
@@ -627,6 +630,10 @@ ESCs unpowered throughout.
     stow 2.7 s, so it holds on the bench. But the deploy command (`Q_TILT_RATE_UP`) allows
     about 2.6 s per 90°, 5% faster than the stow: a nozzle that kept up with it (e.g.
     with air load helping the deploy or slowing the stow) could meet closing doors a
-    fraction of a second early after a short dwell. **Open: make the estimate follow a
-    deploy at once and rate-limit only the stow**, which removes the dependence. Until
-    then, recheck both speeds if `Q_TILT_RATE_UP` or the nozzle changes.
+    fraction of a second early after a short dwell. **Resolved 2026-11-06:** the estimate
+    now follows a deploy at once and rate-limits only the stow, so it is never closer to
+    forward than the real nozzle, and only the stow speed has to be slower than
+    `DOOR_NOZ_MS`. The cost: after a short dwell the doors wait the stow from where the
+    output went, not just the time spent there. Offline scenarios 9–10 (forward at either
+    PWM end) failed against the previous script. Bench check in stage 3: a short QLOITER
+    dwell, then the MANUAL override.
