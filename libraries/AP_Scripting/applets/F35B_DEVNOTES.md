@@ -601,6 +601,12 @@ behaved as `F35B_TESTPLAN.md` describes; times from a recorder on the mirror.
 - **Signal lead unplugged at the sequencer** with the script running: doors to MID, back to
   closed on replug; the nozzle (S.Bus) unaffected.
 
+**Script `651b1f859e` installed (2026-11-06)** (finding 18 fix and the minor findings): the
+first MAVFTP put failed again (finding 19), the retry read back identical; Cube rebooted
+(finding 20 seen). Bench check of the re-enable: `DOOR_ENABLE 0` (doors to MID), CH9 moved
+to QLOITER while disabled, `DOOR_ENABLE 1`: "doors closed" at once, no selector action, mode
+stayed FBWA; CH9 back to FBWA afterwards gave only "sel pos 6 -> mode 5 (cur 5)".
+
 **Pre-flight decisions (2026-11-06).**
 
 - **Failsafe:** kept `FS_LONG_ACTN 1`, `Q_RTL_MODE 1`, now with `RTL_RADIUS 100`; the owner
@@ -726,3 +732,16 @@ behaved as `F35B_TESTPLAN.md` describes; times from a recorder on the mirror.
     the running script was unaffected, but a reboot would have failed to load it (doors at
     MID, selector dead). A retry worked. Always read the file back and compare it before
     rebooting or restarting scripting.
+20. **A Cube-only reboot briefly commands the nozzle to deploy.** Two ArduPilot start-up
+    effects on the tilt output (`SERVO16`, S.Bus on TELEM1, `SERIAL1_PROTOCOL 15`): until
+    the tiltrotor code first runs, `k_motor_tilt` (a 0–1000 range function) is unset and
+    maps to `SERVO16_MIN`, the 105° reverse limit; then the tiltrotor's internal tilt
+    starts at 0 = vertical (`Tiltrotor::current_tilt`) and slews to forward (fast, since
+    `INITIAL_MODE 0` boots in MANUAL). Observed twice on 2026-11-06: the nozzle went about
+    30° toward deployed and straight back, at about the moment the script loaded and sent
+    the doors from MID to full. The doors were already at MID: the reset cuts the door
+    signal, so the sequencer goes to MID after about 0.6 s and is there by about 3.4 s,
+    before the main loop starts. Accepted as is: the margin is the Cube's boot time
+    minus about 3.4 s. At a full power-up the sequencer's Boot Hold and the nozzle's
+    homing cover it. A firmware fix, if ever wanted: in `Tiltrotor::setup()`, start
+    `current_tilt` at forward and set the tilt output before the first S.Bus frame.
