@@ -17,7 +17,8 @@ work, so the context survives between sessions.
 - **Hardware bring-up in progress** (see "Hardware bring-up" below, and the log under Next
   steps). Stage 1 (sequencer) passed on 2026-11-03, and the sequencer's power-up hold
   (firmware `54b6d26`) on 2026-11-05 with a 30 s hold. Stage 2 (FC + sequencer, disarmed)
-  measured and set everything but the armed lift idle on 2026-11-05; stage 3 is next.
+  measured and set everything but the armed lift idle on 2026-11-05. Stage 3 (bench ground
+  tests) passed on 2026-11-06; stage 4 (powered, restrained) is next.
   On 2026-11-06 the nozzle estimate was changed to follow a deploy at once (bring-up
   finding 17): offline 13/13, SITL 43/43.
 - Developed around July 2026 (files dated 2026-07-05) and committed here on 2026-09-12.
@@ -251,6 +252,8 @@ tilt and lift outputs on the aircraft's own parameters.
 
 - Build and flash this branch for the board, copy `F35B.lua` to `APM/scripts`, set
   `SCR_ENABLE 1`, reboot, check for "F35B: script loaded", then set the `DOOR_` parameters.
+  After copying over MAVFTP, read the file back and compare it before rebooting: a failed
+  upload can leave a truncated file (bring-up finding 19).
 - **Reboot after any update that adds a `DOOR_` parameter** (`DOOR_NOZ_MS` was added on
   2026-11-02): the parameter table can't grow on a scripting restart.
 - Flash the sequencer firmware (`firmware_1.hex`, bundled with the config app; or
@@ -431,8 +434,9 @@ sensors). Decisions:
 3. Hardware bring-up: follow "Hardware bring-up" above, and record what is measured and
    set here (log below). Stage 1 passed, and the sequencer's power-up hold firmware was
    checked on 2026-11-05; stage 2 (FC + sequencer, disarmed) done the same day, except the
-   armed lift idle (stage 4). The nozzle-estimate change (finding 17, 2026-11-06) must be
-   installed on the Cube before stage 3 (bench ground tests), which is next.
+   armed lift idle (stage 4). Stage 3 (bench ground tests) passed on 2026-11-06 with the
+   nozzle-estimate change (finding 17) installed. Next, stage 4 (powered, restrained):
+   accelerometer and compass calibration first, then confirm `DOOR_LIFT_OFF` armed.
 4. Fix the documentation drift and regenerate or delete the HTML test plan.
 5. Consider the minor findings, especially checking `set_mode()` return values.
 
@@ -541,8 +545,9 @@ ESCs unpowered throughout.
   -1`), so the doors use OPEN, never PART, on the bench.
 - **Matching.** Trim 1500 = `DOOR_PART`, inside the MID band. The sequencer reads
   1965–1986 for OPEN and 972–993 for CLOSED (1472–1492 for MID in stage 1).
-- **Tilt.** `TILT_POS` 1900 forward and **1214** in a disarmed QLOITER hover (as predicted
-  for `Q_TILT_ANGLE_MAX 105`). `DOOR_TILT_FWD 1890`.
+- **Tilt.** `TILT_POS` 1900 forward and **1214** in a disarmed QLOITER hover: 90°, as
+  predicted for `Q_TILT_ANGLE_MAX 105`. The 105° reverse limit (about 1100) is reached only
+  with a rearward velocity demand. `DOOR_TILT_FWD 1890`.
 - **Nozzle speed.** Deploy (QLOITER) 3 s per 90°, following its command, which
   `Q_TILT_RATE_UP` limits to about 2.6 s. Stow (MANUAL, command in 0.9 s) **2.7 s per 90°**:
   the nozzle's own top speed. 90° is 686 of the tilt output's 800 µs, so a full range takes
@@ -553,6 +558,39 @@ ESCs unpowered throughout.
   (`Q_M_SPIN_ARM 0.1`); confirm in stage 4, not by force-arming on the bench.
 - Pre-arm still reports "3D Accel calibration needed" and "Compass not calibrated": do
   both before stage 4.
+
+**Stage 3, bench ground tests (passed 2026-11-06).** Script `dd87c0d525` (finding 17's
+estimate change) installed over MAVFTP and read back byte-identical, then a reboot (see
+finding 19). Servo rail powered, ESCs unpowered, blades off, disarmed throughout. Every step
+behaved as `F35B_TESTPLAN.md` describes; times from a recorder on the mirror.
+
+- **9c/9a, gated entry.** CH9 to QLOITER: doors opening (`DOOR_ST` 3, `DOOR_PWM` 2000),
+  QLOITER 4.0 s later, latched FULL, then the nozzle deployed to 90° in about 3 s with
+  `NOZ_EST` equal to `TILT_POS` at every sample (the new estimate; the old one would have
+  lagged about 0.9 s).
+- **9b, back to FBWA.** FBWA at once; the tilt output was forward 2.7 s later, "stowed:
+  waiting for nozzle", doors closed 3.9 s after the flip. Nozzle home well before the doors
+  moved.
+- **6b.** Selector back to FBWA 2 s into the gate: entry dropped silently (no mode change),
+  doors closed at once, nozzle never moved. **6c.** QSTABILIZE pending, then QLOITER 1.7 s
+  in: QLOITER exactly 4.0 s after the retarget, never QSTABILIZE, doors never closed in
+  between. (A switch overshoot through low in 6b exercised the same retarget.)
+- **7a, short deploy then MANUAL (finding 17).** MANUAL when the output was about 300 µs
+  (39°) out; the owner saw the nozzle at about 20° (it lags its command on a deploy). Output
+  forward 0.4 s later, doors closed 1.7 s after the flip: at least 0.5 s after the nozzle
+  was home (more, given the lag). The old estimate would have left about 0.2 s.
+- **7b.** Selector moved twice in MANUAL: "MANUAL override active - selector ignored" each
+  time, nothing moved. **7c.** Override back to rest → FBWA with no movement; the selector
+  then gated a QLOITER entry normally (4.0 s) and the return closed the doors 3.9 s after
+  the flip. **7d.** MANUAL from FBWA and back: no door or nozzle movement.
+- **7e.** `DOOR_ENABLE 0`: doors closed → MID (output lapsed to trim), telemetry stopped.
+  MANUAL engaged and released with the script disabled; doors stayed MID. `DOOR_ENABLE 1`:
+  doors closed at once, telemetry resumed. See finding 18.
+- **10g.** `MAV_CMD_SCRIPTING` stop: doors to MID and held. Restart: "script loaded",
+  selector reading FBWA (no action), doors OPEN while `NOZ_EST` climbed from 1100 (assumed
+  fully deployed) to forward, closed 4.5 s after the load (4.44 s predicted).
+- **Signal lead unplugged at the sequencer** with the script running: doors to MID, back to
+  closed on replug; the nozzle (S.Bus) unaffected.
 
 **Values so far.**
 
@@ -635,5 +673,17 @@ ESCs unpowered throughout.
     forward than the real nozzle, and only the stow speed has to be slower than
     `DOOR_NOZ_MS`. The cost: after a short dwell the doors wait the stow from where the
     output went, not just the time spent there. Offline scenarios 9–10 (forward at either
-    PWM end) failed against the previous script. Bench check in stage 3: a short QLOITER
-    dwell, then the MANUAL override.
+    PWM end) failed against the previous script. Bench-checked in stage 3 (7a, short
+    deploy): doors closed at least 0.5 s after the nozzle was home.
+18. **Minor: `DOOR_ENABLE 0` then 1 keeps the script's old state.** The selector's last
+    position and the nozzle estimate are not reset. A selector move made while disabled is
+    acted on at re-enable (as at a script start, finding 15), and the estimate jumps to the
+    output on the first cycle (its rate limit spans the whole disabled time), so a re-enable
+    within a few seconds of a fast stow could close the doors before the nozzle is home.
+    Ground-only in practice; keep the selector on fixed wing and the nozzle forward when
+    toggling it. A fix would clear `door_last_pos` and `noz_est` when disabled.
+19. **MAVFTP uploads can fail halfway.** Through Mission Planner's mirror, MAVProxy's `ftp
+    put` reported "Create failed" and left a truncated `F35B.lua` (720 bytes) on the card;
+    the running script was unaffected, but a reboot would have failed to load it (doors at
+    MID, selector dead). A retry worked. Always read the file back and compare it before
+    rebooting or restarting scripting.
