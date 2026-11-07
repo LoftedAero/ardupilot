@@ -3,6 +3,10 @@
 Verifies the door subsystem's functionality and edge cases in SITL with Mission Planner (MP)
 open on the side. Run with `DOOR_DEBUG = 1` so the script narrates every decision.
 
+Results: the automated runs are in `F35B_sitl/last_results.md` (and
+`last_results_realflight.md`); hardware results are in the bring-up log in
+`F35B_DEVNOTES.md` (Next steps).
+
 ## 0. Setup
 
 **Vehicle / frame.** Load your F-35B parameter set (or the closest tiltrotor + dedicated-lift
@@ -74,9 +78,9 @@ Production (always on): `doors opening…`, `doors open - entering VTOL`, `doors
 
 | ID | Steps | Expect / Pass |
 |----|-------|---------------|
-| 3a | **Inbound (fast):** in FBWA at cruise, `rc 8 1500` (QLOITER). | `dbg: inbound … holding fixed-wing`; `DOOR_PWM→1500`; **mode stays FBWA** for `DOOR_ENTRY_MS` (`VTOL_DLY` counts down); then `doors open - entering VTOL`, mode→QLOITER. **No VTOL motor/tilt motion before the mode flip.** As it slows, `DOOR_PWM→2000` and `dbg: latched FULL`. |
+| 3a | **Inbound (fast):** in FBWA at cruise, `rc 8 1500` (QLOITER). | `F35B inbound M: opening doors X.Xs`; `DOOR_PWM→1500`; **mode stays FBWA** for `DOOR_ENTRY_MS` (`VTOL_DLY` counts down); then `doors open - entering VTOL`, mode→QLOITER. **No VTOL motor/tilt motion before the mode flip.** As it slows, `DOOR_PWM→2000` and `dbg: latched FULL`. |
 | 3b | **Inbound (slow):** fly FBWA below `DOOR_PART_AS`, select QLOITER. | Doors go to **full (2000)** through the entry, not partial. |
-| 3c | **Outbound:** hovering QLOITER, `rc 8 2000` (FBWA). | Mode→FBWA immediately (`dbg: fixed-wing target … immediately`); doors stay open, neck full→partial as speed passes `DOOR_PART_AS`; **close only when `TILT_POS` reaches forward (`DOOR_TILT_FWD`) AND `LIFT_PWM`≤`DOOR_LIFT_OFF`** → `doors closed`. |
+| 3c | **Outbound:** hovering QLOITER, `rc 8 2000` (FBWA). | Mode→FBWA immediately (`F35B FW M now`); doors stay open, neck full→partial as speed passes `DOOR_PART_AS`; **close only when `TILT_POS` reaches forward (`DOOR_TILT_FWD`) AND `LIFT_PWM`≤`DOOR_LIFT_OFF`** → `doors closed`. |
 | 3d | Full round trip FBWA→QLOITER→hover→FBWA→cruise. | Choreography correct both ways; ends `DOOR_ST=0`. |
 
 ---
@@ -88,7 +92,7 @@ Production (always on): `doors opening…`, `doors open - entering VTOL`, `doors
 | 4a | Note airspeed where doors neck 2000→1500 **outbound**. | ≈ `DOOR_PART_AS`. |
 | 4b | Note airspeed where doors open 1500→2000 **inbound** (in VTOL, decelerating). | ≈ `DOOR_FULL_AS`. |
 | 4c | **Latch-full:** after 3a settles full in QLOITER, push speed back up above `DOOR_FULL_AS`. | `DOOR_ST` **stays 2 (full)** — no neck to partial. |
-| 4d | Transition out to FBWA then back into QLOITER fast. | `dbg: session ended - full latch reset`; the fresh fast entry necks to partial again (latch is per-session). |
+| 4d | Transition out to FBWA then back into QLOITER fast. | `F35B full latch reset`; the fresh fast entry necks to partial again (latch is per-session). |
 | 4e | **Chatter:** hold a steady airspeed right at a threshold ~30 s. | `DOOR_PWM` does **not** oscillate; Messages stays quiet (debounce). |
 
 ---
@@ -107,7 +111,7 @@ Production (always on): `doors opening…`, `doors open - entering VTOL`, `doors
 
 | ID | Steps | Expect / Pass |
 |----|-------|---------------|
-| 6a | In QLOITER, `rc 8 1000` (QSTABILIZE). | `dbg: VTOL->VTOL … immediately`; instant switch, **no** "opening", no delay. |
+| 6a | In QLOITER, `rc 8 1000` (QSTABILIZE). | `F35B VTOL->VTOL M now`; instant switch, **no** "opening", no delay. |
 | 6b | From FBWA select QLOITER (gate running), then `rc 8 2000` (FBWA) before `DOOR_ENTRY_MS`. | Pending cancels; stays FBWA; no VTOL entry; doors close. |
 | 6c | Select QHOVER (pending), then QLOITER before delay elapses. | Retargets; timer restarts; ends in QLOITER. |
 | 6d | FW↔FW via selector (MANUAL/FBWA/CRUISE if mapped). | Immediate; doors stay closed. |
@@ -158,7 +162,7 @@ Production (always on): `doors opening…`, `doors open - entering VTOL`, `doors
 | 10b | Trigger RC failsafe (e.g. `param set SIM_RC_FAIL 1`). | No selector edge acted on; failsafe mode engages; doors reactive; no misfire. Clear after. |
 | 10c | Rapidly sweep the selector across all positions. | No stuck/oscillating state, no runaway mode commands. |
 | 10d | `param set DOOR_TILT_FN 0` momentarily. | `TILT_POS`=0 → treated as "deployed" → doors stay open (fail-safe). Restore after. |
-| 10e | `param set DOOR_DEBUG 0`. | Verbose `F35B[dbg]:` messages stop; production event messages remain. |
+| 10e | `param set DOOR_DEBUG 0`. | Debug lines (`F35B sel pos …`, `F35B hb …`, `F35B inbound …`) stop; production event messages (`F35B: …`) remain. |
 | 10g | Doors closed in FBWA; stop scripting (MAVLink `MAV_CMD_SCRIPTING`, param1 = 2), then restart it (param1 = 3). | Within about 1 s of the stop (the command lapses after 0.5 s) the door output goes to its trim (MID) and stays there; after the restart the script closes the doors again. |
 | 10f | Start SITL with RC failsafe active (`param set SIM_RC_FAIL 1`, reboot), selector on a VTOL position; then clear it (`SIM_RC_FAIL 0`). | No mode command while RC is invalid. Once RC is valid, the selector position is acted on through the normal gate (as in 9d). |
 

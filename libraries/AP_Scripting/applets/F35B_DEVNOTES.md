@@ -18,7 +18,8 @@ work, so the context survives between sessions.
   steps). Stage 1 (sequencer) passed on 2026-11-03, and the sequencer's power-up hold
   (firmware `54b6d26`) on 2026-11-05 with a 30 s hold. Stage 2 (FC + sequencer, disarmed)
   measured and set everything but the armed lift idle on 2026-11-05. Stage 3 (bench ground
-  tests) passed on 2026-11-06; stage 4 (powered, restrained) is next.
+  tests) passed on 2026-11-06, and stage 4's armed checks the same day on the bench with the
+  ESCs unpowered. Calibrations and `DOOR_DEBUG 0` remain before stage 5 (flight).
   On 2026-11-06 the nozzle estimate was changed to follow a deploy at once (bring-up
   finding 17): offline 13/13, SITL 43/43. Later the same day, `DOOR_ENABLE` 0→1 starts
   from the real state (bring-up finding 18), refused modes are reported and the
@@ -36,7 +37,6 @@ work, so the context survives between sessions.
 | `F35B.lua` | The applet (DOORS subsystem) |
 | `F35B.md` | Setup, parameters, behavior reference |
 | `F35B_TESTPLAN.md` | SITL test plan (current source) |
-| `F35B_TESTPLAN.html` | Older rendering of the test plan; out of date (see below) |
 | `F35B_TESTPLAN.param` | SITL parameter set the test plan assumes (its "consolidated list") |
 | `F35B_offline/` | Offline syntax check and behavioral tests (`run.sh`) |
 | `F35B_sitl/` | Automated SITL test runner, its parameters, `last_results.md` and `last_results_realflight.md` |
@@ -416,15 +416,9 @@ sensors). Decisions:
 
 ### Documentation drift
 
-- `F35B_TESTPLAN.md` tables quote old debug strings: 3a "holding fixed-wing", 3c
-  "fixed-wing target … immediately", 4d "session ended - full latch reset", 6a "VTOL->VTOL
-  … immediately", 10e "F35B[dbg]:". The script prints "inbound M: opening doors X.Xs",
-  "FW M now", "full latch reset", "VTOL->VTOL M now", with the prefix "F35B ". Section 0
-  of the `.md` already lists the current strings.
-- `F35B_TESTPLAN.html` predates the `.md`: its section 0 still has the old strings, and it
-  lacks tests 7f, 8e and 10f. Regenerate it from the `.md` or delete it.
-- The test plan has no place to record results. Add a results column, or a dated log
-  here, when it's run.
+Fixed 2026-11-06: the test plan's tables now quote the script's current debug strings,
+`F35B_TESTPLAN.html` (an out-of-date copy of the `.md`) was deleted, and the plan points to
+where results are recorded (`F35B_sitl/last_results*.md` and the bring-up log).
 
 ## Related
 
@@ -445,9 +439,13 @@ sensors). Decisions:
    set here (log below). Stage 1 passed, and the sequencer's power-up hold firmware was
    checked on 2026-11-05; stage 2 (FC + sequencer, disarmed) done the same day, except the
    armed lift idle (stage 4). Stage 3 (bench ground tests) passed on 2026-11-06 with the
-   nozzle-estimate change (finding 17) installed. Next, stage 4 (powered, restrained):
-   accelerometer and compass calibration first, then confirm `DOOR_LIFT_OFF` armed.
-4. Fix the documentation drift and regenerate or delete the HTML test plan.
+   nozzle-estimate change (finding 17) installed. Stage 4's armed checks passed on the
+   bench with the ESCs unpowered (`DOOR_LIFT_OFF` confirmed). Before flight: accelerometer
+   and compass calibration (owner), optionally stage 4 again with the ESCs powered and the
+   aircraft restrained (mind finding 21), `DOOR_DEBUG 0`, then stage 5 (first flights: slow
+   inbound entries first, light wind, compare `DOOR_AS` with GPS groundspeed in the logs).
+4. ~~Fix the documentation drift and regenerate or delete the HTML test plan.~~ Done
+   2026-11-06.
 5. Consider the remaining minor finding (full for 0.75 s on the first entry after boot);
    the other two were fixed on 2026-11-06.
 
