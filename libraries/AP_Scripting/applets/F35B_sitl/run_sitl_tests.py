@@ -397,14 +397,18 @@ class Link:
                 self.lift_off_since = self.sim_ms
         else:
             self.lift_off_since = None
-        # The script's nozzle model, run independently on the sampled outputs: the nozzle follows
-        # the tilt output at most the output's full range per DOOR_NOZ_MS.
+        # The script's nozzle model, run independently on the sampled outputs: it follows a deploy
+        # (the output moving away from forward) at once, and a stow at most the output's full range
+        # per DOOR_NOZ_MS, so it is never closer to forward than the real nozzle.
         noz_ms = self.params.get("DOOR_NOZ_MS", 3500)
         if self.noz is None or self.tilt_span is None or noz_ms <= 0:
             self.noz = tilt
         else:
             step = self.tilt_span * (self.sim_ms - self.noz_at) / noz_ms
-            self.noz = min(tilt, self.noz + step) if self.noz < tilt else max(tilt, self.noz - step)
+            if self.params.get("DOOR_TILT_FWD", 1900) >= 1500:   # forward is the high-PWM end
+                self.noz = tilt if tilt <= self.noz else min(tilt, self.noz + step)
+            else:                                               # forward is the low-PWM end
+                self.noz = tilt if tilt >= self.noz else max(tilt, self.noz - step)
         self.noz_at = self.sim_ms
         noz_fwd = self.nacelles_fwd(self.noz)
         if noz_fwd:
@@ -1411,9 +1415,13 @@ class Runner:
             L.pump()
             self.check_alt()
         self.check(L.door_st() == 0, f"doors did not close (DOOR_ST {L.door_st()})")
+        # DOOR_ST can arrive before the servo sample showing the closed door, and until then
+        # L.closes[-1] is an earlier close
+        self.check(L.wait(lambda: bool(L.closes) and L.closes[-1]["close"] >= mark, 2),
+                   "DOOR_ST reads closed but the door output never did")
         self.no_violations_since(mark)
         # MANUAL tilts at 90 deg/s or more, faster than the nozzle: the doors must wait for the estimate
-        c = L.closes[-1] if L.closes else None
+        c = L.closes[-1]
         self.check(c is not None and c["tilt"] is not None and c["noz"] is not None,
                    "no close with the tilt output and nozzle estimate both forward")
         rel = {k: (v - mark) / 1000.0 for k, v in c.items() if v is not None}
@@ -1523,8 +1531,10 @@ def write_results(path, runner, args, cfg, started, wall_s):
     for _, _, status, _ in runner.results:
         counts[status] = counts.get(status, 0) + 1
     try:
-        rev = subprocess.run(["git", "-C", str(REPO), "log", "-1", "--format=%h %s"], capture_output=True,
-                             text=True).stdout.strip()
+        # The last commit that changed the script, not HEAD: a run made before a later docs-only
+        # commit (or an amend) would otherwise name a commit that doesn't match the script.
+        rev = subprocess.run(["git", "-C", str(REPO), "log", "-1", "--format=%h %s", "--", args.script],
+                             capture_output=True, text=True).stdout.strip()
         if subprocess.run(["git", "-C", str(REPO), "diff", "--quiet", "HEAD", "--", args.script]).returncode:
             rev += " + uncommitted changes"
     except Exception:

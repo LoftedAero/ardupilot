@@ -25,7 +25,7 @@ work, so the context survives between sessions.
   from the real state (bring-up finding 18), refused modes are reported and the
   external-entry warning is limited to entries from fixed wing (minor findings): offline
   17/17, SITL 43/43 (4e skipped on a first run when its airspeed never crossed the
-  threshold; passed on the rerun).
+  threshold; passed on the rerun). RealFlight rerun on 2026-11-07: 40 pass, 3 skipped.
 - Developed around July 2026 (files dated 2026-07-05) and committed here on 2026-09-12.
   The original design discussion was not preserved; `F35B.md` and `F35B_TESTPLAN.md` are
   the design record.
@@ -429,9 +429,12 @@ where results are recorded (`F35B_sitl/last_results*.md` and the bring-up log).
 
 1. Run `F35B_offline/run.sh` and `F35B_sitl/run_sitl_tests.py` after every script change,
    and commit the updated `last_results.md`. Run `--realflight` too when RealFlight is
-   available, and commit `last_results_realflight.md`. **Pending:** `last_results_realflight.md`
-   predates `dd87c0d525` and `651b1f859e` (2026-11-06); the owner will rerun `--realflight`
-   on the machine that has RealFlight.
+   available, and commit `last_results_realflight.md`. Last done 2026-11-07 on `651b1f859e`:
+   tilttri 43/43, RealFlight 40 with 3 skipped. That rerun first failed 7a on two runner
+   bugs, both fixed: 7a could read the previous close when `DOOR_ST` arrived before the
+   servo sample (the race 3c already handled), and the monitor's own nozzle model still
+   moved at one rate both ways, not the deploy-at-once rule of `dd87c0d525`. The results
+   header now names the last commit that changed the script, not HEAD.
 2. RTL/AUTO auto-transition (finding 5): for the first aircraft the owner accepted the
    RC-failsafe QRTL entry as is (bring-up finding 8, 2026-11-06). Still plan AUTO mission
    legs so they don't enter VTOL unplanned.
