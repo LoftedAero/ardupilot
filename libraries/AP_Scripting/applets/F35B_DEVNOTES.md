@@ -464,9 +464,9 @@ where results are recorded (`F35B_sitl/last_results*.md` and the bring-up log).
    2026-11-06.
 5. Consider the remaining minor finding (full for 0.75 s on the first entry after boot);
    the other two were fixed on 2026-11-06.
-6. Set `DOOR_PART_AS 7.5` / `DOOR_FULL_AS 17.5` (decided 2026-11-08, see "Airspeed thresholds
-   against the lift fan" in the 70 mm log) at the next connection, and check them in the next
-   flight logs. Hold throttle and height through the 4 s gate (the 70 mm jet lost 5–8 m in it).
+6. Set `DOOR_PART_AS 7.5` / `DOOR_FULL_AS 17.5` on the first aircraft (decided 2026-11-08, see
+   "Airspeed thresholds against the lift fan" in the 70 mm log) at its next connection, and
+   check them in its first flight logs. Hold throttle and height through the 4 s gate (the 70 mm jet lost 5–8 m in it).
 
 ### Bring-up log: first aircraft
 
@@ -691,7 +691,7 @@ to spin; lift fan checked through `LIFT_PWM`. Throttle is CH1 (`RCMAP_THROTTLE 1
 | `DOOR_TILT_FWD` | **1890** | `TILT_POS` 1900 forward, 1214 hover |
 | `DOOR_LIFT_OFF` | **1050** | 1000 stopped, armed idle **1100** measured (stage 4 on the bench) |
 | `DOOR_NOZ_MS` | **4500** | stow 2.7 s per 90° = 3.15 s per full range, +43% |
-| `DOOR_PART_AS` / `DOOR_FULL_AS` | 5 / 15 | kept 2026-11-06 (see pre-flight decisions); 7.5 / 17.5 chosen 2026-11-08 from the 70 mm flight logs, not yet set |
+| `DOOR_PART_AS` / `DOOR_FULL_AS` | 5 / 15 | kept 2026-11-06 (see pre-flight decisions); 7.5 / 17.5 chosen 2026-11-08 from the 70 mm flight logs, to be set at the next connection |
 | `DOOR_DEBUG` | 1 | bench; set 0 for flight |
 | Override / selector | CH5 / CH9 | see stage 2 |
 
@@ -798,8 +798,9 @@ fan door travel from 65% to 100% (0.35 × 4.5 s = 1.6 s). Flight 1 / flight 2:
   enough to hover (finding 10). A hover at MID against one at full, comparing `LIFT_PWM` in
   the `DOOR` log, would measure it.
 - **Decided 2026-11-08: `DOOR_PART_AS 7.5`, `DOOR_FULL_AS 17.5`** (between 5 / 15 and the
-  11 / 20 the data pointed to). The owner will set them at the next connection; not yet set
-  on either aircraft.
+  11 / 20 the data pointed to), for the first aircraft (the 110 mm jet with doors), to be set
+  at its next connection. The 70 mm jet stays at 5 / 15: the replay above is taken as enough,
+  so it won't fly 7.5 / 17.5.
 
 **Findings from bring-up.**
 
