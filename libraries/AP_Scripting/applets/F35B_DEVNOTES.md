@@ -738,6 +738,34 @@ nozzle estimate as predicted. Gated entry while armed: `LIFT_PWM` held 1000 for 
 once. The onboard log (`DOOR`, 1484 rows) runs at 100 ms (97–103 ms, 1st–99th percentile), and
 its states, flags and timings match the live telemetry.
 
+**First flights with the gated entry (2026-11-08, logs 73 and 74).** Two flights, each:
+QLOITER takeoff, FBWA with the selector, laps, QLOITER with the selector, landing, disarm,
+then MANUAL on the override. Owner: everything as expected. `DOOR` at 100 ms throughout, no
+script errors.
+
+| | Flight 73 | Flight 74 |
+|---|---|---|
+| Outbound: FBWA → MID (`DOOR_AS` ≥ 5, + 0.75 s) | 3.1 s | 3.6 s |
+| Outbound: tilt forward / nozzle estimate forward / lift off = closed | 5.2 / 5.7 / 6.2 s | 5.9 / 6.4 / 6.9 s |
+| Gate: flip at | 25.9 m/s, 24.9 m | 22.1 m/s, 17.7 m |
+| Gate: QLOITER after | 4.1 s, at 23.0 m/s, 17.1 m | 4.1 s, at 21.1 m/s, 13.0 m |
+| Inbound: MID (gate and QLOITER) until full at `DOOR_AS` < 15 | 7.9 s from the flip | 8.0 s |
+| Lowest point after QLOITER engaged | 14.3 m | 11.3 m |
+
+- **Height lost during the gate: 7.8 m and 4.7 m.** The approach was already descending
+  (about 2 m/s and 0.7 m/s before the flip), and the throttle came down at the flip
+  (1712 → 1451 and 1706 → 1548 µs), as it would for an immediate VTOL entry, while the
+  aircraft stayed in FBWA for 4 s. Speed held (23 and 21 m/s at QLOITER), so no stall
+  margin was used; QLOITER stopped the descent within about 3 s (lowest 2.3–3.1 s after it
+  engaged). Handling rule: hold
+  throttle and height until "doors open - entering VTOL", or flip higher.
+- **The outbound close waits for the lift fan,** not the nozzle: the lift output reached
+  `DOOR_LIFT_OFF` 0.5 s after the nozzle estimate read forward (which itself trailed the tilt
+  output by 0.5 s).
+- **`DOOR_AS` against GPS groundspeed in cruise:** median −0.7 and +0.1 m/s, 5th–95th
+  percentile within about ±2 m/s, EKF wind up to 4 m/s (light wind). At these winds the
+  thresholds are effectively groundspeed thresholds.
+
 **Findings from bring-up.**
 
 8. **Finding 5 is wide open on this aircraft.** With `FS_LONG_ACTN 1`, `Q_RTL_MODE 1` and
