@@ -1,1 +1,7 @@
 # LoftedAero-SRX default parameters (gyro-receiver defaults to be added)
+
+# Onboard ExpressLRS receiver on SERIAL2 (CRSF; SERIAL2_PROTOCOL=23 comes from the hwdef)
+# RSSI and link quality from CRSF link statistics
+RSSI_TYPE 3
+# keep the stock bit 5 (arming check throttle for 0 input, 32) and add bit 13 (420 kbaud ELRS link, 8192)
+RC_OPTIONS 8224
