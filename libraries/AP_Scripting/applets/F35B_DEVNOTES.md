@@ -728,6 +728,16 @@ immediate; FBWA at once and "doors closed" 3.5 s later (3.57 s predicted for tha
 entry dropped when the selector returned within 1.2 s; override middle no change, far end
 MANUAL with the selector ignored, rest FBWA.
 
+**Force-armed check, battery unplugged (USB power only, 2026-11-07).** Armed in QLOITER:
+`LIFT_PWM` 1000 → 1100 (idle, `DOOR_LIFT_OFF 1050` confirmed), `TILT_POS` 1213 (armed hover;
+the disarmed hover reads 1245–1269). FBWA with the throttle low: the transition completed at
+once (no airspeed wait, unlike finding 21 after a throttle blip on the first aircraft), lift
+1000 within 0.3 s, tilt forward 0.8 s after the flip, "doors closed" 3.8 s after it, behind the
+nozzle estimate as predicted. Gated entry while armed: `LIFT_PWM` held 1000 for the whole
+4.0 s, then 1058 → 1100 within 0.2 s of QLOITER, the nozzle estimate following the deploy at
+once. The onboard log (`DOOR`, 1484 rows) runs at 100 ms (97–103 ms, 1st–99th percentile), and
+its states, flags and timings match the live telemetry.
+
 **Findings from bring-up.**
 
 8. **Finding 5 is wide open on this aircraft.** With `FS_LONG_ACTN 1`, `Q_RTL_MODE 1` and
