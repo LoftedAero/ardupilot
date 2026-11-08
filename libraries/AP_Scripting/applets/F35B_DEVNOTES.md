@@ -692,6 +692,42 @@ to spin; lift fan checked through `LIFT_PWM`. Throttle is CH1 (`RCMAP_THROTTLE 1
 | `DOOR_DEBUG` | 1 | bench; set 0 for flight |
 | Override / selector | CH5 / CH9 | see stage 2 |
 
+### Bring-up log: 70 mm EDF F-35B (no doors, observing and gated entry)
+
+The owner's smaller jet, flying regularly on this branch, used to see from flight logs how
+the door logic behaves in real flights (the `DOOR` log, F35B.md "Onboard log"). It has no
+doors, so nothing is driven: no output is assigned to `DOOR_FUNC`.
+
+**As found (2026-11-07).** `MatekH743-F35B-Mini`, ArduPlane 4.6.3 at `03037e3a` (the same
+build as the first aircraft). `SCR_ENABLE 0`. Tilt `SERVO8` function 41, 1100–1900, forward
+1900; lift fan `SERVO1` function 35, 1000–2000; `Q_TILT_ANGLE_MAX 110`; `Q_M_SPIN_ARM 0.1`;
+`ARSPD_TYPE 0`; `LOG_DISARMED 0` (so `DOOR` rows appear only while armed). `FLTMODE_CH 5`,
+`FLTMODE1`–`6` = 17, 0, 4, 19, 0, 5. The SD card held `VTOL-quicktune.lua` (inert while
+scripting was off); the owner had it removed, a copy kept on the PC.
+
+**Set up (2026-11-07, over USB, disarmed).** Every write read back; a full parameter diff
+against the as-found list showed only these, plus the scripting parameters' defaults and the
+values the autopilot writes at each boot (gyro offsets, baro, declination, counters).
+
+- `SCR_ENABLE 1`; `F35B.lua` from `b079dd9486` the only script, read back byte-identical.
+- `DOOR_ENABLE 1`, `DOOR_TILT_FN 41`, `DOOR_TILT_FWD 1890`, `DOOR_LIFT_FN 35`,
+  `DOOR_LIFT_OFF 1050`, and the first aircraft's `DOOR_NOZ_MS 4500`, `DOOR_ENTRY_MS 4000`,
+  `DOOR_PART_AS`/`DOOR_FULL_AS` 5/15, `DOOR_DEBUG 0`.
+- Gated entry (the owner chose it after the observer setup): channel 5, a 3-position switch
+  (982 / 1495 / 2006), is the selector: `DOOR_MODE_CH 5`, `DOOR_MODE1`–`6` = 17, 17, 19, 19,
+  5, 5 (QSTABILIZE, QLOITER, FBWA; MANUAL removed from the selector, so no intermediate
+  position can set it, finding 11). Channel 9, a 3-position switch (same values), is the
+  override: `FLTMODE_CH 9`, `FLTMODE1`–`6` = 5, 5, 5, 5, 0, 0 (rest and middle FBWA, far end
+  MANUAL). No VTOL mode on any switch: if the script stops, only fixed-wing modes remain.
+- **To undo the gated entry** (back to observing): `DOOR_MODE_CH 0`, `FLTMODE_CH 5`,
+  `FLTMODE1`–`6` = 17, 0, 4, 19, 0, 5. **To remove the script:** also `SCR_ENABLE 0`.
+
+**Bench check (disarmed).** Gated entry 4.0 s to QLOITER, the nozzle moving 0.8 s after the
+mode change and `TILT_POS` 1256 in the hover (1245 predicted for 110°); QLOITER → QSTABILIZE
+immediate; FBWA at once and "doors closed" 3.5 s later (3.57 s predicted for that stow); an
+entry dropped when the selector returned within 1.2 s; override middle no change, far end
+MANUAL with the selector ignored, rest FBWA.
+
 **Findings from bring-up.**
 
 8. **Finding 5 is wide open on this aircraft.** With `FS_LONG_ACTN 1`, `Q_RTL_MODE 1` and
