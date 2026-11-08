@@ -33,7 +33,10 @@ work, so the context survives between sessions.
   loop runs slow in sim time; expected 100 ms on hardware). Plan: observer-only flights
   (`DOOR_MODE_CH 0`, no door output), review the logs with the first aircraft's values, then
   a second phase flying the gated entry (selector through the script, with a VTOL mode on
-  that aircraft's override since it has no doors).
+  that aircraft's override since it has no doors). The SITL reruns for it exposed two runner
+  races, fixed: after a reboot, 9d and 10f waited for the one "script loaded" text, which can
+  go out before the runner reconnects (they now also accept the script's telemetry); and a
+  failed 10f left the safety monitor off for the rest of the run (now restored in `finally`).
 - Developed around July 2026 (files dated 2026-07-05) and committed here on 2026-09-12.
   The original design discussion was not preserved; `F35B.md` and `F35B_TESTPLAN.md` are
   the design record.

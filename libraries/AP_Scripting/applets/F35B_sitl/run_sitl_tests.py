@@ -238,6 +238,7 @@ class Link:
         self.mode_changes = []     # (sim_ms, mode)
         self.texts = []            # (sim_ms, text)
         self.nvf = {}              # name -> (value, sim_ms)
+        self.first_nvf_ms = None   # first named float since the last reboot (the script is running)
         self.servo = {}
         self.airspeed = 0.0
         self.heading = 0
@@ -326,6 +327,8 @@ class Link:
         elif t == "NAMED_VALUE_FLOAT":
             name = msg.name.rstrip("\x00") if isinstance(msg.name, str) else msg.name.decode().rstrip("\x00")
             self.nvf[name] = (msg.value, self.sim_ms)
+            if self.first_nvf_ms is None:
+                self.first_nvf_ms = self.sim_ms
             if name == "DOOR_ST":
                 st = int(round(msg.value))
                 if st != self.door_st_last:
@@ -555,7 +558,21 @@ class Link:
         # HEARTBEAT and STATUSTEXT carry no boot time and take the last one seen; step past it so
         # the new boot's first messages sort after everything from the old one
         self.sim_ms += 1
+        self.first_nvf_ms = None
         self.connect()
+
+    def wait_script_restart(self, rebooted, timeout_s=30):
+        """After a reboot, wait for the script to be running again. Its one 'script loaded' text
+        can go out before the runner has reconnected (1.5 s wall after the reboot, 7.5 s of sim
+        time at speedup 5), so its telemetry arriving counts too. Returns the time to measure
+        the new boot from (the text if seen, else the reboot), or None."""
+        def started():
+            return (self.text_seen(r"F35B: script loaded", rebooted)
+                    or (self.first_nvf_ms is not None and self.first_nvf_ms >= rebooted))
+        if not self.wait(started, timeout_s):
+            return None
+        loaded = [ms for ms, txt in self.texts if ms >= rebooted and txt.startswith("F35B: script loaded")]
+        return max(loaded) if loaded else rebooted
 
 
 # ---------------------------------------------------------------------------
@@ -1129,12 +1146,14 @@ class Runner:
         self.ensure_fbwa_closed()
         self.enter_vtol_via_selector("QLOITER")
         L.monitor_on = False
-        L.reboot()
-        rebooted = L.sim_ms
-        self.check(L.wait_text(r"F35B: script loaded", 30, rebooted), "script did not load after reboot")
-        # measure from the restarted script, so nothing from before the reboot counts
-        mark = max(ms for ms, txt in L.texts if txt.startswith("F35B: script loaded"))
-        L.monitor_on = True
+        try:
+            L.reboot()
+            rebooted = L.sim_ms
+            # measure from the restarted script, so nothing from before the reboot counts
+            mark = L.wait_script_restart(rebooted)
+            self.check(mark is not None, "script did not load after reboot")
+        finally:
+            L.monitor_on = True      # a failed check here must not leave the run unmonitored
         # Two safe outcomes, depending on which the vehicle reads first after boot: the script
         # sees the selector while the vehicle is still in its initial mode (MANUAL by default),
         # and the MANUAL lockout ignores it; or the override switch has already set FBWA, and
@@ -1172,15 +1191,16 @@ class Runner:
         try:
             L.reboot()
             rebooted = L.sim_ms
-            self.check(L.wait_text(r"F35B: script loaded", 30, rebooted), "script did not load after reboot")
             # measure from the restarted script, so nothing from before the reboot counts
-            mark = max(ms for ms, txt in L.texts if txt.startswith("F35B: script loaded"))
+            mark = L.wait_script_restart(rebooted)
+            self.check(mark is not None, "script did not load after reboot")
             L.monitor_on = True
             L.sleep(10)
             self.check(L.mode == "FBWA", f"booted into {L.mode}, not FBWA")
             self.check(not L.text_seen(r"doors opening", mark), "script acted on the selector without RC")
             self.check(not any(m in VTOL_MODES for m in L.modes_since(mark)), "a VTOL mode was entered without RC")
         finally:
+            L.monitor_on = True      # a failed check above must not leave the run unmonitored
             L.set_param("SIM_RC_FAIL", 0)
             L.set_param("INITIAL_MODE", initial_mode)
             L.overrides = True
