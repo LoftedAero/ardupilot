@@ -1,0 +1,28 @@
+# bootloader hw definition file for LoftedAero-SRX
+
+MCU STM32F4xx STM32F405xx
+
+OSCILLATOR_HZ 8000000
+
+# TODO: request a board ID from ArduPilot (Tools/AP_Bootloader/board_types.txt)
+APJ_BOARD_ID 5999
+
+FLASH_RESERVE_START_KB 0
+FLASH_SIZE_KB 1024
+FLASH_BOOTLOADER_LOAD_KB 64
+
+PA15 LED_BOOTLOADER OUTPUT LOW GPIO(0)
+PC14 LED_ACTIVITY OUTPUT LOW GPIO(1)
+define HAL_LED_ON 0
+
+SERIAL_ORDER OTG1
+PA11 OTG_FS_DM OTG1
+PA12 OTG_FS_DP OTG1
+
+PA13 JTMS-SWDIO SWD
+PA14 JTCK-SWCLK SWD
+
+# hold all SPI chip selects high in the bootloader (same pins as hwdef.dat)
+PB3  IMU_CS   CS
+PC4  FLASH_CS CS
+PC0  BARO_CS  CS

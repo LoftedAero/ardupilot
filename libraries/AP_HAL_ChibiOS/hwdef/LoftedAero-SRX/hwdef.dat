@@ -1,0 +1,164 @@
+# hw definition file for LoftedAero-SRX
+# Stabilized ELRS receiver: STM32F405RGT6 (LQFP64), LSM6DSV16X IMU (IIM-42652 alternate), SPA06-003 baro,
+# W25Q128JV 16 MB dataflash, onboard ESP32-C3 + SX1280 ELRS receiver on USART3 (CRSF).
+# DRAFT rev 0.2 - pin map is the source of truth for the schematic (docs/pinmap.md).
+# rev 0.2 (2026-10-04): pins re-assigned to the PCB placement (each peripheral on the package side facing
+# its parts); functions, timer groups, SERIALn and I2C bus numbering unchanged.
+
+MCU STM32F4xx STM32F405xx
+
+# bootloader starts firmware at 64k
+FLASH_RESERVE_START_KB 64
+FLASH_SIZE_KB 1024
+
+# store parameters in pages 1 and 2
+STORAGE_FLASH_PAGE 1
+define HAL_STORAGE_SIZE 15360
+
+# TODO: request a board ID from ArduPilot (Tools/AP_Bootloader/board_types.txt)
+APJ_BOARD_ID 5999
+
+# TIM5 is the 32-bit system timer (its pins PA0-PA3 are used by USART2)
+define STM32_ST_USE_TIMER 5
+define CH_CFG_ST_RESOLUTION 32
+
+OSCILLATOR_HZ 8000000
+
+# --------------------- LEDs (active low) ---------------------
+# LED0 on PA15 (a normal GPIO, moved from PC13 on 2026-10-18 for brightness): blue, GPS (AP_BoardLED2 'LED B')
+# LED1 on PC14 (sinks max 3 mA): orange, armed/status (AP_BoardLED2 'LED A')
+define AP_NOTIFY_GPIO_LED_2_ENABLED 1
+PA15 LED0 OUTPUT LOW GPIO(90) # blue, GPS
+PC14 LED1 OUTPUT LOW GPIO(91) # orange, armed/status
+define HAL_GPIO_A_LED_PIN 91
+define HAL_GPIO_B_LED_PIN 90
+
+# --------------------- PWM outputs -----------------------
+# 4 timer groups. ArduPilot sets protocol/rate per group:
+#   group 1: OUT1,2,4 (TIM3)  control surfaces
+#   group 2: OUT3     (TIM1)  throttle - independent of the surfaces
+#   group 3: OUT5,6   (TIM4)
+#   group 4: OUT7,8   (TIM8)  BRD_ALT_CONFIG=1 turns these into USART6 (SERIAL5)
+PB5  TIM3_CH2 TIM3 PWM(1) GPIO(50)
+PB4  TIM3_CH1 TIM3 PWM(2) GPIO(51)
+PA8  TIM1_CH1 TIM1 PWM(3) GPIO(52) BIDIR
+PC9  TIM3_CH4 TIM3 PWM(4) GPIO(53)
+PB7  TIM4_CH2 TIM4 PWM(5) GPIO(54)
+PB6  TIM4_CH1 TIM4 PWM(6) GPIO(55) BIDIR
+# no BIDIR on TIM8 (DShot works): its CH1/CH2 capture DMA (DMA2 S2/S3) would be shared with the GPS UART RX
+# and the flash/baro SPI TX. Possible since rev 0.2 (ELRS and IMU moved to DMA1) but not enabled.
+PC7  TIM8_CH2 TIM8 PWM(7) GPIO(56)
+PC6  TIM8_CH1 TIM8 PWM(8) GPIO(57)
+
+# alternative: OUT8/OUT7 as USART6 TX/RX (SBUS out, ESC telemetry, extra serial)
+PC6  USART6_TX USART6 NODMA ALT(1)
+PC7  USART6_RX USART6 NODMA ALT(1)
+
+# --------------------- SPI2: IMU -----------------------
+PB13 SPI2_SCK  SPI2
+PC2  SPI2_MISO SPI2
+PC3  SPI2_MOSI SPI2
+PB3  IMU_CS CS
+
+# --------------------- SPI1: dataflash + baro -----------------------
+PA5  SPI1_SCK  SPI1
+PA6  SPI1_MISO SPI1
+PA7  SPI1_MOSI SPI1
+PC4  FLASH_CS CS
+PC0  BARO_CS  CS
+
+# --------------------- I2C: I2C2 = GPS port (bus 0), I2C1 = GPS2 port (bus 1), both external ---------------
+I2C_ORDER I2C2 I2C1
+PB10 I2C2_SCL I2C2
+PB11 I2C2_SDA I2C2
+PB8  I2C1_SCL I2C1
+PB9  I2C1_SDA I2C1
+
+# --------------------- UARTs ---------------------------
+# SERIAL0 USB, SERIAL1 TELEM (GH-6), SERIAL2 ELRS (onboard), SERIAL3 GPS (GH-6),
+# SERIAL4 GPS2 (GH-6), SERIAL5 OUT7/OUT8 via BRD_ALT_CONFIG=1
+SERIAL_ORDER OTG1 USART2 USART3 USART1 UART5 USART6
+
+PA11 OTG_FS_DM OTG1
+PA12 OTG_FS_DP OTG1
+PB12 VBUS INPUT OPENDRAIN
+
+# USART2 - TELEM, Pixhawk pinout with flow control
+PA2  USART2_TX  USART2
+PA3  USART2_RX  USART2
+PA0  USART2_CTS USART2
+PA1  USART2_RTS USART2
+
+# USART3 - onboard ELRS receiver (CRSF); RX DMA unshared, TX without DMA
+PC10 USART3_TX USART3 NODMA
+PC11 USART3_RX USART3
+define DEFAULT_SERIAL2_PROTOCOL SerialProtocol_RCIN
+
+# USART1 - GPS
+PA9  USART1_TX USART1 NODMA
+PA10 USART1_RX USART1
+define DEFAULT_SERIAL3_PROTOCOL SerialProtocol_GPS
+
+# UART5 - GPS2 port (GH-6, with I2C1). Set SERIAL4_PROTOCOL=5 + GPS2_TYPE for a second GPS
+PC12 UART5_TX UART5 NODMA
+PD2  UART5_RX UART5 NODMA
+define DEFAULT_SERIAL4_PROTOCOL SerialProtocol_None
+
+PA13 JTMS-SWDIO SWD
+PA14 JTCK-SWCLK SWD
+
+# --------------------- ESP32-C3 control (optional, DNP-able) ---------------------
+# released (high-Z) by default; lets firmware reset the ELRS module or hold it in
+# its bootloader for flashing over the F405
+PC15 ESP_EN   OUTPUT OPENDRAIN HIGH GPIO(70)
+PC1  ESP_BOOT OUTPUT OPENDRAIN HIGH GPIO(71)
+
+# ------------------- DMA -------------------
+DMA_PRIORITY SPI2* USART3* TIM1* TIM8* TIM3* TIM4* SPI1* USART2*
+DMA_NOSHARE SPI2* USART3*
+
+# ------------------- IMU: LSM6DSV16X, or IIM-42652 on the same footprint ---------------------
+# Both drivers probe the same chip select (as DAKEFPVF405 / ARK_FPV do); whichever answers its WHOAMI is used.
+# LSM6DSV SPI max 10 MHz.
+# Board frame: forward = toward the RF/antenna end (silkscreen FWD arrow), components up. U301 is placed
+# unrotated (pin 1 top-left); ST and TDK both use +X right / +Y up / +Z out of the top for this package,
+# so both need ROLL_180. Verify on the bench (tilt test) for each part.
+SPIDEV imu SPI2 DEVID1 IMU_CS MODE3 1*MHZ 8*MHZ
+IMU LSM6DSV      SPI:imu ROTATION_ROLL_180
+IMU Invensensev3 SPI:imu ROTATION_ROLL_180
+define HAL_DEFAULT_INS_FAST_SAMPLE 1
+
+# ------------------- Baro SPL06-001 ---------------------
+SPIDEV spl06 SPI1 DEVID2 BARO_CS MODE3 5*MHZ 5*MHZ
+BARO SPL06 SPI:spl06
+
+# ------------------- Dataflash W25Q128JV (16 MB NOR, JEDEC driver) ---------------------
+SPIDEV dataflash SPI1 DEVID1 FLASH_CS MODE3 32*MHZ 32*MHZ
+define HAL_LOGGING_DATAFLASH_ENABLED 1
+
+# ----------------- Compass: external only (GPS port) -----------------
+define AP_COMPASS_PROBING_ENABLED 1
+define HAL_I2C_INTERNAL_MASK 0
+define HAL_COMPASS_AUTO_ROT_DEFAULT 2
+
+# --------------------- ADC ---------------------------
+# battery: 1:11 divider (100k/10k), 0-25.2 V (6S); PB0 = ADC1_IN8
+PB0  BATT_VOLTAGE_SENS ADC1 SCALE(1)
+define HAL_BATT_MONITOR_DEFAULT 3
+define HAL_BATT_VOLT_PIN 8
+define HAL_BATT_VOLT_SCALE 11.0
+# current sensor on the power-sense GH-3 pin 2 (scale depends on the sensor: set BATT_AMP_PERVLT)
+define HAL_BATT_CURR_PIN 15
+define HAL_BATT_CURR_SCALE 40.0
+
+# servo rail: 1:3 divider, 0-9.9 V; PA4 = ADC1_IN4
+PA4  FMU_SERVORAIL_VCC_SENS ADC1 SCALE(3)
+
+# CURR (battery current sensor) on the power-sense GH-3; PC5 = ADC1_IN15
+PC5  BATT_CURRENT_SENS ADC1 SCALE(1)
+
+define HAL_WITH_DSP FALSE
+
+include ../include/minimize_fpv_osd.inc
+
+AUTOBUILD_TARGETS Plane
