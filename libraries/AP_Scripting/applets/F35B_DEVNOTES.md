@@ -464,6 +464,9 @@ where results are recorded (`F35B_sitl/last_results*.md` and the bring-up log).
    2026-11-06.
 5. Consider the remaining minor finding (full for 0.75 s on the first entry after boot);
    the other two were fixed on 2026-11-06.
+6. Set `DOOR_PART_AS 7.5` / `DOOR_FULL_AS 17.5` (decided 2026-11-08, see "Airspeed thresholds
+   against the lift fan" in the 70 mm log) at the next connection, and check them in the next
+   flight logs. Hold throttle and height through the 4 s gate (the 70 mm jet lost 5–8 m in it).
 
 ### Bring-up log: first aircraft
 
@@ -688,7 +691,7 @@ to spin; lift fan checked through `LIFT_PWM`. Throttle is CH1 (`RCMAP_THROTTLE 1
 | `DOOR_TILT_FWD` | **1890** | `TILT_POS` 1900 forward, 1214 hover |
 | `DOOR_LIFT_OFF` | **1050** | 1000 stopped, armed idle **1100** measured (stage 4 on the bench) |
 | `DOOR_NOZ_MS` | **4500** | stow 2.7 s per 90° = 3.15 s per full range, +43% |
-| `DOOR_PART_AS` / `DOOR_FULL_AS` | 5 / 15 | kept 2026-11-06 (see pre-flight decisions) |
+| `DOOR_PART_AS` / `DOOR_FULL_AS` | 5 / 15 | kept 2026-11-06 (see pre-flight decisions); 7.5 / 17.5 chosen 2026-11-08 from the 70 mm flight logs, not yet set |
 | `DOOR_DEBUG` | 1 | bench; set 0 for flight |
 | Override / selector | CH5 / CH9 | see stage 2 |
 
@@ -765,6 +768,38 @@ script errors.
 - **`DOOR_AS` against GPS groundspeed in cruise:** median −0.7 and +0.1 m/s, 5th–95th
   percentile within about ±2 m/s, EKF wind up to 4 m/s (light wind). At these winds the
   thresholds are effectively groundspeed thresholds.
+
+**Airspeed thresholds against the lift fan (2026-11-08, from logs 73 and 74).** The door
+latch (`vtol_active_door_pwm`, 0.75 s persistence, direction-dependent threshold, latched
+full) was replayed offline on the logged inputs; at 5 / 15 it reproduced the logged door
+command on all but 1 of 3293 samples. "Physically open" below adds the first aircraft's lift
+fan door travel from 65% to 100% (0.35 × 4.5 s = 1.6 s). Flight 1 / flight 2:
+
+| | 5 / 15 (flown) | 7.5 / 17.5 |
+|---|---|---|
+| Outbound: MID starts after FBWA | 3.0 / 3.5 s, `DOOR_AS` 7.9 / 7.1, lift fan 56 / 60% | 3.8 / 4.7 s, 9.3 / 9.8 m/s, 58 / 64% |
+| Outbound: time at MID before closing | 3.1 / 3.3 s | 2.3 / 2.1 s |
+| Inbound: full commanded after QLOITER | 4.0 / 4.0 s, lift fan 64 / 70% | 3.2 / 2.8 s, 63 / 69% |
+| Inbound: lift fan door physically open after QLOITER | 5.5 / 5.5 s | 4.7 / 4.3 s |
+| Lift fan ≥ 50% with its door not fully open | 4.7 / 5.6 s | 3.1 / 3.2 s |
+
+- **Outbound,** the lift fan holds 56–66% (hover is 70–76%) until "Transition airspeed
+  reached" at about 10 m/s, then spools down within about 1.5 s. Sweeping `DOOR_PART_AS`:
+  9 m/s still meets the fan at 61%; 11 m/s puts MID only in the spool-down (fan ≤ 24%, 0.7 s
+  of MID); 14 and above gives no outbound MID at all. MID below the transition airspeed
+  buys little (dynamic pressure at 8 m/s is about 8% of cruise).
+- **Inbound,** the lift fan climbs from about 17% to 65% between 1.5 and 2.8 s after QLOITER
+  engages, largely whatever the airspeed. No `DOOR_FULL_AS` removes the overlap: at 22 m/s and
+  above full is commanded 0.9 s after QLOITER (the latch's persistence) and the door is still
+  1.6 s from open. A higher threshold works only relative to the entry speed (21–23 m/s
+  here); a faster entry stays at MID longer. Tying full to the lift fan output, or going full
+  as QLOITER engages, would follow the fan; not adopted.
+- **Unmeasured:** how much a 65% lift fan door costs in thrust. The owner has said MID is
+  enough to hover (finding 10). A hover at MID against one at full, comparing `LIFT_PWM` in
+  the `DOOR` log, would measure it.
+- **Decided 2026-11-08: `DOOR_PART_AS 7.5`, `DOOR_FULL_AS 17.5`** (between 5 / 15 and the
+  11 / 20 the data pointed to). The owner will set them at the next connection; not yet set
+  on either aircraft.
 
 **Findings from bring-up.**
 
