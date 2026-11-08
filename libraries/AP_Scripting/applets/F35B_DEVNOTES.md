@@ -26,6 +26,14 @@ work, so the context survives between sessions.
   external-entry warning is limited to entries from fixed wing (minor findings): offline
   17/17, SITL 43/43 (4e skipped on a first run when its airspeed never crossed the
   threshold; passed on the rerun). RealFlight rerun on 2026-11-07: 40 pass, 3 skipped.
+- **`DOOR` onboard log (2026-11-07)**, for observing on the owner's 70 mm EDF F-35B (no doors,
+  MatekH743 F-35B target): the script logs its decision and inputs at about 10 Hz
+  (F35B.md, "Onboard log"). Offline 19/19, SITL 43/43; the SITL flight log held 1862 `DOOR`
+  rows with every state and flag (rows about 146 ms apart at speedup 5, where the scripting
+  loop runs slow in sim time; expected 100 ms on hardware). Plan: observer-only flights
+  (`DOOR_MODE_CH 0`, no door output), review the logs with the first aircraft's values, then
+  a second phase flying the gated entry (selector through the script, with a VTOL mode on
+  that aircraft's override since it has no doors).
 - Developed around July 2026 (files dated 2026-07-05) and committed here on 2026-09-12.
   The original design discussion was not preserved; `F35B.md` and `F35B_TESTPLAN.md` are
   the design record.
@@ -71,12 +79,14 @@ directory, syntax-checks `F35B.lua` with it, then runs `harness.lua`. The harnes
 bindings and drives the script's scheduler through scenarios using the test-plan
 parameters. It exits non-zero if any scenario fails.
 
-**Expected: 17/17 pass.** Scenarios 2–6 cover findings 1–4; each failed against the unfixed
+**Expected: 19/19 pass.** Scenarios 2–6 cover findings 1–4; each failed against the unfixed
 script (commit `fe69b53045`). Scenarios 7, 8, 11 and 12 cover the nozzle estimate (finding
 6), 9–10 a deploy cut short (bring-up finding 17; both failed against `f0cb529b6b`), 13–14
 `DOOR_ENABLE` 0 then 1 (bring-up finding 18), 15 a rejected mode and 16 the external-entry
-warning (the minor findings), 13–16 each failing against `dd87c0d525`, and 17 the
-fail-to-MID lapse (finding 7). Add a scenario for each new fix or behavior. To check a different copy of the script, pass its path:
+warning (the minor findings), 13–16 each failing against `dd87c0d525`, 17 the
+fail-to-MID lapse (finding 7), and 18–19 the `DOOR` onboard log (its rate and fields through
+a gated entry; observing with no selector and no door output). The `logger` stub applies the
+same checks as ArduPilot's binding: field counts, and integral, in-range integer fields. Add a scenario for each new fix or behavior. To check a different copy of the script, pass its path:
 `run.sh path/to/F35B.lua`.
 
 ArduPilot's Lua strips `print`, `loadfile`, `dofile`, `select` and `os`, so the harness

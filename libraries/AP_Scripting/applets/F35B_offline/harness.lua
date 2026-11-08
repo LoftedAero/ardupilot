@@ -42,7 +42,7 @@ local function new_world(overrides)
       armed = true, aspd = 20.0, rc = { [8] = 2000 }, rc_valid = true, aspd_error = false,
       srv = { [41] = 1000, [35] = 1000 },
       set_mode_calls = 0, door_pwm = nil, door_lapse = 0, door_trim = 1500,
-      texts = {}, reject = {},
+      texts = {}, reject = {}, logs = {},
       servo_func = { [8] = 41, [13] = 94 },
       servo_range = { [8] = { 1000, 2000 }, [13] = { 1000, 2000 } },
       P = {
@@ -115,6 +115,36 @@ local function new_world(overrides)
       end,
       send_named_float = function() end,
    }
+   -- the same checks as ArduPilot's logger:write binding (lua_bindings.cpp): format, units and
+   -- multipliers the same length, one label and one value per field, integer fields given
+   -- integral values in range
+   local INT_RANGE = { B = { 0, 255 }, M = { 0, 255 }, H = { 0, 65535 }, h = { -32768, 32767 } }
+   logger = {
+      write = function(_, name, labels, fmt, units, mults, ...)
+         local vals = table.pack(...)
+         assert(#name <= 4, "log name longer than 4")
+         assert(#units == #fmt and #mults == #fmt, "units/multipliers not the length of the format")
+         local _, commas = labels:gsub(",", "")
+         local nlabels = commas + 1
+         assert(nlabels == #fmt, "label count differs from the format")
+         assert(vals.n == #fmt, string.format("%d values for a %d-field format", vals.n, #fmt))
+         local row = {}
+         for i = 1, #fmt do
+            local c, v = fmt:sub(i, i), vals[i]
+            assert(type(v) == "number", "field " .. i .. " is not a number")
+            local range = INT_RANGE[c]
+            if range then
+               assert(math.tointeger(v) ~= nil, string.format("field %d (%s) not integral: %s", i, c, v))
+               assert(v >= range[1] and v <= range[2], string.format("field %d (%s) out of range: %s", i, c, v))
+            else
+               assert(c == "f", "unhandled format " .. c)
+            end
+            row[i] = v
+         end
+         row.t = S.now
+         S.logs[#S.logs + 1] = row
+      end,
+   }
    vehicle = {
       get_mode = function() return S.mode end,
       get_control_mode_reason = function() return S.reason end,
@@ -183,6 +213,18 @@ local function short_deploy(label, tilt_fwd, fwd, deployed)
                 "closed, open 1.6 s after the output returns, closed by 1.8 s (estimate 1.715 s)"
       end,
    }
+end
+
+-- DOOR log rows since t_ms, as tables keyed by label
+local function door_logs(t_ms)
+   local rows = {}
+   for _, r in ipairs(S.logs) do
+      if r.t >= (t_ms or 0) then
+         rows[#rows + 1] = { t = r.t, St = r[1], Pwm = r[2], Dly = r[3], Tilt = r[4], Noz = r[5],
+                             Lift = r[6], AS = r[7], Md = r[8], Fl = r[9] }
+      end
+   end
+   return rows
 end
 
 local scenarios = {
@@ -394,6 +436,53 @@ local scenarios = {
          S.now = S.now + 1000                   -- no more script cycles
          return was_closed and door_out() == S.door_trim and S.door_trim == S.P.DOOR_PART,
                 "closed, then the output lapses to the trim (MID)"
+      end,
+   },
+   {
+      name = "DOOR log: 10 Hz, and its fields follow a gated entry",
+      run = function()
+         new_world()
+         run_until(1000)
+         S.rc[8] = 1500
+         run_until(2000)
+         local mid = door_logs(1900)          -- 1 s into the 3 s gate
+         run_until(5000)
+         local n = #door_logs(4000)           -- QLOITER, doors open
+         local last = door_logs(4900)
+         local m, l = mid[#mid], last[#last]
+         -- gate: OPENING (partial at 20 m/s), FBWA, entry pending, about 2 s to go; then still
+         -- partial in QLOITER (20 m/s is above DOOR_FULL_AS)
+         return n >= 9 and n <= 11
+            and m.St == 3 and m.Md == 5 and m.Fl & 64 ~= 0 and m.Dly > 1.8 and m.Dly < 2.2
+            and m.Pwm == S.P.DOOR_PART and m.Tilt == 1000 and m.AS == 20.0
+            and l.St == 1 and l.Md == 19 and l.Fl & 1 ~= 0 and l.Fl & 64 == 0,
+            string.format("about 10 rows per second (got %d); OPENING/FBWA/pending mid-gate, then QLOITER", n)
+      end,
+   },
+   {
+      name = "observer only: no selector, no door output, decisions still logged",
+      run = function()
+         -- DOOR_MODE_CH 0 and nothing assigned to DOOR_FUNC, on an aircraft flown with its own
+         -- mode switch: the script must never change the mode or drive an output
+         new_world({ servo_func = { [8] = 41 } })
+         S.P.DOOR_MODE_CH = 0
+         run_until(1000)
+         local closed = door_logs(500)
+         external_mode(19, REASON_RC_COMMAND, "pilot")
+         S.srv[41], S.srv[35] = 1800, 1700
+         run_until(3000)
+         local hover = door_logs(2500)
+         external_mode(5, REASON_RC_COMMAND, "pilot")
+         S.srv[41], S.srv[35] = 1000, 1000     -- MANUAL-fast stow: the estimate trails 2.8 s
+         run_until(4000)
+         local waiting = door_logs(3900)
+         run_until(7000)
+         local after = door_logs(6900)
+         local c, h, w, a = closed[#closed], hover[#hover], waiting[#waiting], after[#after]
+         return S.set_mode_calls == 0 and S.door_pwm == nil
+            and c.St == 0 and h.St == 2 and h.Lift == 1700 and h.Noz == 1800
+            and w.St ~= 0 and w.Fl & 8 ~= 0 and w.Fl & 32 == 0 and a.St == 0 and a.Fl & 32 ~= 0,
+            "no set_mode, no door output; closed, open in the hover, held for the nozzle, closed"
       end,
    },
 }

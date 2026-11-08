@@ -196,6 +196,7 @@ local noz_ms = nil                   -- millis() of the last estimate update
 local noz_waiting = false            -- outputs stowed, waiting for the nozzle estimate (for debug)
 local dbg_mode = 0                   -- snapshot of current mode for debug output
 local dbg_in_vtol = false            -- snapshot of in_vtol for debug output
+local log_flags = 0                  -- inputs behind this cycle's door decision, for the DOOR log
 
 -- verbose debug message, only when DOOR_DEBUG > 0 (kept short: MAVLink STATUSTEXT is 50 chars)
 local function dbg(fmt, ...)
@@ -485,6 +486,10 @@ local function doors_update()
    end
    door_was_vtol = in_vtol
 
+   -- DOOR log flags (see log_doors): the inputs the decision below is made from
+   log_flags = (in_vtol and 1 or 0) + (assisted and 2 or 0) + (armed and 4 or 0)
+      + (nacelles_fwd and 8 or 0) + (lift_off and 16 or 0) + (nozzle_home and 32 or 0)
+
    local pos, target = door_selected_mode()
 
    -- Edge-triggered: act ONLY when the selector position changes. Between changes the
@@ -588,6 +593,27 @@ end
 -------------------------------------------------------------------------------
 local TELEM_DECIMATE = 4             -- publish named floats every 4th cycle (~5 Hz)
 local telem_count = 0
+local LOG_DECIMATE = 2               -- write the DOOR log message every 2nd cycle (~10 Hz)
+local log_count = 0
+
+-- DOOR onboard log message, so a flight log shows what the doors did and why, including on an
+-- aircraft flown with no door output (DOOR_MODE_CH 0, nothing assigned to DOOR_FUNC). It
+-- carries the decision's inputs as well as its result, so a flight can be replayed offline
+-- with other thresholds. The named-float telemetry goes only to the GCS.
+--   St    door state (DOOR_ST: 0 closed, 1 partial, 2 open, 3 opening)
+--   Pwm   commanded door PWM          Dly   entry delay remaining (s)
+--   Tilt  watched tilt output PWM     Noz   nozzle estimate (tilt PWM, 0 = none)
+--   Lift  watched lift output PWM     AS    airspeed estimate used (m/s, -1 = none)
+--   Md    flight mode
+--   Fl    flags: 1 VTOL mode, 2 assisted, 4 armed, 8 tilt output forward, 16 lift off,
+--         32 nozzle estimate forward, 64 entry pending, 128 latched full this VTOL session
+local function log_doors(state, pwm, delay)
+   local flags = log_flags + (pending_vtol_target ~= nil and 64 or 0) + (vtol_reached_full and 128 or 0)
+   logger:write('DOOR', 'St,Pwm,Dly,Tilt,Noz,Lift,AS,Md,Fl', 'BHfHHHfMB', '-YsYYYn--', '---------',
+                state, math.floor(pwm + 0.5), delay, math.floor(door_tilt_pos + 0.5),
+                math.floor((noz_est or 0) + 0.5), math.floor(door_lift_pwm + 0.5),
+                door_aspd or -1, math.floor(dbg_mode), flags)
+end
 local DBG_HEARTBEAT_MS = 2000        -- when DOOR_DEBUG > 0, print a status line this often
 local dbg_hb_ms = uint32_t(0)
 
@@ -614,6 +640,11 @@ local function update()
       doors_watch()
    else
       local state, pwm, delay = doors_update()
+      log_count = log_count + 1
+      if log_count >= LOG_DECIMATE then
+         log_count = 0
+         log_doors(state, pwm, delay)
+      end
       telem_count = telem_count + 1
       if telem_count >= TELEM_DECIMATE then
          telem_count = 0
