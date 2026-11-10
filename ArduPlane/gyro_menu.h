@@ -33,9 +33,9 @@ private:
     enum class Handler : uint8_t {
         STATUS,         // info: armed state, mode, GPS
         FIRMWARE,       // info: firmware version
+        MENU_VERSION,   // info, hidden: this menu's layout version, for radio apps
         NO_GPS_INFO,    // info shown in place of RTL settings without a GPS
-        WING_TYPE,      // select: template to apply
-        WING_APPLY,     // command: set output channels 1-4 from the template
+        WING_TYPE,      // select: sets output channels 1-4 when written
         TRIM_COPY,      // command: copy transmitter trims into the servo trims
         ORIENT,         // select: AHRS_ORIENTATION
         ORIENT_DETECT,  // command: detect orientation (level, then nose up)
@@ -99,9 +99,6 @@ private:
     Item items[MAX_ITEMS];
     uint8_t num_items;
     bool built;
-
-    // template currently selected in the Frame menu
-    uint8_t wing_choice;
 
     // the command popup currently open on the radio
     struct {

@@ -483,7 +483,6 @@ bool PlaneGyroMenu::build()
     // the ExpressLRS script returns to the top level on Back from any
     // folder, so the folders sit at the top level rather than in one menu
     AP_CRSF_Telem::ScriptedMenu *root = &crsf->scripted_menus;
-    wing_choice = detect_wing();
 
     add(root, Handler::STATUS, 0, "Status");
 
@@ -506,10 +505,9 @@ bool PlaneGyroMenu::build()
     add(m, Handler::MODE_POS, 1, "Middle");
     add(m, Handler::MODE_POS, 2, "High");
 
-    // the wing template sits above the channels it sets
+    // the wing type sits above the channels it sets
     m = submenu(root, "4 Outputs");
     add(m, Handler::WING_TYPE, 0, "Wing type");
-    add(m, Handler::WING_APPLY, 0, "Apply template");
     add(m, Handler::TRIM_COPY, 0, "Copy stick trims");
     static const char *const output_names[NUM_OUTPUTS] = {
         "Channel 1", "Channel 2", "Channel 3", "Channel 4", "Channel 5", "Channel 6", "Channel 7", "Channel 8",
@@ -541,6 +539,8 @@ bool PlaneGyroMenu::build()
     m = submenu(root, "Tools");
     add(m, Handler::FIRMWARE, 0, "Firmware");
     add(m, Handler::RESET, 0, "Reset to defaults");
+    // last, so adding it numbered no other entry differently
+    add(m, Handler::MENU_VERSION, 0, "Menu version");
 
     GCS_SEND_TEXT(MAV_SEVERITY_INFO, "Gyro: setup menu ready (%u entries)", unsigned(num_items));
     return true;
@@ -592,13 +592,21 @@ uint8_t PlaneGyroMenu::pack(const Item &item, uint8_t *buf, uint8_t size)
     case Handler::FIRMWARE:
         pack_info(p, 0, item.name, AP::fwversion().fw_short_string);
         break;
+    case Handler::MENU_VERSION:
+        // Hidden from the ExpressLRS script. A radio app with screens built
+        // on this menu (Lofty PFD's Gyro Setup) uses them only for a version
+        // it knows; raise it when an entry it relies on changes name, kind,
+        // place or meaning.
+        pack_info(p, CRSF_HIDDEN, item.name, "2");
+        break;
     case Handler::NO_GPS_INFO:
         pack_info(p, gps_present() ? CRSF_HIDDEN : 0, item.name, "needs a GPS");
         break;
     case Handler::WING_TYPE: {
-        // the template choice is menu state, not a parameter
+        // read from channels 1-4, so a change made channel by channel shows
+        // as "Other"
         static const Choice wings[] = {{"Normal", 0}, {"Flying wing", 1}, {"V-tail", 2}};
-        pack_select(p, 0, item.name, wings, NUM_WINGS, wing_choice);
+        pack_select(p, 0, item.name, wings, NUM_WINGS, detect_wing());
         break;
     }
     case Handler::ORIENT:
@@ -642,7 +650,6 @@ uint8_t PlaneGyroMenu::pack(const Item &item, uint8_t *buf, uint8_t size)
         pack_number(p, flags, item.name, param_get(n.param), n.min, n.max, n.step, n.decimals, n.unit);
         break;
     }
-    case Handler::WING_APPLY:
     case Handler::TRIM_COPY:
     case Handler::ORIENT_DETECT:
     case Handler::CAL_LEVEL:
@@ -683,7 +690,6 @@ uint8_t PlaneGyroMenu::write(const Item &item, const uint8_t *payload, uint8_t l
     Packer p(buf, size);
 
     switch (item.handler) {
-    case Handler::WING_APPLY:
     case Handler::TRIM_COPY:
     case Handler::ORIENT_DETECT:
     case Handler::CAL_LEVEL:
@@ -747,12 +753,16 @@ uint8_t PlaneGyroMenu::write(const Item &item, const uint8_t *payload, uint8_t l
     // everything else is a selection carrying a 1 byte index
     const uint8_t idx = length >= 1 ? payload[0] : 0xFF;
     switch (item.handler) {
-    case Handler::WING_TYPE:
-        if (idx < NUM_WINGS) {
-            wing_choice = idx;
+    case Handler::WING_TYPE: {
+        // takes effect at once, as every output entry does; it reassigns
+        // four surfaces, so never in flight
+        if (idx < NUM_WINGS && !armed()) {
+            apply_wing(idx);
         }
-        p.u8(wing_choice);
+        const uint8_t now = detect_wing();
+        p.u8(now < NUM_WINGS ? now : NUM_WINGS);
         break;
+    }
     case Handler::ORIENT:
         if (idx < ARRAY_SIZE(orientation_choices)) {
             param_set("AHRS_ORIENTATION", orientation_choices[idx].value);
@@ -946,14 +956,6 @@ void PlaneGyroMenu::command_start(uint8_t index)
     }
 
     switch (item.handler) {
-    case Handler::WING_APPLY:
-        if (wing_choice >= NUM_WINGS) {
-            command_finish("Pick a wing type first");
-            return;
-        }
-        cmd.stage = Stage::CONFIRM;
-        command_prompt(CMD_CONFIRMATION_NEEDED, "Set channels 1-4 for %s?", wing_labels[wing_choice]);
-        break;
     case Handler::TRIM_COPY:
         if (plane.control_mode != &plane.mode_manual) {
             command_finish("Switch to MANUAL first");
@@ -1200,10 +1202,6 @@ void PlaneGyroMenu::command_confirm()
     switch (cmd.stage) {
     case Stage::CONFIRM:
         switch (item.handler) {
-        case Handler::WING_APPLY:
-            apply_wing(wing_choice);
-            command_finish("Channels 1-4 set for %s", wing_labels[wing_choice]);
-            break;
         case Handler::TRIM_COPY: {
             if (plane.control_mode != &plane.mode_manual || !rc().has_valid_input()) {
                 command_finish("Needs MANUAL and RC signal");
