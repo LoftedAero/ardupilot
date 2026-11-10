@@ -9,8 +9,10 @@
 ARMING_REQUIRE 1
 # Skip every optional check except RC (-65 = all bits but bit 6), and with RC_OPTIONS
 # 96 run only its throttle part: arming is refused unless the throttle is low.
+# RC_OPTIONS bit 12 (4096) adds a star to the CRSF flight mode while disarmed, which is
+# the only way a radio on plain CRSF telemetry can tell armed from disarmed.
 ARMING_SKIPCHK -65
-RC_OPTIONS 96
+RC_OPTIONS 4192
 ARMING_RUDDER 0
 RC5_OPTION 153
 INS_GYR_CAL 1
