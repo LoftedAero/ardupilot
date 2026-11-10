@@ -20,6 +20,9 @@ Ground rules (decided 2026-09-14):
   position work the stock way and doubles as a throttle cut. Optional
   pre-arm checks are skipped (ARMING_SKIPCHK -65: all but RC, with
   RC_OPTIONS 96 so only the throttle-low check runs), no rudder arming.
+  RC_OPTIONS bit 12 is also on (4192, added 2026-11-08) so radios on
+  plain CRSF telemetry can show armed or disarmed (the flight mode
+  carries a star while disarmed); Lofty PFD reads it.
   Boot gyro calibration runs when the model is still.
 - Single three-position mode switch on channel 6 (MANUAL / ACRO / FBWA),
   RTL on channel 7, gain knob on channel 8.
@@ -261,8 +264,9 @@ Design rules (user feedback 2026-10-02):
   rule that an ordered process numbers its steps.
 - ArduPilot naming throughout: MANUAL, ACRO, FBWA, AUTOTUNE, RTL.
 - Outputs use the ArduPilot model: each servo output has a function,
-  min, trim, max and reversed. Wing type is a template that sets the
-  output functions on demand, not a separate mixing layer.
+  min, trim, max and reversed. Wing type sets the output functions when
+  it is changed (a separate Apply step read as if the choice alone took
+  effect), not a separate mixing layer.
 - Borrowed from AS3X: learn the transmitter by moving sticks and
   switches; detect board orientation by holding the model level and
   then raising the nose; one gain plus a knob.
@@ -291,8 +295,7 @@ Gyro (device top level)
 │   ├─ Check mode switch    [Start]  live: "Ch6 High: FBWA" (", now RTL" if different)
 │   └─ Low / Mid / High     MANUAL / ACRO / FBWA / AUTOTUNE
 ├─ 4 Outputs ▸
-│   ├─ Wing type            Normal / Flying wing / V-tail
-│   ├─ Apply template       [Run]  confirm: "Set channels 1-4 for <wing>?"
+│   ├─ Wing type            Normal / Flying wing / V-tail: sets channels 1-4
 │   ├─ Copy stick trims     [Run]  MANUAL: outputs' positions -> SERVOn_TRIM,
 │   │                              then center TX trims; Exit undoes
 │   ├─ Check directions     [Start]  yes/no per surface, flips Reversed

@@ -16,7 +16,8 @@ Checks: every entry 1..count loads with a valid parent; selection, number
 and mode-position writes reach the parameters; calibration runs as a
 confirm -> progress -> result popup; stick learning detects a TAER radio
 and a reversed elevator; the arm switch is only assigned while it is off;
-the wing template sets output channels 1-4; commands are refused while armed.
+the wing type sets output channels 1-4; commands and the wing type are
+refused while armed.
 """
 import os
 import socket
@@ -133,6 +134,10 @@ try:
             if parent_name is None or entries.get(e["parent"], {}).get("name") == parent_name:
                 return pid
         raise KeyError(name)
+
+    version = entries.get(find("Menu version", "Tools"), {})
+    check("the menu version is hidden in Tools", version.get("hidden") and version.get("shown") == "2",
+          version)
 
     def command(pid, action):
         r = c.write_entry(pid, [action])
@@ -256,18 +261,20 @@ try:
     closed = command(find("Calibrate gyros"), CMD_CONFIRM)
     check("OK closes the result", closed is not None and closed[0] == CMD_READY, closed)
 
-    # 6. wing template
+    # 6. wing type: written, it sets channels 1-4 at once
     wing = find("Wing type")
+    check("no Apply template entry", "Apply template" not in [e.get("name") for e in entries.values()])
+    check("wing type reads Normal from the outputs", entries[wing]["shown"] == "Normal", entries[wing])
     c.write_entry(wing, [entries[wing]["options"].index("Flying wing")])
-    first, final = run_command(find("Apply template"))
-    check("template asks to confirm", first is not None and "Flying wing" in first[1], first)
+    time.sleep(0.5)
     check("flying wing sets elevons", get_param("SERVO1_FUNCTION") == 77 and get_param("SERVO2_FUNCTION") == 78,
           (get_param("SERVO1_FUNCTION"), get_param("SERVO2_FUNCTION")))
-    command(find("Apply template"), CMD_CONFIRM)
+    data = c.read_entry(wing)
+    shown = cm.parse_entry(wing, data) if data else None
+    check("wing type reads back Flying wing", shown is not None and shown.get("shown") == "Flying wing", shown)
     c.write_entry(wing, [entries[wing]["options"].index("Normal")])
-    run_command(find("Apply template"))
-    command(find("Apply template"), CMD_CONFIRM)
-    check("normal template restores outputs", get_param("SERVO1_FUNCTION") == 4 and get_param("SERVO2_FUNCTION") == 19)
+    time.sleep(0.5)
+    check("normal restores outputs", get_param("SERVO1_FUNCTION") == 4 and get_param("SERVO2_FUNCTION") == 19)
 
     # 7. stick learning on a TAER radio with a reversed elevator
     learn = find("Learn sticks")
@@ -396,6 +403,9 @@ try:
     state = command(check_mode, CMD_START)
     check("mode check works armed", state is not None and state[0] == CMD_PROGRESS and "Ch6" in state[1], state)
     command(check_mode, CMD_CANCEL)
+    c.write_entry(wing, [entries[wing]["options"].index("V-tail")])
+    time.sleep(0.5)
+    check("wing type refused while armed", get_param("SERVO2_FUNCTION") == 19, get_param("SERVO2_FUNCTION"))
     c.channels[4] = 988
     time.sleep(2)
     check("disarmed via ch5", is_armed() is False)

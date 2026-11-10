@@ -361,17 +361,18 @@ from any folder, including from a channel inside 4 Outputs.
 | 1 Calibration | Orientation, Detect orientation, Calibrate level, Calibrate gyros |
 | 2 Radio | Learn sticks; Arm switch, Mode switch, RTL switch, Autotune switch, Gain knob, each with a Learn command |
 | 3 Flight modes | Check mode switch; Low, Middle and High positions: MANUAL, ACRO, FBWA or AUTOTUNE |
-| 4 Outputs | Wing type and Apply template; Copy stick trims; Channel 1 to 8 (servo outputs), each with Function, Min, Trim, Max, Reversed |
+| 4 Outputs | Wing type; Copy stick trims; Channel 1 to 8 (servo outputs), each with Function, Min, Trim, Max, Reversed |
 | 5 Failsafe | Link loss (FBWA glide or RTL if GPS), RTL altitude |
 | 6 Tuning | Gain knob min and max, ACRO roll and pitch rates, FBWA bank and pitch limits, Autotune level |
-| Tools | Firmware version, Reset to defaults |
+| Tools | Firmware version, Reset to defaults; a hidden Menu version |
 
 Commands (the entries that start something) open a popup on the radio.
 They all need the arm switch off and answer "Disarm first" otherwise.
 Each ends with a result the pilot dismisses with OK; Exit cancels.
 
-- **Apply template** sets the functions of output channels 1 to 4 for the wing
-  type chosen above it:
+- **Wing type** (under 4 Outputs, a setting rather than a command) sets the
+  functions of output channels 1 to 4 as soon as it is changed, as every
+  output setting takes effect at once:
 
   | Wing type | Channel 1 | Channel 2 | Channel 3 | Channel 4 |
   |---|---|---|---|---|
@@ -381,7 +382,9 @@ Each ends with a result the pilot dismisses with OK; Exit cancels.
 
   Min, trim, max and reversing are left alone. Check every surface
   direction afterwards and flip the channel's Reversed entry where
-  needed; the servo moves as soon as the value changes.
+  needed; the servo moves as soon as the value changes. It reads its value
+  from channels 1 to 4, so after a channel's function is changed by hand
+  it shows "Other". It is refused while armed: the value stays as it was.
 - **Copy stick trims** moves the transmitter trims into the servo trims.
   Disarmed, in MANUAL, with the trims set and the sticks released:
   1. `Trims set? Hands off sticks`: OK. Every surface output's current
@@ -444,6 +447,12 @@ Each ends with a result the pilot dismisses with OK; Exit cancels.
 Entries that need a GPS (RTL switch, RTL altitude) are hidden when the
 menu is opened without one, and a "RTL: needs a GPS" line is shown
 instead. The firmware refuses RTL without a home position in any case.
+
+The hidden Menu version entry under Tools tells a radio app with its own
+screens for this menu (Lofty PFD's Gyro Setup) which layout it is talking
+to. It is raised whenever an entry such an app relies on changes name,
+kind, place or meaning. Version 2: Wing type applies itself and Apply
+template is gone.
 
 ---
 
@@ -534,7 +543,7 @@ Standard ArduPlane parameters set by the defaults:
 |---|---|---|
 | ARMING_REQUIRE | 1 | Arm switch required; throttle at minimum PWM when disarmed |
 | ARMING_SKIPCHK | -65 | Skip all optional pre-arm checks except RC |
-| RC_OPTIONS | 96 | RC check runs only its throttle-low part (bit 5 on, bit 6 skips roll/pitch/yaw) |
+| RC_OPTIONS | 4192 | RC check runs only its throttle-low part (bit 5 on, bit 6 skips roll/pitch/yaw); bit 12 marks a disarmed flight mode with a star in CRSF telemetry |
 | ARMING_RUDDER | 0 | No rudder-stick arming |
 | RC5_OPTION | 153 | Channel 5 arms and disarms |
 | FLTMODE_CH | 6 | Mode switch channel |
