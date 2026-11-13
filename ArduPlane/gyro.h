@@ -56,6 +56,10 @@ public:
 #if AP_PLANE_GYRO_MENU_ENABLED
     // scheduler task, 50Hz: transmitter setup menu over CRSF
     void menu_update() { menu.update(); }
+
+    // true while a menu command that must not be interrupted by arming
+    // is open on the radio (calibration, learning, trim copy, reset)
+    bool menu_busy() const { return menu.busy(); }
 #endif
 
 private:

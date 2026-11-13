@@ -28,6 +28,11 @@ public:
     // then answers the radio's read and write requests
     void update();
 
+    // true while a command that arming must not interrupt is open on the
+    // radio, or a restart is pending. The mode switch check is not one:
+    // it changes nothing.
+    bool busy() const;
+
 private:
     // what an entry does when the radio reads or writes it
     enum class Handler : uint8_t {
@@ -105,6 +110,7 @@ private:
         int16_t item = -1;          // index into items, -1 when idle
         Stage stage;
         uint32_t start_ms;
+        uint32_t request_ms;        // when the radio last asked about the command
         char info[48];              // text shown in the popup
         uint8_t status;             // CRSF command status to report
         // stick learning
@@ -118,10 +124,10 @@ private:
         // switch learning
         uint8_t aux_ch;
         uint16_t knob_low;          // gain knob value at its low gain end
-        int8_t saved_arm_ch;        // arm switch channel cleared while learning
         // orientation detection
         Vector3f level_accel;
-        // trim copy: servo trims before the copy, 0 where not changed
+        // trim copy: servo trims before the copy, 0 where not changed. The
+        // copied trims are in use but not stored until the last OK
         uint16_t saved_trim[NUM_OUTPUTS];
     } cmd;
 
@@ -154,9 +160,10 @@ private:
     void learn_sticks_step();
     void review_prompt();
     void mode_watch_prompt();
-    void restore_arm_switch();
     // undo a trim copy that was not confirmed
     void restore_trims();
+    // end a command the radio no longer asks about
+    void command_watchdog();
     // first stick (roll, pitch, yaw) further from centre than percent, or nullptr
     static const RC_Channel *stick_off_centre(int16_t percent);
 
@@ -164,7 +171,8 @@ private:
     static float param_get(const char *name);
     static void param_set(const char *name, float value);
     static float output_param(uint8_t output, const char *field);
-    static void set_output_param(uint8_t output, const char *field, float value);
+    // save false changes the value in use but not the stored one
+    static void set_output_param(uint8_t output, const char *field, float value, bool save = true);
 
     // switch functions
     static uint8_t aux_channel(uint8_t func);

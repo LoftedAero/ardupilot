@@ -50,6 +50,11 @@ constexpr int16_t TRIM_CENTRED_PCT = 3;
 // its name and popup text together must stay within this
 constexpr uint8_t CMD_TEXT_MAX = 50;
 constexpr uint32_t LEARN_TIMEOUT_MS = 30000;
+// a command is abandoned when the radio stops asking about it: it polls
+// a running command several times a second, and is silent while the
+// pilot reads a confirmation
+constexpr uint32_t ABANDON_PROGRESS_MS = 10000;
+constexpr uint32_t ABANDON_CONFIRM_MS = 120000;
 
 struct Choice {
     const char *label;
@@ -294,11 +299,15 @@ float PlaneGyroMenu::output_param(uint8_t output, const char *field)
     return param_get(name);
 }
 
-void PlaneGyroMenu::set_output_param(uint8_t output, const char *field, float value)
+void PlaneGyroMenu::set_output_param(uint8_t output, const char *field, float value, bool save)
 {
     char name[17];
     hal.util->snprintf(name, sizeof(name), "SERVO%u_%s", unsigned(output), field);
-    param_set(name, value);
+    if (save) {
+        param_set(name, value);
+    } else {
+        AP_Param::set_by_name(name, value);
+    }
 }
 
 bool PlaneGyroMenu::gps_present()
@@ -707,13 +716,22 @@ uint8_t PlaneGyroMenu::write(const Item &item, const uint8_t *payload, uint8_t l
         break;
     }
 
+    // in flight only the tuning numbers can change: a wrong output or
+    // radio setting takes effect at once. Everything else answers with
+    // its value unchanged.
+    const bool tuning = item.handler == Handler::NUMBER && item.arg != NUM_RTL_ALT;
+    const bool locked = armed() && !tuning;
+    if (locked) {
+        GCS_SEND_TEXT(MAV_SEVERITY_WARNING, "Gyro: disarm to change %s", item.name);
+    }
+
     // number entries carry a 4 byte value
     switch (item.handler) {
     case Handler::OUT_MIN:
     case Handler::OUT_TRIM:
     case Handler::OUT_MAX:
     case Handler::NUMBER: {
-        if (length >= 4) {
+        if (length >= 4 && !locked) {
             const int32_t raw = payload_i32(payload);
             if (item.handler == Handler::NUMBER) {
                 const NumberSpec &n = number_specs[item.arg];
@@ -751,12 +769,11 @@ uint8_t PlaneGyroMenu::write(const Item &item, const uint8_t *payload, uint8_t l
     }
 
     // everything else is a selection carrying a 1 byte index
-    const uint8_t idx = length >= 1 ? payload[0] : 0xFF;
+    const uint8_t idx = (length >= 1 && !locked) ? payload[0] : 0xFF;
     switch (item.handler) {
     case Handler::WING_TYPE: {
-        // takes effect at once, as every output entry does; it reassigns
-        // four surfaces, so never in flight
-        if (idx < NUM_WINGS && !armed()) {
+        // takes effect at once, as every output entry does
+        if (idx < NUM_WINGS) {
             apply_wing(idx);
         }
         const uint8_t now = detect_wing();
@@ -862,6 +879,7 @@ void PlaneGyroMenu::command(uint8_t index, uint8_t action)
         // a late poll or answer for a command that is no longer open
         return;
     }
+    cmd.request_ms = AP_HAL::millis();
     switch (action) {
     case CMD_CONFIRM:
         command_confirm();
@@ -877,26 +895,13 @@ void PlaneGyroMenu::command(uint8_t index, uint8_t action)
     }
 }
 
-void PlaneGyroMenu::restore_arm_switch()
-{
-    // put back an arm switch that was cleared while learning; only once
-    // that switch is off, otherwise assigning it would arm the vehicle
-    if (cmd.saved_arm_ch > 0 && aux_channel(AUX_ARM) == 0) {
-        if (switch_low(uint8_t(cmd.saved_arm_ch))) {
-            set_aux_channel(AUX_ARM, uint8_t(cmd.saved_arm_ch));
-            cmd.saved_arm_ch = 0;
-        }
-    } else {
-        cmd.saved_arm_ch = 0;
-    }
-}
-
 void PlaneGyroMenu::restore_trims()
 {
     bool restored = false;
     for (uint8_t n = 1; n <= NUM_OUTPUTS; n++) {
         if (cmd.saved_trim[n - 1] != 0) {
-            set_output_param(n, "TRIM", cmd.saved_trim[n - 1]);
+            // the copy was never stored, so only the value in use goes back
+            set_output_param(n, "TRIM", cmd.saved_trim[n - 1], false);
             cmd.saved_trim[n - 1] = 0;
             restored = true;
         }
@@ -921,7 +926,6 @@ const RC_Channel *PlaneGyroMenu::stick_off_centre(int16_t percent)
 
 void PlaneGyroMenu::command_cancel()
 {
-    restore_arm_switch();
     restore_trims();
     command_close();
 }
@@ -930,14 +934,12 @@ void PlaneGyroMenu::command_start(uint8_t index)
 {
     // abandon whatever was open before
     if (cmd.item >= 0 && cmd.stage != Stage::DONE) {
-        restore_arm_switch();
         restore_trims();
     }
-    const int8_t pending_arm = cmd.saved_arm_ch;
     cmd = {};
-    cmd.saved_arm_ch = pending_arm;
     cmd.item = index;
     cmd.start_ms = AP_HAL::millis();
+    cmd.request_ms = cmd.start_ms;
 
     const Item &item = items[index];
     if (item.handler == Handler::MODE_CHECK) {
@@ -1002,14 +1004,8 @@ void PlaneGyroMenu::command_start(uint8_t index)
             cmd.stage = Stage::STICK_CENTER;
             command_prompt(CMD_CONFIRMATION_NEEDED, "Center sticks & trims, throttle low");
         } else {
-            if (item.arg == AUX_ARM) {
-                // flipping the arm switch while it is assigned would arm
-                const uint8_t ch = aux_channel(AUX_ARM);
-                if (ch != 0) {
-                    cmd.saved_arm_ch = int8_t(ch);
-                    set_aux_channel(AUX_ARM, 0);
-                }
-            }
+            // flipping an assigned arm switch here does not arm: arming
+            // is refused while a command is open (busy())
             cmd.stage = Stage::AUX_MOVE;
             command_prompt(CMD_PROGRESS, "%s", aux_specs[item.arg].prompt);
         }
@@ -1193,7 +1189,6 @@ void PlaneGyroMenu::command_confirm()
         return;
     }
     if (armed()) {
-        restore_arm_switch();
         restore_trims();
         command_finish("Disarm first");
         return;
@@ -1221,8 +1216,10 @@ void PlaneGyroMenu::command_confirm()
                 if (out == nullptr || !is_surface(out->get_function())) {
                     continue;
                 }
+                // in use from now, stored at the last OK: a copy that is
+                // abandoned half way is gone after a restart
                 cmd.saved_trim[n - 1] = uint16_t(output_param(n, "TRIM"));
-                set_output_param(n, "TRIM", out->get_output_pwm());
+                set_output_param(n, "TRIM", out->get_output_pwm(), false);
                 copied++;
             }
             if (copied == 0) {
@@ -1290,9 +1287,12 @@ void PlaneGyroMenu::command_confirm()
             break;
         }
         uint8_t copied = 0;
-        for (uint16_t &t : cmd.saved_trim) {
-            copied += t != 0 ? 1 : 0;
-            t = 0;
+        for (uint8_t n = 1; n <= NUM_OUTPUTS; n++) {
+            if (cmd.saved_trim[n - 1] != 0) {
+                set_output_param(n, "TRIM", output_param(n, "TRIM"));
+                cmd.saved_trim[n - 1] = 0;
+                copied++;
+            }
         }
         command_finish("Trims copied to %u outputs", unsigned(copied));
         break;
@@ -1362,7 +1362,6 @@ void PlaneGyroMenu::command_confirm()
             break;
         }
         set_aux_channel(item.arg, cmd.aux_ch);
-        cmd.saved_arm_ch = 0;
         command_finish("%s: Ch%u", aux_specs[item.arg].label, unsigned(cmd.aux_ch));
         break;
 
@@ -1405,7 +1404,6 @@ void PlaneGyroMenu::command_confirm()
 void PlaneGyroMenu::command_poll()
 {
     const Item &item = items[cmd.item];
-    const uint32_t now = AP_HAL::millis();
 
     switch (cmd.stage) {
     case Stage::CAL_RUNNING: {
@@ -1423,11 +1421,6 @@ void PlaneGyroMenu::command_poll()
         break;
 
     case Stage::AUX_MOVE: {
-        if (now - cmd.start_ms > LEARN_TIMEOUT_MS) {
-            restore_arm_switch();
-            command_finish("Timed out");
-            break;
-        }
         int16_t best_delta = 0;
         uint8_t best_ch = 0;
         for (uint8_t ch = 5; ch <= 16; ch++) {
@@ -1442,7 +1435,6 @@ void PlaneGyroMenu::command_poll()
         }
         const int8_t owner = channel_owner(best_ch, item.arg);
         if (owner >= 0) {
-            restore_arm_switch();
             command_finish("Ch%u is the %s", unsigned(best_ch), aux_specs[owner].label);
             break;
         }
@@ -1503,6 +1495,42 @@ void PlaneGyroMenu::process_requests()
     }
 }
 
+bool PlaneGyroMenu::busy() const
+{
+    if (reboot_at_ms != 0) {
+        return true;
+    }
+    return cmd.item >= 0 && cmd.stage != Stage::NONE && cmd.stage != Stage::DONE &&
+           cmd.stage != Stage::MODE_WATCH;
+}
+
+/*
+  a command stays open only while the radio asks about it. When the
+  radio script is closed or the link drops in the middle of one, undo
+  what was not confirmed and let the model arm again.
+ */
+void PlaneGyroMenu::command_watchdog()
+{
+    if (cmd.item < 0 || cmd.stage == Stage::NONE || cmd.stage == Stage::DONE) {
+        return;
+    }
+    const uint32_t now = AP_HAL::millis();
+    if (cmd.stage == Stage::CAL_RUNNING && plane.g2.gyro.calibration_state() > 0) {
+        // the calibration blocks the main loop, and with it our answers
+        cmd.request_ms = now;
+        return;
+    }
+    if (cmd.stage == Stage::AUX_MOVE && now - cmd.start_ms > LEARN_TIMEOUT_MS) {
+        command_finish("Timed out");
+        return;
+    }
+    const uint32_t limit = cmd.status == CMD_PROGRESS ? ABANDON_PROGRESS_MS : ABANDON_CONFIRM_MS;
+    if (now - cmd.request_ms > limit) {
+        restore_trims();
+        command_finish("Timed out");
+    }
+}
+
 void PlaneGyroMenu::update()
 {
     if (!built) {
@@ -1528,12 +1556,8 @@ void PlaneGyroMenu::update()
         learn_sticks_step();
     }
 
-    // finish restoring an arm switch once it has been turned off
-    if (cmd.saved_arm_ch > 0 && (cmd.stage == Stage::DONE || cmd.item < 0)) {
-        restore_arm_switch();
-    }
-
     process_requests();
+    command_watchdog();
 }
 
 #endif  // AP_PLANE_GYRO_MENU_ENABLED
