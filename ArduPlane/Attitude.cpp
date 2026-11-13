@@ -710,6 +710,14 @@ void Plane::apply_load_factor_roll_limits(void)
     }
 #endif
 
+    float aspeed;
+    if (!ahrs.airspeed_EAS(aspeed)) {
+        // no airspeed estimate (no airspeed sensor and no GPS):
+        // smoothed_airspeed is not updated, and would read as below
+        // stall speed and limit roll to 25 degrees for the whole flight
+        return;
+    }
+
     float stall_airspeed_1g = is_positive(aparm.airspeed_stall)
                                   ? aparm.airspeed_stall
                                   : aparm.airspeed_min;
