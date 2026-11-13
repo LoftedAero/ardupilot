@@ -871,13 +871,25 @@ AP_AHRS_DCM::drift_correction(float deltat)
         }
 
         float airspeed_TAS = _last_airspeed_TAS;
+        bool have_airspeed_sensor = false;
+        bool using_assumed_airspeed = false;
 
 #if AP_AIRSPEED_ENABLED
         const auto &airspeed = AP::airspeed();
         if (airspeed.use() && airspeed.healthy()) {
             airspeed_TAS = airspeed.get_airspeed() * get_EAS2TAS();
+            have_airspeed_sensor = true;
         }
 #endif  // AP_AIRSPEED_ENABLED
+        if (!have_airspeed_sensor && !is_positive(airspeed_TAS)) {
+            // no sensor and no earlier GPS estimate: use the speed
+            // the vehicle assumes it flies at (0 when it gives none).
+            // With no speed there is no centripetal correction, and
+            // in a turn the attitude follows the accelerometers to
+            // a false level
+            airspeed_TAS = AP::ahrs().get_assumed_airspeed_EAS() * get_EAS2TAS();
+            using_assumed_airspeed = is_positive(airspeed_TAS);
+        }
 
         // use airspeed to estimate our ground velocity in
         // earth frame by subtracting the wind
@@ -885,6 +897,15 @@ AP_AHRS_DCM::drift_correction(float deltat)
 
         // add in wind estimate
         velocity += _wind;
+
+        // a change of the assumed speed is a change of the guess, not
+        // an acceleration: only the change of direction is corrected
+        if (using_assumed_airspeed && is_positive(_last_assumed_airspeed_TAS)) {
+            _last_velocity *= airspeed_TAS / _last_assumed_airspeed_TAS;
+        } else if (using_assumed_airspeed || is_positive(_last_assumed_airspeed_TAS)) {
+            _last_velocity = velocity;
+        }
+        _last_assumed_airspeed_TAS = using_assumed_airspeed ? airspeed_TAS : 0.0f;
 
         last_correction_time = AP_HAL::millis();
         _have_gps_lock = false;
@@ -901,6 +922,7 @@ AP_AHRS_DCM::drift_correction(float deltat)
             _last_velocity = velocity;
         }
         _have_gps_lock = true;
+        _last_assumed_airspeed_TAS = 0;
 
         // keep last airspeed estimate for dead-reckoning purposes
         Vector3f airspeed = velocity - _wind;

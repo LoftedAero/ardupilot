@@ -737,6 +737,20 @@ public:
         return fly_forward;
     }
 
+    /*
+     * airspeed (EAS, m/s) the vehicle assumes while it flies with no
+     * GPS velocity, airspeed sensor or earlier estimate. DCM uses it
+     * for its centripetal correction, which otherwise has no speed
+     * to work with and lets the attitude drift in turns. 0 for none.
+     * It is not an airspeed estimate: airspeed_EAS() is unchanged.
+     */
+    void set_assumed_airspeed_EAS(float airspeed) {
+        assumed_airspeed_EAS = airspeed;
+    }
+    float get_assumed_airspeed_EAS(void) const {
+        return assumed_airspeed_EAS;
+    }
+
     /* we modify our behaviour based on what sort of vehicle the
      * vehicle code tells us we are.  This information is also pulled
      * from AP_AHRS by other libraries
@@ -911,6 +925,9 @@ private:
      * use to provide additional and/or improved estimates.
      */
     bool fly_forward; // true if we can assume the vehicle will be flying forward on its X axis
+
+    // see set_assumed_airspeed_EAS()
+    float assumed_airspeed_EAS;
 
     // poke AP_Notify based on values from status
     void update_notify_from_filter_status(const nav_filter_status &status);

@@ -225,6 +225,10 @@ private:
     // whether we have a position estimate
     bool _have_position;
 
+    // the assumed airspeed used in the last drift correction, 0 when
+    // it was not used (see AP_AHRS::set_assumed_airspeed_EAS)
+    float _last_assumed_airspeed_TAS;
+
     uint32_t _last_consistent_heading;
 
     // last time AHRS failed in milliseconds
