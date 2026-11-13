@@ -12,6 +12,8 @@
      which otherwise log continuously from boot
    - a calibration request parameter (GYRO_CAL) so gyro and level
      calibration run on the main thread when requested from a menu
+   - an assumed airspeed for the attitude estimate's turn correction
+     when the model flies with no GPS and no airspeed sensor
    - the transmitter setup menu over CRSF (gyro_menu.cpp)
 
   Everything is off by default; stock ArduPlane behaviour is unchanged
@@ -62,11 +64,18 @@ private:
     AP_Float gain_max;
     AP_Int8 log_thr;
     AP_Int8 cal_request;
+    AP_Int8 turn_corr;
 
     float gain_scale = 1.0f;
     bool log_allowed = false;   // never let the logger see "armed" before the first update()
     uint32_t last_thr_high_ms;
     bool cal_request_cleared;
+
+    // assumed airspeed: the model counts as airborne from a second of
+    // armed throttle until it is disarmed and still
+    bool airborne;
+    uint32_t thr_airborne_ms;
+    uint32_t still_ms;
 
 #if AP_PLANE_GYRO_MENU_ENABLED
     PlaneGyroMenu menu;
@@ -75,6 +84,7 @@ private:
     void update_gain_scale();
     void update_logging_gate(uint32_t now_ms);
     void update_calibration();
+    void update_assumed_airspeed(uint32_t now_ms);
     void write_log();
 };
 

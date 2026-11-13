@@ -45,6 +45,13 @@ const AP_Param::GroupInfo PlaneGyro::var_info[] = {
     // @User: Advanced
     AP_GROUPINFO("CAL", 6, PlaneGyro, cal_request, 0),
 
+    // @Param: TURN_CORR
+    // @DisplayName: Gyro turn correction without GPS
+    // @Description: Keeps the attitude estimate correct in turns when there is no GPS and no airspeed sensor. Without a speed the estimate cannot correct for the acceleration of a turn, and in a held FBWA turn the real bank and dive angles grow while the estimate reads steady. When enabled, an assumed airspeed is used for that correction: SCALING_SPEED at 45% throttle, lower at low throttle and higher at high throttle, the same model that scales the gains by throttle. Set SCALING_SPEED to the model's cruise speed. The assumed airspeed is used from one second of armed throttle above 30% until the model is disarmed and still, and never when a GPS or airspeed sensor gives a speed.
+    // @Values: 0:Disabled,1:Enabled
+    // @User: Standard
+    AP_GROUPINFO("TURN_CORR", 7, PlaneGyro, turn_corr, 0),
+
     AP_GROUPEND
 };
 
@@ -59,6 +66,7 @@ void PlaneGyro::update()
     update_gain_scale();
     update_logging_gate(now_ms);
     update_calibration();
+    update_assumed_airspeed(now_ms);
 
     write_log();
 }
@@ -155,6 +163,48 @@ void PlaneGyro::update_calibration()
     cal_request.set(ok ? 0 : -1);
 }
 
+/*
+  give the attitude estimate an assumed airspeed while the model flies
+  with no GPS and no airspeed sensor. DCM uses it only for its
+  centripetal correction and only when it has no other speed.
+ */
+void PlaneGyro::update_assumed_airspeed(uint32_t now_ms)
+{
+    // throttle that counts as a takeoff or a launch, and for how long
+    const float airborne_throttle_pct = 30;
+    const uint32_t airborne_throttle_ms = 1000;
+    // a disarmed model that is still this long has landed
+    const uint32_t landed_still_ms = 3000;
+
+    const bool armed = hal.util->get_soft_armed();
+    if (armed && SRV_Channels::get_output_scaled(SRV_Channel::k_throttle) >= airborne_throttle_pct) {
+        if (thr_airborne_ms == 0) {
+            thr_airborne_ms = now_ms;
+        } else if (now_ms - thr_airborne_ms >= airborne_throttle_ms) {
+            airborne = true;
+        }
+    } else {
+        thr_airborne_ms = 0;
+    }
+    // a disarm in flight is a throttle cut: the model still flies
+    if (!armed && AP::ins().is_still()) {
+        if (still_ms == 0) {
+            still_ms = now_ms;
+        } else if (now_ms - still_ms >= landed_still_ms) {
+            airborne = false;
+        }
+    } else {
+        still_ms = 0;
+    }
+
+    float airspeed = 0;
+    if (turn_corr.get() > 0 && airborne) {
+        // the speed the throttle based gain scaling stands for
+        airspeed = plane.g.scaling_speed / MAX(plane.get_speed_scaler(), 0.1f);
+    }
+    plane.ahrs.set_assumed_airspeed_EAS(airspeed);
+}
+
 void PlaneGyro::write_log()
 {
 #if HAL_LOGGING_ENABLED
@@ -163,11 +213,13 @@ void PlaneGyro::write_log()
     // @Field: TimeUS: Time since system startup
     // @Field: Gain: master gain scale applied to the rate controllers
     // @Field: LogOK: logging gate state
-    AP::logger().WriteStreaming("GYRO", "TimeUS,Gain,LogOK",
-                                "s--", "F--", "QfB",
+    // @Field: ASpd: airspeed assumed for the attitude estimate's turn correction, 0 when none
+    AP::logger().WriteStreaming("GYRO", "TimeUS,Gain,LogOK,ASpd",
+                                "s--n", "F--0", "QfBf",
                                 AP_HAL::micros64(),
                                 gain_scale,
-                                (uint8_t)log_allowed);
+                                (uint8_t)log_allowed,
+                                plane.ahrs.get_assumed_airspeed_EAS());
 #endif
 }
 
