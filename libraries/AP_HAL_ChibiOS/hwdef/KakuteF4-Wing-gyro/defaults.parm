@@ -77,6 +77,10 @@ GYRO_GAIN_CH 8
 GYRO_GAIN_MIN 0
 GYRO_GAIN_MAX 1.5
 
+# --- Turns without a GPS: assumed airspeed for the attitude estimate's turn correction.
+# Set SCALING_SPEED to the model's cruise speed.
+GYRO_TURN_CORR 1
+
 # --- Trims: set servo trims in the menu (4 Outputs, Channel N, Trim); auto-trim in FBWA with a GPS ---
 SERVO_AUTO_TRIM 1
 STICK_MIXING 0
