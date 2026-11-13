@@ -1528,16 +1528,21 @@ bool AP_CRSF_Telem::calc_scripted_parameter()
             idx += spw.payload.payload_length;
         } else { // READ type
             const uint8_t CHUNK_SIZE = 55;  // This wastes a byte on chunks > 0 but makes the maths easier
-            const uint8_t chunks = ((spw.param->length) / CHUNK_SIZE) + 1;  // includes the extra byte for the parent folder id
-            _telem.ext.param_entry.header.chunks_left = (chunks - 1) - spw.param_chunk;
+            // each chunk carries the data from its offset, up to CHUNK_SIZE
+            // bytes. The parent folder id of the first chunk is not part of
+            // the data: counting it made an entry one byte short of a chunk
+            // (54 or 109 bytes) go out with no data, and every other entry
+            // with one byte from past its end
+            const uint16_t offset = MIN(uint16_t(spw.param_chunk) * CHUNK_SIZE, uint16_t(spw.param->length));
+            const uint16_t remaining = spw.param->length - offset;
+            const uint8_t chunk_len = MIN(remaining, uint16_t(CHUNK_SIZE));
+            _telem.ext.param_entry.header.chunks_left = (remaining - chunk_len + CHUNK_SIZE - 1) / CHUNK_SIZE;
 
             if (spw.param_chunk == 0) {
                 _telem.ext.param_entry.payload[idx++] = spw.param->parent_id; // parent folder only in first chunk
             }
 
-            const uint8_t chunk_len = _telem.ext.param_entry.header.chunks_left > 0 ? CHUNK_SIZE : (spw.param->length + 1) % CHUNK_SIZE;
-            memcpy((uint8_t*)&_telem.ext.param_entry.payload[idx],
-                    &spw.param->data[spw.param_chunk * CHUNK_SIZE], chunk_len);
+            memcpy((uint8_t*)&_telem.ext.param_entry.payload[idx], &spw.param->data[offset], chunk_len);
             idx += chunk_len;
         }
         _telem_size = sizeof(AP_CRSF_Telem::ParameterSettingsEntryHeader) + idx;
