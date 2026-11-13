@@ -117,13 +117,14 @@ const AP_Scheduler::Task Plane::scheduler_tasks[] = {
 #if HAL_LOGGING_ENABLED
     SCHED_TASK(Log_Write_FullRate,        400,    300, 117),
     SCHED_TASK(update_logging10,        10,    300, 120),
-#if AP_PLANE_GYRO_ENABLED
-    SCHED_TASK_CLASS(PlaneGyro, &plane.g2.gyro, update, 10, 100, 121),
-#if AP_PLANE_GYRO_MENU_ENABLED
-    SCHED_TASK_CLASS(PlaneGyro, &plane.g2.gyro, menu_update, 50, 150, 121),
-#endif
-#endif
     SCHED_TASK(update_logging25,        25,    300, 123),
+#endif
+#if AP_PLANE_GYRO_ENABLED
+    // not part of logging: a board with no log storage still needs these
+    SCHED_TASK_CLASS(PlaneGyro, &plane.g2.gyro, update, 10, 100, 124),
+#if AP_PLANE_GYRO_MENU_ENABLED
+    SCHED_TASK_CLASS(PlaneGyro, &plane.g2.gyro, menu_update, 50, 150, 125),
+#endif
 #endif
 #if HAL_SOARING_ENABLED
     SCHED_TASK(update_soaring,         50,    400, 126),
