@@ -16,8 +16,9 @@ Checks: every entry 1..count loads with a valid parent; selection, number
 and mode-position writes reach the parameters; calibration runs as a
 confirm -> progress -> result popup; stick learning detects a TAER radio
 and a reversed elevator; the arm switch is only assigned while it is off;
-the wing type sets output channels 1-4; commands and the wing type are
-refused while armed.
+the wing type sets output channels 1-4; an open command refuses arming
+and ends by itself when the radio stops asking; commands and every write
+but the tuning numbers are refused while armed.
 """
 import os
 import socket
@@ -364,6 +365,12 @@ try:
     state = command(learn_knob, CMD_CONFIRM)
     knob = [get_param(n) for n in ("GYRO_GAIN_CH", "RC10_MIN", "RC10_TRIM", "RC10_MAX", "RC10_REVERSED")]
     check("knob learned reversed", state is not None and state[1] == "Gain knob: Ch10 988-2011, reversed", state)
+    # this result makes the entry exactly 54 bytes long: one byte short of a
+    # chunk, the length the stock chunk maths sent as an entry with no data
+    raw = c.read_entry(learn_knob)
+    shown = cm.parse_entry(learn_knob, raw) if raw is not None and len(raw) > 2 else None
+    check("a 54 byte entry reads complete", raw is not None and len(raw) == 55 and shown is not None
+          and shown["info"] == "Gain knob: Ch10 988-2011, reversed", None if raw is None else len(raw))
     check("knob range and direction saved", knob[0] == 10 and abs(knob[1] - 988) <= 4 and abs(knob[2] - 1500) <= 4
           and abs(knob[3] - 2012) <= 4 and knob[4] == 1, knob)
     command(learn_knob, CMD_CONFIRM)
@@ -372,8 +379,25 @@ try:
     set_param("RC10_REVERSED", 0)
     time.sleep(1)
 
-    # 9. arm switch learning: only assigned once the switch is off
+    # 9. arm switch learning: the assigned switch stays assigned and does not
+    # arm while the command is open; a command the radio stops polling ends
     learn_arm = find("Learn arm switch")
+    command(learn_arm, CMD_START)
+    c.channels[4] = 2000                                  # the arm switch itself
+    time.sleep(2)
+    check("no arming while a command is open", is_armed() is False and get_param("RC5_OPTION") == 153,
+          get_param("RC5_OPTION"))
+    c.channels[4] = 988
+    time.sleep(1)
+    state = command(learn_arm, CMD_CANCEL)
+    check("Exit closes arm learning", state is not None and state[0] == CMD_READY, state)
+    command(learn_arm, CMD_START)
+    time.sleep(12)                                        # the radio went away: no polls
+    state = command(learn_arm, CMD_POLL)
+    check("an abandoned command times out", state is not None and state[1] == "Timed out", state)
+    command(learn_arm, CMD_CONFIRM)
+
+    # only assigned once the switch is off
     state = command(learn_arm, CMD_START)
     check("arm learning prompts", state is not None and "arm switch" in state[1], state)
     c.channels[8] = 2000                                  # flip ch9 high
@@ -406,6 +430,23 @@ try:
     c.write_entry(wing, [entries[wing]["options"].index("V-tail")])
     time.sleep(0.5)
     check("wing type refused while armed", get_param("SERVO2_FUNCTION") == 19, get_param("SERVO2_FUNCTION"))
+    out1_rev = find("Reversed", "Channel 1")
+    rev0 = get_param("SERVO1_REVERSED")
+    c.write_entry(out1_rev, [1 - int(rev0)])
+    time.sleep(0.5)
+    check("output write refused while armed", get_param("SERVO1_REVERSED") == rev0, get_param("SERVO1_REVERSED"))
+    out1_trim = find("Trim", "Channel 1")
+    trim0 = get_param("SERVO1_TRIM")
+    c.write_entry(out1_trim, list(struct.pack(">i", int(trim0) + 20)))
+    time.sleep(0.5)
+    check("output trim refused while armed", get_param("SERVO1_TRIM") == trim0, get_param("SERVO1_TRIM"))
+    acro_roll = find("ACRO roll rate", "6 Tuning")
+    rate0 = get_param("ACRO_ROLL_RATE")
+    c.write_entry(acro_roll, list(struct.pack(">i", int(rate0) + 10)))
+    time.sleep(0.5)
+    check("tuning number accepted while armed", get_param("ACRO_ROLL_RATE") == rate0 + 10,
+          get_param("ACRO_ROLL_RATE"))
+    c.write_entry(acro_roll, list(struct.pack(">i", int(rate0))))
     c.channels[4] = 988
     time.sleep(2)
     check("disarmed via ch5", is_armed() is False)

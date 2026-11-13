@@ -216,6 +216,9 @@ try:
     pump(3)
     rc[7] = 1500
     pump(2)
+    # E2: turned down before the link is lost: the failsafe must keep this gain
+    rc[7] = 1250
+    pump(2)
 
     # C. RC failsafe in ACRO with no home: short -> FBWA, long -> RTL refused -> FBWA
     texts.clear()
@@ -272,17 +275,30 @@ if not logs:
 else:
     from pymavlink import DFReader
     gains = []
+    # between the failsafe messages: when the link returns the simulator's
+    # own channel values are read for a moment before the test's are
+    failsafe_gains = []
+    in_failsafe = False
     d = DFReader.DFReader_binary(logs[-1])
     while True:
         msg = d.recv_msg()
         if msg is None:
             break
-        if msg.get_type() == "GYRO":
+        if msg.get_type() == "MSG":
+            if "Throttle failsafe on" in msg.Message:
+                in_failsafe = True
+            elif "Throttle failsafe off" in msg.Message:
+                in_failsafe = False
+        elif msg.get_type() == "GYRO":
             gains.append(round(msg.Gain, 2))
+            if in_failsafe:
+                failsafe_gains.append(round(msg.Gain, 2))
     check("E: GYRO messages logged", len(gains) > 0, f"n={len(gains)}")
     check("E: gain reached 1.5 at knob high", 1.5 in gains, f"max={max(gains) if gains else None}")
     check("E: gain reached 0.0 at knob low", 0.0 in gains, f"min={min(gains) if gains else None}")
     check("E: gain 1.0 at knob centre", 1.0 in gains)
+    check("E2: failsafe keeps the last knob gain", len(failsafe_gains) > 50 and set(failsafe_gains) == {0.5},
+          f"n={len(failsafe_gains)} values={sorted(set(failsafe_gains))}")
 
 print()
 fails = [r for r in results if not r[1]]

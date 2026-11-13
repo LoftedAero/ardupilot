@@ -343,15 +343,42 @@ AUTOTUNE on the mode switch, ARSPD_TYPE 0, no GPS): before the change
 roll never finished in 300 s and RLL_RATE_P stayed put while pitch
 tuned; after it both axes finish in under a minute.
 
-## Considered and rejected
+## Turns without a GPS (2026-11-13)
 
-- **Assumed airspeed for DCM centripetal correction without GPS**
-  (2026-09-14). DCM has no centripetal correction when there is no GPS
-  and no airspeed sensor, so the horizon drifts a few degrees in long
-  turns. Substituting SCALING_SPEED was analysed and would be safe if
-  gated on armed and only used before any GPS estimate exists, but
-  stock ArduPlane flies FBWA without GPS routinely, so the code stays
-  untouched. Fit a GPS if the drift matters.
+Reverses the rejection of 2026-09-14, which rested on "the horizon
+drifts a few degrees in long turns". Measured in SITL with no GPS and
+no airspeed sensor, full roll stick held in FBWA:
+
+| Case | Estimate | True attitude | Result |
+|---|---|---|---|
+| Stock, 25 deg bank (stall prevention limit) | 24 roll, 0 pitch | 46 roll, -20 pitch | ground from 148 m in 24 s |
+| Stock, 45 deg bank | 43 roll, +2 pitch | 66 roll, -29 pitch | ground in 16 s |
+| AHRS_RP_P 0.05, 25 deg | 25 roll, 0 pitch | 33 roll, -10 pitch | 40 m lost in 25 s |
+| With GPS, 45 deg | 45 roll | 44.6 roll | held |
+| GYRO_TURN_CORR 1, SCALING_SPEED 15 (20% low) | 45 roll, +2 pitch | 48 roll, -5 pitch | 30 m lost in 25 s |
+| GYRO_TURN_CORR 1, SCALING_SPEED 19 (matched) | 45 roll, +2 pitch | 46 roll, 0 pitch | held |
+| GYRO_TURN_CORR 1, SCALING_SPEED 30 (57% high) | 45 roll, +3 pitch | 42 roll, +10 pitch | climbs |
+
+Design:
+
+- `AP_AHRS::set_assumed_airspeed_EAS()`. DCM uses it in its no-GPS
+  branch only when there is no airspeed sensor and no earlier GPS
+  estimate. `airspeed_EAS()` is unchanged, so the controllers and the
+  throttle based gain scaling behave as before.
+- A change of the assumed speed rescales the previous velocity, so only
+  the change of direction is corrected (the centripetal part). A
+  throttle change is not read as an acceleration.
+- `PlaneGyro::update_assumed_airspeed()` supplies
+  `SCALING_SPEED / speed_scaler` (the speed the throttle scaling stands
+  for) while the model counts as airborne: from 1 s of armed throttle
+  above 30% until it is disarmed and still for 3 s. A disarm in flight
+  is a throttle cut, so it does not end the correction.
+- `GYRO_TURN_CORR` (0 in the source, 1 in the board defaults).
+- Stall prevention's 25 degree limit is skipped when there is no
+  airspeed estimate (`Plane::apply_load_factor_roll_limits`).
+
+Not flight tested. Open: whether `is_still()` can read true in a very
+smooth disarmed glide, which would end the correction early.
 
 ## Phase 4: Loft GCS guided setup
 

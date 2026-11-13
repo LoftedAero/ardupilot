@@ -217,6 +217,27 @@ Default FBWA limits are the ArduPlane defaults (45 degrees of bank,
 20 degrees pitch up, 25 degrees pitch down). All of these are adjustable
 from the transmitter menu.
 
+Without a GPS or airspeed sensor the attitude estimate has no speed to
+correct for the acceleration of a turn. Left alone it drifts towards a
+false level in a held turn, FBWA rolls further to hold the bank it
+reads, and the turn becomes a spiral dive (in the simulator a 45 degree
+turn reached 66 degrees of bank in 6 seconds and 29 degrees nose down
+in 10).
+`GYRO_TURN_CORR 1` (the default on the gyro boards) gives the estimate
+an assumed airspeed for that correction: `SCALING_SPEED` at 45%
+throttle, about 0.6 times that at idle and 1.5 times at full throttle,
+the same model that scales the gains by throttle. Set `SCALING_SPEED`
+to the model's cruise speed in m/s (default 15). A value that is too
+low leaves some of the drift, so the nose drops in a long turn; one
+that is too high makes the plane climb in the turn. The assumed
+airspeed is used from one second of armed throttle above 30% until the
+model is disarmed and still, and never while a GPS gives a speed.
+
+Stock ArduPlane also limits FBWA bank to 25 degrees when it has no
+airspeed estimate (stall prevention reads "no estimate" as "below stall
+speed"). This build skips that limit when there is no estimate, so the
+FBWA bank limit applies with or without a GPS.
+
 The RTL switch on channel 7 overrides the mode switch while high. When
 it goes low, the plane returns to whatever the mode switch selects. If
 no home position is known, RTL is refused with the message
@@ -287,8 +308,10 @@ not the same as gyro off: the sticks still command a rate, nothing
 corrects gusts, and FBWA still steers toward level without damping.
 MANUAL is the true gyro-off mode.
 
-The scale is held at 1.0 during an RC failsafe and while autotune is
-running. Its value is recorded in the log as `GYRO.Gain`.
+During an RC failsafe the scale keeps the value it had when the link
+was lost: a knob turned down because the plane oscillates at 1.0 stays
+turned down for the failsafe glide. The scale is held at 1.0 while
+autotune is running. Its value is recorded in the log as `GYRO.Gain`.
 
 To fly with fixed gains, leave the knob centered or set GYRO_GAIN_CH
 to 0.
@@ -370,6 +393,17 @@ Commands (the entries that start something) open a popup on the radio.
 They all need the arm switch off and answer "Disarm first" otherwise.
 Each ends with a result the pilot dismisses with OK; Exit cancels.
 
+While a command is open the plane refuses to arm (`Gyro: setup step
+open on radio`): the sticks and switches are being moved to learn them,
+not to fly. A command the radio stops asking about (the script was
+closed, the radio switched off) ends by itself with `Timed out`, after
+10 seconds while it runs and after 2 minutes while it waits for OK, and
+undoes what was not confirmed.
+
+While armed, only the entries in 6 Tuning can be changed. Every other
+entry answers with its value unchanged: an output or radio setting
+takes effect at once, and a wrong one in flight can lose the model.
+
 - **Wing type** (under 4 Outputs, a setting rather than a command) sets the
   functions of output channels 1 to 4 as soon as it is changed, as every
   output setting takes effect at once:
@@ -384,7 +418,7 @@ Each ends with a result the pilot dismisses with OK; Exit cancels.
   direction afterwards and flip the channel's Reversed entry where
   needed; the servo moves as soon as the value changes. It reads its value
   from channels 1 to 4, so after a channel's function is changed by hand
-  it shows "Other". It is refused while armed: the value stays as it was.
+  it shows "Other".
 - **Copy stick trims** moves the transmitter trims into the servo trims.
   Disarmed, in MANUAL, with the trims set and the sticks released:
   1. `Trims set? Hands off sticks`: OK. Every surface output's current
@@ -396,7 +430,9 @@ Each ends with a result the pilot dismisses with OK; Exit cancels.
      the trimmed position. OK checks they are centered (`Ch1 trim not
      centred` otherwise), then shows `Trims copied to N outputs`.
 
-  Exit before the last OK undoes the copy.
+  The copied trims are in use from step 1 but are only stored at the
+  last OK. Exit before it undoes the copy, and so does a time-out or a
+  restart.
 - **Detect orientation**: hold the model level with the nose forward
   and press OK, then raise the nose about 45 degrees and press OK. The
   firmware works out how the board is mounted and sets Orientation.
@@ -431,7 +467,9 @@ Each ends with a result the pilot dismisses with OK; Exit cancels.
 - **Learn** for a switch: flip the switch when asked. A channel already
   used by another of these functions is refused. The arm switch is only
   assigned once it is in its off position, because assigning it while
-  on would arm the plane.
+  on would arm the plane. The arm switch in use stays assigned while a
+  new one is learned; flipping it does not arm while the command is
+  open.
 - **Learn gain knob**: turn the knob so it is found, then
   `Knob to LOW gain end, OK` and `Knob to HIGH gain end, then OK`. The
   two ends become the channel's `RCn_MIN` and `RCn_MAX` (trim halfway),
@@ -509,6 +547,7 @@ Besides the standard ArduPlane messages, the `GYRO` message records at
 |---|---|
 | Gain | Master gain scale applied to the rate controllers |
 | LogOK | Logging gate state (always 1 with the arm switch) |
+| ASpd | Airspeed assumed for the turn correction in m/s, 0 when none is used |
 
 ---
 
@@ -536,6 +575,7 @@ Parameters added by this build:
 | GYRO_GAIN_MAX | 1.5 | Scale at knob maximum |
 | GYRO_LOG_THR | 0 | Throttle percent that starts logging when ARMING_REQUIRE is 0; unused with the arm switch |
 | GYRO_CAL | 0 | Calibration request used by the transmitter menu: 1 = gyros, 2 = level. Reads back 0 when done, -1 when failed or refused. Reset at boot. |
+| GYRO_TURN_CORR | 1 | Assumed airspeed for the attitude estimate's turn correction when there is no GPS and no airspeed sensor (0 in the source, 1 in the board defaults) |
 
 Standard ArduPlane parameters set by the defaults:
 
@@ -579,9 +619,12 @@ Source of the customization:
 | `libraries/AP_HAL_ChibiOS/hwdef/include/gyro.inc` | Feature profile. Include it after any base board hwdef to make a gyro build of that board. |
 | `libraries/AP_HAL_ChibiOS/hwdef/KakuteF4-Wing-gyro/` | Kakute variant: hwdef and defaults |
 | `libraries/AP_HAL_ChibiOS/hwdef/TBS_LUCID_H7_WING-gyro/` | Lucid H7 Wing variant, same layout |
-| `ArduPlane/gyro.h`, `ArduPlane/gyro.cpp` | The gyro module: gain knob, logging gate, calibration requests, GYRO_ parameters |
+| `ArduPlane/gyro.h`, `ArduPlane/gyro.cpp` | The gyro module: gain knob, logging gate, calibration requests, assumed airspeed, GYRO_ parameters |
 | `ArduPlane/gyro_menu.h`, `ArduPlane/gyro_menu.cpp` | The transmitter setup menu |
 | `ArduPlane/mode_rtl.cpp`, `ArduPlane/events.cpp` | RTL refused without home; failsafe falls back to FBWA |
+| `ArduPlane/Attitude.cpp` | No 25 degree stall prevention bank limit when there is no airspeed estimate |
+| `ArduPlane/AP_Arming_Plane.cpp` | Arming refused while a menu command is open |
+| `libraries/AP_AHRS/AP_AHRS.h`, `AP_AHRS_DCM.*` | Assumed airspeed for DCM's centripetal correction without GPS |
 | `libraries/APM_Control/AP_FW_Controller.*`, `AP_YawController.*` | Gain scale hook in the rate controllers |
 | `libraries/AP_RCTelemetry/AP_CRSF_Telem.*` | CRSF menus without the OSD, numbered the way ExpressLRS expects, with top-level entries |
 | `Tools/gyro/` | SITL tests, CRSF radio emulator, SITL build defines |
@@ -600,6 +643,7 @@ python3 Tools/gyro/sitl_menu_test.py        # menu builds; calibration requests 
 python3 Tools/gyro/sitl_crsf_menu_test.py   # the menu over CRSF, driven like the ExpressLRS script
 ELRS_LUA=/path/to/elrsV3.lua python3 Tools/gyro/sitl_elrs_lua_test.py   # the real ExpressLRS script
 python3 Tools/gyro/sitl_autotune_test.py    # autotune flight with no GPS or airspeed sensor
+python3 Tools/gyro/sitl_turn_test.py        # held FBWA turn with no GPS: bank limit and attitude estimate
 ```
 
 All need pymavlink. `sitl_crsf_menu_test.py` uses
@@ -645,6 +689,13 @@ add `--gps` to fit one.
 - **Detect orientation is untested on hardware.** It needs the model
   held still in two attitudes; SITL cannot tilt the simulated plane
   on the bench.
+- **Turn correction without a GPS is a guess at the speed.** It is
+  checked in the simulator only. With `SCALING_SPEED` 20 percent low
+  the simulated plane held a 45 degree turn at 48 degrees true bank
+  and 5 degrees nose down; set to the plane's speed it held within
+  about 3 degrees. On the ground, once the throttle has been above 30% for a
+  second, a taxi turn tilts the estimate by several degrees for a few
+  seconds: let the plane roll straight before an FBWA takeoff.
 - **No EKF.** DCM is used for attitude. It is adequate for
   stabilization and GPS return home but less precise than the EKF in
   turbulent flight and does not use a compass.
