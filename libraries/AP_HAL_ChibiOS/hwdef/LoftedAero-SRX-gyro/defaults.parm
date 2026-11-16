@@ -1,0 +1,121 @@
+# Default parameters for the LoftedAero-SRX gyro build.
+# These make a freshly flashed board behave like an RC gyro with an
+# arm switch: ELRS AUX1 (channel 5) arms, a three-position mode switch
+# on channel 6, RTL on channel 7, gain knob on channel 8, and link-loss
+# handling that never needs a GPS.
+
+# --- Arming: switch on channel 5 (ELRS AUX1), throttle must be low, other optional checks skipped, no rudder arming ---
+# Throttle is held at minimum PWM while disarmed so the ESC stays quiet.
+ARMING_REQUIRE 1
+# Skip every optional check except RC (-65 = all bits but bit 6), and with RC_OPTIONS
+# 96 run only its throttle part: arming is refused unless the throttle is low.
+# RC_OPTIONS bit 12 (4096) adds a star to the CRSF flight mode while disarmed, which is
+# the only way a radio on plain CRSF telemetry can tell armed from disarmed.
+# Bit 8 (256) adds ArduPilot passthrough telemetry to the CRSF link, for radio
+# telemetry scripts such as Lofty PFD.
+# Bit 13 (8192) is the 420 kbaud link to the onboard ELRS receiver.
+ARMING_SKIPCHK -65
+RC_OPTIONS 12640
+ARMING_RUDDER 0
+RC5_OPTION 153
+INS_GYR_CAL 1
+
+# --- Sensors ---
+COMPASS_ENABLE 0
+AHRS_EKF_TYPE 0
+ARSPD_TYPE 0
+
+# --- RC input: the onboard ELRS receiver on SERIAL2 (CRSF; SERIAL2_PROTOCOL 23 comes from
+#     the hwdef), RSSI and link quality from the CRSF link statistics, standard CRSF
+#     endpoints (2 Radio > Learn sticks and Learn gain knob measure the real ones) ---
+# No RELAYn_ parameter is set here, and none may be: GPIO 70 and 71 are the ELRS
+# receiver's EN and BOOT pins, and a relay on them could stop the receiver in flight.
+RSSI_TYPE 3
+RC_PROTOCOLS 512
+RC1_MIN 988
+RC1_MAX 2012
+RC2_MIN 988
+RC2_MAX 2012
+RC3_MIN 988
+RC3_MAX 2012
+RC4_MIN 988
+RC4_MAX 2012
+RC5_MIN 988
+RC5_MAX 2012
+RC6_MIN 988
+RC6_MAX 2012
+RC7_MIN 988
+RC7_MAX 2012
+RC8_MIN 988
+RC8_MAX 2012
+RC9_MIN 988
+RC9_MAX 2012
+RC10_MIN 988
+RC10_MAX 2012
+RC11_MIN 988
+RC11_MAX 2012
+RC12_MIN 988
+RC12_MAX 2012
+RC13_MIN 988
+RC13_MAX 2012
+RC14_MIN 988
+RC14_MAX 2012
+RC15_MIN 988
+RC15_MAX 2012
+RC16_MIN 988
+RC16_MAX 2012
+
+# --- Mode switch: 3-position on channel 6 -> MANUAL / ACRO / FBWA ---
+FLTMODE_CH 6
+FLTMODE1 0
+FLTMODE2 0
+FLTMODE3 4
+FLTMODE4 4
+FLTMODE5 5
+FLTMODE6 5
+INITIAL_MODE 0
+
+# --- RTL on channel 7 (only useful with a GPS and home set) ---
+RC7_OPTION 4
+
+# --- Gain knob on channel 8: master gain for the rate controllers ---
+GYRO_GAIN_CH 8
+GYRO_GAIN_MIN 0
+GYRO_GAIN_MAX 1.5
+
+# --- Turns without a GPS: assumed airspeed for the attitude estimate's turn correction.
+# Set the model's cruise speed in the menu (6 Tuning, Speeds): it writes SCALING_SPEED and
+# AIRSPEED_CRUISE. AIRSPEED_CRUISE starts at the stock SCALING_SPEED so the two agree.
+GYRO_TURN_CORR 1
+AIRSPEED_CRUISE 15
+
+# --- Trims: set servo trims in the menu (4 Outputs, Channel N, Trim); auto-trim in FBWA with a GPS ---
+SERVO_AUTO_TRIM 1
+STICK_MIXING 0
+
+# --- Rudder: the yaw damper (menu 6 Tuning, Yaw gains: Yaw damper = YAW2SRV_DAMP, 0 = off) also runs in ACRO
+# (FLIGHT_OPTIONS bit 5); a small aileron to rudder mix in FBWA and ACRO
+FLIGHT_OPTIONS 32
+KFF_RDDRMIX 0.2
+# a gentle yaw damper: about 7% rudder at 30 deg/s of yaw at cruise; no effect without a rudder
+YAW2SRV_DAMP 0.1
+
+# --- Link loss: short = FBWA at zero throttle; long = RTL if home is set, else FBWA glide
+THR_FAILSAFE 1
+FS_SHORT_ACTN 2
+RC_FS_TIMEOUT 1
+FS_LONG_ACTN 1
+FS_LONG_TIMEOUT 5
+FS_GCS_ENABL 0
+
+# --- FBWA pitch limits (menu 6 Tuning); stock is 20 up, -25 down ---
+PTCH_LIM_MAX_DEG 35
+PTCH_LIM_MIN_DEG -25
+
+# --- ACRO feel ---
+ACRO_ROLL_RATE 180
+ACRO_PITCH_RATE 90
+ACRO_LOCKING 0
+
+# --- Logging: while armed only ---
+LOG_DISARMED 0

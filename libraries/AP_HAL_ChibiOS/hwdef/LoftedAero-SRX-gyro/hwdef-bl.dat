@@ -1,0 +1,3 @@
+# Bootloader definition for LoftedAero-SRX-gyro
+# Same hardware as LoftedAero-SRX, reuse its bootloader definition.
+include ../LoftedAero-SRX/hwdef-bl.dat

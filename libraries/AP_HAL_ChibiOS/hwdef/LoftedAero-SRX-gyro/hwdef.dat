@@ -1,0 +1,6 @@
+# Gyro-mode build for the LoftedAero-SRX stabilized ELRS receiver.
+# Inherits all hardware pin definitions from the base board, then
+# applies the shared gyro feature profile.
+
+include ../LoftedAero-SRX/hwdef.dat
+include ../include/gyro.inc
