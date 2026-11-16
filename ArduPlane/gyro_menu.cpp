@@ -26,6 +26,13 @@ constexpr uint8_t CMD_CONFIRM = 4;
 constexpr uint8_t CMD_CANCEL = 5;
 constexpr uint8_t CMD_POLL = 6;
 
+// raw input (us) of an RC channel, numbered from 0; 0 when it does not exist
+uint16_t radio_in(uint8_t chan)
+{
+    const RC_Channel *c = rc().channel(chan);
+    return c == nullptr ? 0 : c->get_radio_in();
+}
+
 // how often the radio polls a running command, in 10 ms units
 constexpr uint8_t CMD_POLL_INTERVAL = 25;
 
@@ -312,7 +319,7 @@ void PlaneGyroMenu::set_output_param(uint8_t output, const char *field, float va
 
 bool PlaneGyroMenu::gps_present()
 {
-    return AP::gps().status() != AP_GPS::NO_GPS;
+    return AP::gps().status() != AP_GPS_FixType::NO_GPS;
 }
 
 bool PlaneGyroMenu::armed()
@@ -579,13 +586,13 @@ uint8_t PlaneGyroMenu::pack(const Item &item, uint8_t *buf, uint8_t size)
         char text[40];
         char gps[16];
         switch (AP::gps().status()) {
-        case AP_GPS::NO_GPS:
+        case AP_GPS_FixType::NO_GPS:
             strncpy(gps, "none", sizeof(gps));
             break;
-        case AP_GPS::NO_FIX:
+        case AP_GPS_FixType::NONE:
             strncpy(gps, "no fix", sizeof(gps));
             break;
-        case AP_GPS::GPS_OK_FIX_2D:
+        case AP_GPS_FixType::FIX_2D:
             strncpy(gps, "2D", sizeof(gps));
             break;
         default:
@@ -997,7 +1004,7 @@ void PlaneGyroMenu::command_start(uint8_t index)
             return;
         }
         for (uint8_t ch = 0; ch < ARRAY_SIZE(cmd.base); ch++) {
-            cmd.base[ch] = RC_Channels::get_radio_in(ch);
+            cmd.base[ch] = radio_in(ch);
         }
         if (item.handler == Handler::LEARN_STICKS) {
             // the centres are taken at the OK: stick trims become RCn_TRIM
@@ -1020,7 +1027,7 @@ void PlaneGyroMenu::command_start(uint8_t index)
 void PlaneGyroMenu::mode_watch_prompt()
 {
     const uint8_t ch = aux_channel(AUX_MODE);
-    const uint16_t pwm = RC_Channels::get_radio_in(ch - 1);
+    const uint16_t pwm = radio_in(ch - 1);
     if (!rc().has_valid_input() || pwm <= RC_Channel::RC_MIN_LIMIT_PWM || pwm >= RC_Channel::RC_MAX_LIMIT_PWM) {
         command_prompt(CMD_PROGRESS, "Ch%u: no signal", unsigned(ch));
         return;
@@ -1074,7 +1081,7 @@ void PlaneGyroMenu::learn_sticks_step()
     // how long each channel has been held where it is
     int16_t delta[4];
     for (uint8_t i = 0; i < 4; i++) {
-        const uint16_t v = RC_Channels::get_radio_in(i);
+        const uint16_t v = radio_in(i);
         if (abs(int32_t(v) - cmd.held_val[i]) > STICK_HOLD_US) {
             cmd.held_val[i] = v;
             cmd.held_ms[i] = now;
@@ -1172,7 +1179,7 @@ void PlaneGyroMenu::review_prompt()
 void PlaneGyroMenu::track_sticks()
 {
     for (uint8_t i = 0; i < 4; i++) {
-        const uint16_t v = RC_Channels::get_radio_in(i);
+        const uint16_t v = radio_in(i);
         if (v > RC_Channel::RC_MIN_LIMIT_PWM && v < RC_Channel::RC_MAX_LIMIT_PWM) {
             cmd.lo[i] = MIN(cmd.lo[i], v);
             cmd.hi[i] = MAX(cmd.hi[i], v);
@@ -1300,7 +1307,7 @@ void PlaneGyroMenu::command_confirm()
 
     case Stage::STICK_CENTER:
         for (uint8_t ch = 0; ch < ARRAY_SIZE(cmd.base); ch++) {
-            cmd.base[ch] = RC_Channels::get_radio_in(ch);
+            cmd.base[ch] = radio_in(ch);
         }
         for (uint8_t i = 0; i < 4; i++) {
             cmd.lo[i] = cmd.hi[i] = cmd.held_val[i] = cmd.base[i];
@@ -1366,13 +1373,13 @@ void PlaneGyroMenu::command_confirm()
         break;
 
     case Stage::KNOB_LOW:
-        cmd.knob_low = RC_Channels::get_radio_in(cmd.aux_ch - 1);
+        cmd.knob_low = radio_in(cmd.aux_ch - 1);
         cmd.stage = Stage::KNOB_HIGH;
         command_prompt(CMD_CONFIRMATION_NEEDED, "Knob to HIGH gain end, then OK");
         break;
 
     case Stage::KNOB_HIGH: {
-        const uint16_t high = RC_Channels::get_radio_in(cmd.aux_ch - 1);
+        const uint16_t high = radio_in(cmd.aux_ch - 1);
         if (abs(int32_t(high) - cmd.knob_low) < LEARN_MIN_SPAN) {
             cmd.stage = Stage::KNOB_LOW;
             command_prompt(CMD_CONFIRMATION_NEEDED, "Turn further. LOW end, then OK");
@@ -1424,7 +1431,7 @@ void PlaneGyroMenu::command_poll()
         int16_t best_delta = 0;
         uint8_t best_ch = 0;
         for (uint8_t ch = 5; ch <= 16; ch++) {
-            const int16_t delta = int16_t(RC_Channels::get_radio_in(ch - 1)) - int16_t(cmd.base[ch - 1]);
+            const int16_t delta = int16_t(radio_in(ch - 1)) - int16_t(cmd.base[ch - 1]);
             if (abs(delta) > abs(best_delta)) {
                 best_delta = delta;
                 best_ch = ch;
