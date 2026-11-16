@@ -78,12 +78,21 @@ GYRO_GAIN_MIN 0
 GYRO_GAIN_MAX 1.5
 
 # --- Turns without a GPS: assumed airspeed for the attitude estimate's turn correction.
-# Set SCALING_SPEED to the model's cruise speed.
+# Set the model's cruise speed in the menu (6 Tuning, Speeds): it writes SCALING_SPEED and
+# AIRSPEED_CRUISE. AIRSPEED_CRUISE starts at the stock SCALING_SPEED so the two agree.
 GYRO_TURN_CORR 1
+AIRSPEED_CRUISE 15
 
 # --- Trims: set servo trims in the menu (4 Outputs, Channel N, Trim); auto-trim in FBWA with a GPS ---
 SERVO_AUTO_TRIM 1
 STICK_MIXING 0
+
+# --- Rudder: the yaw damper (menu 6 Tuning, Yaw gains: Yaw damper = YAW2SRV_DAMP, 0 = off) also runs in ACRO
+# (FLIGHT_OPTIONS bit 5); a small aileron to rudder mix in FBWA and ACRO
+FLIGHT_OPTIONS 32
+KFF_RDDRMIX 0.2
+# a gentle yaw damper: about 7% rudder at 30 deg/s of yaw at cruise; no effect without a rudder
+YAW2SRV_DAMP 0.1
 
 # --- Link loss: short = FBWA at zero throttle; long = RTL if home is set, else FBWA glide
 THR_FAILSAFE 1
@@ -92,6 +101,10 @@ RC_FS_TIMEOUT 1
 FS_LONG_ACTN 1
 FS_LONG_TIMEOUT 5
 FS_GCS_ENABL 0
+
+# --- FBWA pitch limits (menu 6 Tuning); stock is 20 up, -25 down ---
+PTCH_LIM_MAX_DEG 35
+PTCH_LIM_MIN_DEG -25
 
 # --- ACRO feel ---
 ACRO_ROLL_RATE 180
