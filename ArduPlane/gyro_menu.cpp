@@ -113,9 +113,26 @@ struct NumberSpec {
     const char *unit;
 };
 enum : uint8_t {
+    // gains and limits: these may change in flight
     NUM_GAIN_MIN, NUM_GAIN_MAX, NUM_ACRO_ROLL, NUM_ACRO_PITCH, NUM_ROLL_LIMIT,
-    NUM_PITCH_MAX, NUM_PITCH_MIN, NUM_AUTOTUNE_LEVEL, NUM_RTL_ALT,
+    NUM_PITCH_MAX, NUM_PITCH_MIN, NUM_AUTOTUNE_LEVEL,
+    NUM_ROLL_FF, NUM_ROLL_P, NUM_ROLL_I, NUM_ROLL_D,
+    NUM_PITCH_FF, NUM_PITCH_P, NUM_PITCH_I, NUM_PITCH_D,
+    NUM_YAW_DAMP, NUM_RUDDER_MIX,
+    // settings: locked while armed
+    NUM_RTL_ALT, NUM_CRUISE_SPEED, NUM_MIN_SPEED, NUM_MAX_SPEED,
 };
+// numbers that may change in flight: the gains and limits in 6 Tuning, not
+// its speeds (with a GPS a new cruise speed rescales every gain)
+bool number_in_flight(uint8_t arg)
+{
+    return arg <= NUM_RUDDER_MIX;
+}
+// the rate gain limits are wider than their documented ranges so that any
+// value autotune or the stock defaults set (PTCH_RATE_P is 0.04) shows and keeps.
+// No entry has more than 3 decimals: the ExpressLRS script caps a float's
+// precision at 3 but still divides by its own 10^3, so a value sent with 4
+// decimals would show 10 times too large.
 const NumberSpec number_specs[] = {
     {"GYRO_GAIN_MIN", 0, 1, 0.05, 2, ""},
     {"GYRO_GAIN_MAX", 1, 3, 0.05, 2, ""},
@@ -125,8 +142,24 @@ const NumberSpec number_specs[] = {
     {"PTCH_LIM_MAX_DEG", 5, 60, 5, 0, "deg"},
     {"PTCH_LIM_MIN_DEG", -60, -5, 5, 0, "deg"},
     {"AUTOTUNE_LEVEL", 1, 10, 1, 0, ""},
+    {"RLL_RATE_FF", 0, 3, 0.005, 3, ""},
+    {"RLL_RATE_P", 0, 1, 0.005, 3, ""},
+    {"RLL_RATE_I", 0, 1, 0.005, 3, ""},
+    {"RLL_RATE_D", 0, 0.1, 0.001, 3, ""},
+    {"PTCH_RATE_FF", 0, 3, 0.005, 3, ""},
+    {"PTCH_RATE_P", 0, 1, 0.005, 3, ""},
+    {"PTCH_RATE_I", 0, 1, 0.005, 3, ""},
+    {"PTCH_RATE_D", 0, 0.1, 0.001, 3, ""},
+    // the yaw damper; 0 turns it off, and the gain knob scales it
+    {"YAW2SRV_DAMP", 0, 2, 0.05, 2, ""},
+    {"KFF_RDDRMIX", 0, 1, 0.05, 2, ""},
     {"RTL_ALTITUDE", 20, 400, 10, 0, "m"},
+    // the cruise speed is also written to AIRSPEED_CRUISE
+    {"SCALING_SPEED", 6, 50, 1, 0, "m/s"},
+    {"AIRSPEED_MIN", 5, 50, 1, 0, "m/s"},
+    {"AIRSPEED_MAX", 6, 100, 1, 0, "m/s"},
 };
+static_assert(ARRAY_SIZE(number_specs) == NUM_MAX_SPEED + 1, "number_specs must follow the NUM_ order");
 
 struct AuxSpec {
     const char *label;      // menu entry and messages
@@ -545,12 +578,30 @@ bool PlaneGyroMenu::build()
     m = submenu(root, "6 Tuning");
     add(m, Handler::NUMBER, NUM_GAIN_MIN, "Gain knob min");
     add(m, Handler::NUMBER, NUM_GAIN_MAX, "Gain knob max");
-    add(m, Handler::NUMBER, NUM_ACRO_ROLL, "ACRO roll rate");
-    add(m, Handler::NUMBER, NUM_ACRO_PITCH, "ACRO pitch rate");
     add(m, Handler::NUMBER, NUM_ROLL_LIMIT, "FBWA bank limit");
     add(m, Handler::NUMBER, NUM_PITCH_MAX, "FBWA pitch up");
     add(m, Handler::NUMBER, NUM_PITCH_MIN, "FBWA pitch down");
     add(m, Handler::NUMBER, NUM_AUTOTUNE_LEVEL, "Autotune level");
+    // the speeds are locked while armed (see number_in_flight)
+    AP_CRSF_Telem::ScriptedMenu *g = submenu(m, "Speeds");
+    add(g, Handler::NUMBER, NUM_CRUISE_SPEED, "Cruise speed");
+    add(g, Handler::NUMBER, NUM_MIN_SPEED, "Min speed");
+    add(g, Handler::NUMBER, NUM_MAX_SPEED, "Max speed");
+    // the rate gains autotune learns (FF, P, D) and sets (I), and the ACRO rate
+    static const char *const gain_names[] = {"FF", "P", "I", "D"};
+    g = submenu(m, "Roll gains");
+    for (uint8_t i = 0; i < 4; i++) {
+        add(g, Handler::NUMBER, NUM_ROLL_FF + i, gain_names[i]);
+    }
+    add(g, Handler::NUMBER, NUM_ACRO_ROLL, "ACRO roll rate");
+    g = submenu(m, "Pitch gains");
+    for (uint8_t i = 0; i < 4; i++) {
+        add(g, Handler::NUMBER, NUM_PITCH_FF + i, gain_names[i]);
+    }
+    add(g, Handler::NUMBER, NUM_ACRO_PITCH, "ACRO pitch rate");
+    g = submenu(m, "Yaw gains");
+    add(g, Handler::NUMBER, NUM_YAW_DAMP, "Yaw damper");
+    add(g, Handler::NUMBER, NUM_RUDDER_MIX, "Rudder mix");
 
     m = submenu(root, "Tools");
     add(m, Handler::FIRMWARE, 0, "Firmware");
@@ -613,7 +664,7 @@ uint8_t PlaneGyroMenu::pack(const Item &item, uint8_t *buf, uint8_t size)
         // on this menu (Lofty PFD's Gyro Setup) uses them only for a version
         // it knows; raise it when an entry it relies on changes name, kind,
         // place or meaning.
-        pack_info(p, CRSF_HIDDEN, item.name, "2");
+        pack_info(p, CRSF_HIDDEN, item.name, "3");
         break;
     case Handler::NO_GPS_INFO:
         pack_info(p, gps_present() ? CRSF_HIDDEN : 0, item.name, "needs a GPS");
@@ -726,7 +777,7 @@ uint8_t PlaneGyroMenu::write(const Item &item, const uint8_t *payload, uint8_t l
     // in flight only the tuning numbers can change: a wrong output or
     // radio setting takes effect at once. Everything else answers with
     // its value unchanged.
-    const bool tuning = item.handler == Handler::NUMBER && item.arg != NUM_RTL_ALT;
+    const bool tuning = item.handler == Handler::NUMBER && number_in_flight(item.arg);
     const bool locked = armed() && !tuning;
     if (locked) {
         GCS_SEND_TEXT(MAV_SEVERITY_WARNING, "Gyro: disarm to change %s", item.name);
@@ -746,7 +797,21 @@ uint8_t PlaneGyroMenu::write(const Item &item, const uint8_t *payload, uint8_t l
                 for (uint8_t i = 0; i < n.decimals; i++) {
                     scale *= 10;
                 }
-                param_set(n.param, constrain_float(raw / scale, n.min, n.max));
+                float value = constrain_float(raw / scale, n.min, n.max);
+                // the speeds stay in order: min below cruise below max
+                const float cruise = param_get(number_specs[NUM_CRUISE_SPEED].param);
+                if (item.arg == NUM_MIN_SPEED) {
+                    value = MIN(value, cruise - 1);
+                } else if (item.arg == NUM_MAX_SPEED) {
+                    value = MAX(value, cruise + 1);
+                } else if (item.arg == NUM_CRUISE_SPEED) {
+                    value = MAX(MIN(value, param_get(number_specs[NUM_MAX_SPEED].param) - 1),
+                                param_get(number_specs[NUM_MIN_SPEED].param) + 1);
+                }
+                param_set(n.param, value);
+                if (item.arg == NUM_CRUISE_SPEED) {
+                    param_set("AIRSPEED_CRUISE", value);
+                }
             } else {
                 const char *field = item.handler == Handler::OUT_MIN ? "MIN" :
                                     item.handler == Handler::OUT_TRIM ? "TRIM" : "MAX";
