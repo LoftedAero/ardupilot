@@ -67,13 +67,14 @@ Added on top of ArduPlane, all in one module (`ArduPlane/gyro.cpp`):
 
 ## 2. Hardware and flashing
 
-Two boards have gyro builds. Each uses the stock board ID and
-bootloader, so the stock bootloader and the usual flashing tools work.
+Three boards have gyro builds. Each uses the board ID and bootloader
+of its base board, so that bootloader and the usual flashing tools work.
 
 | Board | Build name | Flash | Logging | Notes |
 |---|---|---|---|---|
-| Holybro KakuteF4-Wing | `KakuteF4-Wing-gyro` | 1 MB (593 KB used) | onboard dataflash | 7 outputs |
-| TBS Lucid H7 Wing | `TBS_LUCID_H7_WING-gyro` | 2 MB (940 KB used) | microSD card | dual IMU, 13 outputs |
+| Holybro KakuteF4-Wing | `KakuteF4-Wing-gyro` | 1 MB (601 KB used) | onboard dataflash | 7 outputs |
+| TBS Lucid H7 Wing | `TBS_LUCID_H7_WING-gyro` | 2 MB (963 KB used) | microSD card | dual IMU, 13 outputs |
+| LoftedAero-SRX | `LoftedAero-SRX-gyro` | 1 MB (609 KB used) | onboard dataflash | ELRS receiver on the board, 8 outputs |
 
 Default port assignments on the Kakute:
 
@@ -99,14 +100,35 @@ Default port assignments on the Lucid H7 Wing (pads are labelled Rn/Tn):
 On the Lucid the VTX power relay defaults on and output 13 drives a
 WS2812 LED strip, as in the stock firmware.
 
-Servo outputs M1 to M4 are aileron, elevator, throttle, rudder in the
-default "Normal" wing type on both boards. See
+Default port assignments on the LoftedAero-SRX:
+
+| Port | Connector | Default use |
+|---|---|---|
+| USB | | MAVLink for a ground station |
+| SERIAL1 (USART2) | TELEM | MAVLink telemetry radio, with flow control |
+| SERIAL2 (USART3) | none: on the board | ELRS receiver (CRSF at 420 kbaud) |
+| SERIAL3 (USART1) | GPS | GPS (u-blox), external compass on its I2C pins |
+| SERIAL4 (UART5) | GPS2 | unused |
+| SERIAL5 (USART6) | OUT7, OUT8 | unused: outputs 7 and 8 unless BRD_ALT_CONFIG is 1 |
+
+The SRX has the ELRS receiver on the board, so there is no receiver to
+wire. Output 3 (throttle in the "Normal" wing type) has a timer of its
+own; outputs 1, 2 and 4 share one. The board ID is 5999, a placeholder
+until ArduPilot allocates one: the bootloader on the board accepts only
+firmware built with it. Never assign a relay to GPIO 70 or 71: they are
+the ELRS receiver's EN and BOOT pins, and switching them stops the
+receiver.
+
+Servo outputs 1 to 4 are aileron, elevator, throttle, rudder in the
+default "Normal" wing type on all three boards. See
 [Transmitter setup menu](#10-transmitter-setup-menu) for elevon and
 V-tail presets. Battery voltage and current sensing use the board's
 built-in pads.
 
 Build and upload from the repository root, using the build name from
-the table:
+the table. The ArduPilot base (master of 2026-11-06) needs a newer
+Python than the 3.8 of Ubuntu 20.04; a Python 3.11 virtual environment
+is what these builds were made with.
 
 ```
 ./waf configure --board KakuteF4-Wing-gyro
@@ -134,7 +156,8 @@ ArduPlane, flash the stock firmware for the board the same way.
 ## 3. Transmitter channel layout
 
 The defaults assume an ELRS receiver on the board's RC port (SERIAL3 on
-the Kakute, SERIAL6 on the Lucid) with the standard CRSF channel
+the Kakute, SERIAL6 on the Lucid, the receiver on the board on the SRX)
+with the standard CRSF channel
 endpoints (988 to 2012 us on channels 1 to 16) and the usual AETR order.
 2 Radio, Learn sticks and Learn gain knob measure the real order,
 directions and endpoints. Switch channels need no range: switches are
@@ -227,7 +250,8 @@ in 10).
 an assumed airspeed for that correction: `SCALING_SPEED` at 45%
 throttle, about 0.6 times that at idle and 1.5 times at full throttle,
 the same model that scales the gains by throttle. Set `SCALING_SPEED`
-to the model's cruise speed in m/s (default 15). A value that is too
+to the model's cruise speed in m/s (default 15), with Cruise speed in
+the transmitter menu (6 Tuning, Speeds). A value that is too
 low leaves some of the drift, so the nose drops in a long turn; one
 that is too high makes the plane climb in the turn. The assumed
 airspeed is used from one second of armed throttle above 30% until the
@@ -364,7 +388,7 @@ With a u-blox GPS on SERIAL1:
 ## 10. Transmitter setup menu
 
 The firmware serves a setup menu over CRSF. On an ELRS radio open the
-ExpressLRS Lua script, go to Other Devices and select Gyro; on TBS
+ExpressLRS Lua script, go to Other Devices and select Stabilization; on TBS
 radios use Agent Lite. No script needs to be installed on the flight
 controller.
 
@@ -386,23 +410,36 @@ from any folder, including from a channel inside 4 Outputs.
 | 3 Flight modes | Check mode switch; Low, Middle and High positions: MANUAL, ACRO, FBWA or AUTOTUNE |
 | 4 Outputs | Wing type; Copy stick trims; Channel 1 to 8 (servo outputs), each with Function, Min, Trim, Max, Reversed |
 | 5 Failsafe | Link loss (FBWA glide or RTL if GPS), RTL altitude |
-| 6 Tuning | Gain knob min and max, ACRO roll and pitch rates, FBWA bank and pitch limits, Autotune level |
+| 6 Tuning | Gain knob min and max, FBWA bank and pitch limits, Autotune level; four folders: Speeds (see below), Roll gains and Pitch gains (FF, P, I, D: `RLL_RATE_*`, `PTCH_RATE_*`; and the ACRO roll or pitch rate), Yaw gains (Yaw damper `YAW2SRV_DAMP`, Rudder mix `KFF_RDDRMIX`). Speeds: Cruise speed (writes `SCALING_SPEED` and `AIRSPEED_CRUISE`), Min speed (`AIRSPEED_MIN`), Max speed (`AIRSPEED_MAX`), in m/s |
 | Tools | Firmware version, Reset to defaults; a hidden Menu version |
 
 Commands (the entries that start something) open a popup on the radio.
 They all need the arm switch off and answer "Disarm first" otherwise.
 Each ends with a result the pilot dismisses with OK; Exit cancels.
 
-While a command is open the plane refuses to arm (`Gyro: setup step
+While a command is open the plane refuses to arm (`StabRX: setup step
 open on radio`): the sticks and switches are being moved to learn them,
 not to fly. A command the radio stops asking about (the script was
 closed, the radio switched off) ends by itself with `Timed out`, after
 10 seconds while it runs and after 2 minutes while it waits for OK, and
 undoes what was not confirmed.
 
-While armed, only the entries in 6 Tuning can be changed. Every other
+While armed, only the gains and limits in 6 Tuning can be changed. Every other
 entry answers with its value unchanged: an output or radio setting
 takes effect at once, and a wrong one in flight can lose the model.
+The speeds in 6 Tuning count as settings and are locked too: with a
+GPS, a new cruise speed rescales every gain.
+
+The three speeds stay in order: Min speed is kept below Cruise speed
+and Max speed above it, and a write outside that answers with the value
+kept. Cruise speed is the level-flight speed at about 45% throttle (see
+gain scaling); without a GPS it only sets the turn correction, and with
+one it also sets the speed the gains are tuned for, so set it before
+autotune. Min speed should be about 20% above the stall speed and Max
+speed a little below the level speed at full throttle; without a GPS
+only their middle is used, as the speed the pitch and yaw turn terms
+assume. `AIRSPEED_STALL` stays 0, so everything that would read it uses
+Min speed.
 
 - **Wing type** (under 4 Outputs, a setting rather than a command) sets the
   functions of output channels 1 to 4 as soon as it is changed, as every
@@ -490,7 +527,9 @@ The hidden Menu version entry under Tools tells a radio app with its own
 screens for this menu (Lofty PFD's Gyro Setup) which layout it is talking
 to. It is raised whenever an entry such an app relies on changes name,
 kind, place or meaning. Version 2: Wing type applies itself and Apply
-template is gone.
+template is gone. Version 3: 6 Tuning holds the folders Speeds, Roll
+gains, Pitch gains and Yaw gains (the 2026-11-14 build had the speeds
+in a 7 Speeds folder and a Yaw gain in 6 Tuning, and still said 2).
 
 ---
 
@@ -583,25 +622,31 @@ Standard ArduPlane parameters set by the defaults:
 |---|---|---|
 | ARMING_REQUIRE | 1 | Arm switch required; throttle at minimum PWM when disarmed |
 | ARMING_SKIPCHK | -65 | Skip all optional pre-arm checks except RC |
-| RC_OPTIONS | 4192 | RC check runs only its throttle-low part (bit 5 on, bit 6 skips roll/pitch/yaw); bit 12 marks a disarmed flight mode with a star in CRSF telemetry |
+| RC_OPTIONS | 4192 (SRX: 12640) | RC check runs only its throttle-low part (bit 5 on, bit 6 skips roll/pitch/yaw); bit 12 marks a disarmed flight mode with a star in CRSF telemetry; on the SRX bit 8 adds passthrough telemetry for scripts such as Lofty PFD and bit 13 is the 420 kbaud link to its ELRS receiver |
 | ARMING_RUDDER | 0 | No rudder-stick arming |
 | RC5_OPTION | 153 | Channel 5 arms and disarms |
 | FLTMODE_CH | 6 | Mode switch channel |
 | FLTMODE1..6 | 0,0,4,4,5,5 | MANUAL, ACRO, FBWA across a three-position switch |
 | RC7_OPTION | 4 | Channel 7 is the RTL switch |
-| SERIAL3_PROTOCOL / SERIAL6_PROTOCOL | 23 | CRSF receiver on the board's RC port (Kakute / Lucid) |
+| SERIAL3_PROTOCOL / SERIAL6_PROTOCOL | 23 | CRSF receiver on the board's RC port (Kakute / Lucid). The SRX hwdef sets SERIAL2 |
+| RSSI_TYPE | 3 (SRX only) | RSSI and link quality from the CRSF link statistics |
 | RC_PROTOCOLS | 512 | CRSF only |
 | AHRS_EKF_TYPE | 0 | DCM attitude estimation |
 | COMPASS_ENABLE | 0 | No compass |
 | ARSPD_TYPE | 0 | No airspeed sensor |
 | SERVO_AUTO_TRIM | 1 | Servo auto-trim in FBWA (needs a GPS fix) |
 | STICK_MIXING | 0 | No stick mixing in automatic modes |
+| FLIGHT_OPTIONS | 32 | Bit 5: ACRO uses the yaw damper and rudder mix on the rudder, as FBWA does (stock ACRO passes the rudder stick through). No effect on the damper while the Yaw damper gain is 0 |
+| KFF_RDDRMIX | 0.2 | Aileron to rudder mix in FBWA and ACRO (stock 0.5). It follows the aileron output, so the rudder also moves a little with the roll corrections |
+| YAW2SRV_DAMP | 0.1 | Yaw damper gain, the menu's Yaw damper in 6 Tuning, Yaw gains (stock 0). A gentle value: about 7% rudder at 30 deg/s of yaw at cruise, up to 2.8 times that at idle without a speed estimate. Not tuned by autotune; the gain knob scales it |
 | THR_FAILSAFE | 1 | RC failsafe enabled |
 | FS_SHORT_ACTN | 2 | Short failsafe: FBWA at zero throttle |
-| FS_SHORT_TIMEOUT | 1 | Seconds before the short failsafe |
+| RC_FS_TIMEOUT | 1 | Seconds without RC before the short failsafe |
 | FS_LONG_ACTN | 1 | Long failsafe: RTL (falls back to FBWA without home) |
 | FS_LONG_TIMEOUT | 5 | Seconds before the long failsafe |
 | FS_GCS_ENABL | 0 | No ground station failsafe |
+| PTCH_LIM_MAX_DEG | 35 | FBWA pitch up limit (stock 20) |
+| PTCH_LIM_MIN_DEG | -25 | FBWA pitch down limit (the stock value, set explicitly) |
 | ACRO_ROLL_RATE | 180 | deg/s at full roll stick |
 | ACRO_PITCH_RATE | 90 | deg/s at full pitch stick |
 | ACRO_LOCKING | 0 | No attitude locking in ACRO |
@@ -619,6 +664,7 @@ Source of the customization:
 | `libraries/AP_HAL_ChibiOS/hwdef/include/gyro.inc` | Feature profile. Include it after any base board hwdef to make a gyro build of that board. |
 | `libraries/AP_HAL_ChibiOS/hwdef/KakuteF4-Wing-gyro/` | Kakute variant: hwdef and defaults |
 | `libraries/AP_HAL_ChibiOS/hwdef/TBS_LUCID_H7_WING-gyro/` | Lucid H7 Wing variant, same layout |
+| `libraries/AP_HAL_ChibiOS/hwdef/LoftedAero-SRX-gyro/` | LoftedAero-SRX variant, same layout. The base board is `LoftedAero-SRX/` |
 | `ArduPlane/gyro.h`, `ArduPlane/gyro.cpp` | The gyro module: gain knob, logging gate, calibration requests, assumed airspeed, GYRO_ parameters |
 | `ArduPlane/gyro_menu.h`, `ArduPlane/gyro_menu.cpp` | The transmitter setup menu |
 | `ArduPlane/mode_rtl.cpp`, `ArduPlane/events.cpp` | RTL refused without home; failsafe falls back to FBWA |
@@ -673,6 +719,12 @@ add `--gps` to fit one.
 
 ## 16. Known limitations and untested items
 
+- **The LoftedAero-SRX gyro build has only had a bench check.** On
+  board 1 (2026-11-14) the LSM6DSV16X is found, the gyro defaults are in
+  effect and RELAY1_FUNCTION and RELAY2_FUNCTION read 0. The first boot
+  after the flash failed its gyro calibration (the board moved) and a
+  restart cleared it. The "Stabilization" menu on the transmitter is not
+  yet checked on that board.
 - **Not flight tested.** Everything above has been verified in the
   simulator only. Bench test on the Kakute first: surface directions in
   MANUAL, correct stabilization direction in FBWA when tilting the

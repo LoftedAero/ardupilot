@@ -34,7 +34,9 @@ Ground rules (decided 2026-09-14):
 - Keep dataflash logging. Drop OSD.
 - Powered planes only. No gliders, no quadplane.
 - Test hardware: Holybro KakuteF4-Wing (F405, 1 MB) and TBS Lucid H7
-  Wing (H743, 2 MB, added 2026-09-14). Custom board later.
+  Wing (H743, 2 MB, added 2026-09-14). The custom board is the
+  LoftedAero-SRX (F405, 1 MB, ELRS receiver on the board, added
+  2026-11-13).
 - Setup UX will eventually live in Loft GCS (separate repo, untouched for
   now) and, if flash allows, a lightweight transmitter Lua menu.
 
@@ -73,6 +75,37 @@ Files:
 Porting to a new board is two files: a hwdef that includes the base
 board and `gyro.inc`, and a defaults.parm. `TBS_LUCID_H7_WING-gyro` is
 the second such port (RC on SERIAL6, GPS on SERIAL2, SD-card logging).
+
+### Base moved to master of 2026-11-06, LoftedAero-SRX added (2026-11-13)
+
+The branch was rebased from master `104af030` (2026-01-31) onto
+`a485091a` (2026-11-06) plus the two commits that add the
+`LoftedAero-SRX` base board. The SRX IMU (LSM6DSV16X) has no driver on
+the old base. The tag `gyro-pre-rebase-2026-11-13` keeps the old branch.
+
+What the new base changed for the gyro code:
+
+- `AP_FW_Controller` already assumes the mid airspeed for the roll
+  axis when there is no estimate, so the gyro's own change of the roll
+  controller is gone. The yaw rate controller still needs it.
+- `RC_Channels::get_radio_in(chan)` and the `AP_GPS::` fix names are
+  gone; `gyro_menu.cpp` has a local `radio_in()` and uses
+  `AP_GPS_FixType`.
+- DCM reports no location until it has had a GPS position, so MAVLink
+  `VFR_HUD.alt` reads 0 with no GPS. The height above home
+  (`GLOBAL_POSITION_INT.relative_alt`, CRSF altitude) still comes from
+  the barometer. The flight tests read that.
+- `FS_SHORT_TIMEOUT` in the gyro defaults was never a parameter and was
+  ignored. The defaults now name `RC_FS_TIMEOUT`, with the same value
+  as its stock default.
+
+`LoftedAero-SRX-gyro` is the third port: the base board's hwdef and
+bootloader, `gyro.inc`, and the Kakute defaults with the receiver on
+SERIAL2 (set by the hwdef), `RC_OPTIONS 12640` (adds CRSF passthrough
+telemetry and the 420 kbaud ELRS link) and `RSSI_TYPE 3`. It keeps board ID 5999, the placeholder that
+the bootloader on board 1 accepts. No relay is assigned: GPIO 70 and 71
+are the ELRS receiver's EN and BOOT pins. Built, 609 KB of 983 KB; not
+yet run on a board.
 
 ## Phase 2: small source changes (done, builds clean)
 
@@ -305,9 +338,16 @@ Gyro (device top level)
 │   └─ RTL altitude         m                      (only with a GPS)
 ├─ 6 Tuning ▸
 │   ├─ Gain knob min / max
-│   ├─ ACRO roll / pitch rate
 │   ├─ FBWA bank / pitch limits
-│   └─ Autotune level
+│   ├─ Autotune level
+│   ├─ Speeds ▸             (locked while armed)
+│   │   ├─ Cruise speed     m/s  SCALING_SPEED + AIRSPEED_CRUISE
+│   │   ├─ Min speed        m/s  AIRSPEED_MIN, kept below cruise
+│   │   └─ Max speed        m/s  AIRSPEED_MAX, kept above cruise
+│   ├─ Roll gains ▸         FF, P, I, D (RLL_RATE_*), ACRO roll rate
+│   ├─ Pitch gains ▸        FF, P, I, D (PTCH_RATE_*), ACRO pitch rate
+│   └─ Yaw gains ▸          Yaw damper (YAW2SRV_DAMP, 0 = off; knob scales it),
+│                           Rudder mix (KFF_RDDRMIX)
 └─ Tools ▸
     ├─ Firmware             version, board          (info)
     └─ Reset to defaults    [Run]  confirm
@@ -413,3 +453,4 @@ Considered and not pursued:
 | Phase 2 (gyro module added) | 581 KB |
 | Phase 3 (scripting + CRSF menu + embedded Lua) | 725 KB |
 | Phase 3b (native C++ menu, scripting off) | 593 KB |
+| On master of 2026-11-06 | 601 KB |
