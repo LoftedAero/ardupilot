@@ -105,8 +105,10 @@ try:
                 if t == "HEARTBEAT" and r.get_srcComponent() == 1:
                     state["mode"] = mavutil.mode_string_v10(r)
                     state["armed"] = bool(r.base_mode & mavutil.mavlink.MAV_MODE_FLAG_SAFETY_ARMED)
-                elif t == "VFR_HUD":
-                    state["alt"] = r.alt
+                elif t == "GLOBAL_POSITION_INT":
+                    # the height above home from the barometer: with no GPS
+                    # position there is no absolute altitude (VFR_HUD reads 0)
+                    state["alt"] = r.relative_alt * 0.001
                 elif t == "SYSTEM_TIME":
                     state["boot_ms"] = r.time_boot_ms
                 elif t == "STATUSTEXT":
