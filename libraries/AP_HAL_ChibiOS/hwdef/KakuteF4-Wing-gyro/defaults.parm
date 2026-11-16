@@ -88,7 +88,7 @@ STICK_MIXING 0
 # --- Link loss: short = FBWA at zero throttle; long = RTL if home is set, else FBWA glide
 THR_FAILSAFE 1
 FS_SHORT_ACTN 2
-FS_SHORT_TIMEOUT 1
+RC_FS_TIMEOUT 1
 FS_LONG_ACTN 1
 FS_LONG_TIMEOUT 5
 FS_GCS_ENABL 0
