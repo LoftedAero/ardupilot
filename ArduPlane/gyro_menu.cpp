@@ -609,7 +609,7 @@ bool PlaneGyroMenu::build()
     // last, so adding it numbered no other entry differently
     add(m, Handler::MENU_VERSION, 0, "Menu version");
 
-    GCS_SEND_TEXT(MAV_SEVERITY_INFO, "Gyro: setup menu ready (%u entries)", unsigned(num_items));
+    GCS_SEND_TEXT(MAV_SEVERITY_INFO, "StabRX: setup menu ready (%u entries)", unsigned(num_items));
     return true;
 }
 
@@ -780,7 +780,7 @@ uint8_t PlaneGyroMenu::write(const Item &item, const uint8_t *payload, uint8_t l
     const bool tuning = item.handler == Handler::NUMBER && number_in_flight(item.arg);
     const bool locked = armed() && !tuning;
     if (locked) {
-        GCS_SEND_TEXT(MAV_SEVERITY_WARNING, "Gyro: disarm to change %s", item.name);
+        GCS_SEND_TEXT(MAV_SEVERITY_WARNING, "StabRX: disarm to change %s", item.name);
     }
 
     // number entries carry a 4 byte value
@@ -979,7 +979,7 @@ void PlaneGyroMenu::restore_trims()
         }
     }
     if (restored) {
-        GCS_SEND_TEXT(MAV_SEVERITY_INFO, "Gyro: trim copy undone");
+        GCS_SEND_TEXT(MAV_SEVERITY_INFO, "StabRX: trim copy undone");
     }
 }
 

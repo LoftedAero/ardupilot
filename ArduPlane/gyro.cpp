@@ -147,7 +147,7 @@ void PlaneGyro::update_calibration()
 
     bool ok = false;
     if (hal.util->get_soft_armed()) {
-        GCS_SEND_TEXT(MAV_SEVERITY_WARNING, "Gyro: disarm to calibrate");
+        GCS_SEND_TEXT(MAV_SEVERITY_WARNING, "StabRX: disarm to calibrate");
     } else {
         EXPECT_DELAY_MS(30000);
         plane.in_calibration = true;
@@ -157,7 +157,7 @@ void PlaneGyro::update_calibration()
             ok = AP::ins().simple_accel_cal() == MAV_RESULT_ACCEPTED;
         }
         plane.in_calibration = false;
-        GCS_SEND_TEXT(MAV_SEVERITY_INFO, "Gyro: %s calibration %s",
+        GCS_SEND_TEXT(MAV_SEVERITY_INFO, "StabRX: %s calibration %s",
                       req == 1 ? "gyro" : "level", ok ? "done" : "failed");
     }
     cal_request.set(ok ? 0 : -1);
