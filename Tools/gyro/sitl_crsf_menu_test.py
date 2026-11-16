@@ -137,7 +137,7 @@ try:
         raise KeyError(name)
 
     version = entries.get(find("Menu version", "Tools"), {})
-    check("the menu version is hidden in Tools", version.get("hidden") and version.get("shown") == "2",
+    check("the menu version is hidden in Tools", version.get("hidden") and version.get("shown") == "3",
           version)
 
     def command(pid, action):
@@ -180,6 +180,65 @@ try:
     c.write_entry(roll_rate, struct.pack(">i", 5000))
     check("number write clamps to max", get_param("ACRO_ROLL_RATE") == 500, get_param("ACRO_ROLL_RATE"))
     c.write_entry(roll_rate, struct.pack(">i", 180))
+
+    too_precise = [e["name"] for e in entries.values() if e["type"] == "FLOAT" and e.get("decimals", 0) > 3]
+    check("no number has more than 3 decimals (ExpressLRS limit)", not too_precise, too_precise)
+
+    # 3a. 6 Tuning holds the gain and speed folders
+    tuning_id = find("6 Tuning")
+    tuning_folders = [e["name"] for pid, e in sorted(entries.items())
+                      if e["parent"] == tuning_id and e["type"] == "FOLDER"]
+    check("6 Tuning holds the gain and speed folders",
+          tuning_folders == ["Speeds", "Roll gains", "Pitch gains", "Yaw gains"], tuning_folders)
+    for folder, prefix, axis in (("Roll gains", "RLL", "roll"), ("Pitch gains", "PTCH", "pitch")):
+        names = [e["name"] for pid, e in sorted(entries.items()) if e["parent"] == find(folder)]
+        check("%s holds FF, P, I, D and the ACRO rate" % folder,
+              names == ["FF", "P", "I", "D", "ACRO %s rate" % axis], names)
+        names = names[:4]
+        gains0 = {n: get_param("%s_RATE_%s" % (prefix, n)) for n in names}
+        c.write_entry(find("P", folder), struct.pack(">i", 120))
+        c.write_entry(find("I", folder), struct.pack(">i", 205))
+        c.write_entry(find("D", folder), struct.pack(">i", 4))
+        c.write_entry(find("FF", folder), struct.pack(">i", 410))
+        got = {n: get_param("%s_RATE_%s" % (prefix, n)) for n in names}
+        check("%s write FF 0.41, P 0.12, I 0.205, D 0.004" % folder,
+              all(abs(got[n] - v) < 1e-5 for n, v in (("FF", 0.41), ("P", 0.12), ("I", 0.205), ("D", 0.004))), got)
+        for n, v in gains0.items():
+            set_param("%s_RATE_%s" % (prefix, n), v)
+
+    # 3b. Yaw gains: the yaw damper gain and the rudder mix, with two decimals
+    yaw_gain = find("Yaw damper", "Yaw gains")
+    c.write_entry(yaw_gain, struct.pack(">i", 35))
+    check("yaw damper 0.35 sets YAW2SRV_DAMP", abs(get_param("YAW2SRV_DAMP") - 0.35) < 1e-4, get_param("YAW2SRV_DAMP"))
+    c.write_entry(yaw_gain, struct.pack(">i", 0))
+    check("yaw damper 0 turns the damper off", get_param("YAW2SRV_DAMP") == 0, get_param("YAW2SRV_DAMP"))
+    mix0 = get_param("KFF_RDDRMIX")
+    c.write_entry(find("Rudder mix", "Yaw gains"), struct.pack(">i", 30))
+    check("rudder mix 0.30 sets KFF_RDDRMIX", abs(get_param("KFF_RDDRMIX") - 0.3) < 1e-4, get_param("KFF_RDDRMIX"))
+    set_param("KFF_RDDRMIX", mix0)
+
+    # 3c. speeds: cruise writes two parameters; min < cruise < max is kept
+    cruise = find("Cruise speed", "Speeds")
+    min_speed = find("Min speed", "Speeds")
+    max_speed = find("Max speed", "Speeds")
+    speeds0 = [get_param(n) for n in ("SCALING_SPEED", "AIRSPEED_CRUISE", "AIRSPEED_MIN", "AIRSPEED_MAX")]
+    c.write_entry(cruise, struct.pack(">i", 17))
+    check("cruise speed sets SCALING_SPEED and AIRSPEED_CRUISE",
+          get_param("SCALING_SPEED") == 17 and get_param("AIRSPEED_CRUISE") == 17,
+          (get_param("SCALING_SPEED"), get_param("AIRSPEED_CRUISE")))
+    c.write_entry(min_speed, struct.pack(">i", 11))
+    c.write_entry(max_speed, struct.pack(">i", 30))
+    check("min and max speed set", get_param("AIRSPEED_MIN") == 11 and get_param("AIRSPEED_MAX") == 30,
+          (get_param("AIRSPEED_MIN"), get_param("AIRSPEED_MAX")))
+    c.write_entry(min_speed, struct.pack(">i", 25))
+    check("min speed stays below cruise", get_param("AIRSPEED_MIN") == 16, get_param("AIRSPEED_MIN"))
+    c.write_entry(max_speed, struct.pack(">i", 10))
+    check("max speed stays above cruise", get_param("AIRSPEED_MAX") == 18, get_param("AIRSPEED_MAX"))
+    c.write_entry(cruise, struct.pack(">i", 40))
+    check("cruise speed stays below max", get_param("SCALING_SPEED") == 17 and get_param("AIRSPEED_CRUISE") == 17,
+          (get_param("SCALING_SPEED"), get_param("AIRSPEED_CRUISE")))
+    for name, value in zip(("SCALING_SPEED", "AIRSPEED_CRUISE", "AIRSPEED_MIN", "AIRSPEED_MAX"), speeds0):
+        set_param(name, value)
 
     # 4. mode position: Low -> FBWA sets FLTMODE1 and 2
     low = find("Low")
@@ -440,13 +499,27 @@ try:
     c.write_entry(out1_trim, list(struct.pack(">i", int(trim0) + 20)))
     time.sleep(0.5)
     check("output trim refused while armed", get_param("SERVO1_TRIM") == trim0, get_param("SERVO1_TRIM"))
-    acro_roll = find("ACRO roll rate", "6 Tuning")
+    acro_roll = find("ACRO roll rate", "Roll gains")
     rate0 = get_param("ACRO_ROLL_RATE")
     c.write_entry(acro_roll, list(struct.pack(">i", int(rate0) + 10)))
     time.sleep(0.5)
     check("tuning number accepted while armed", get_param("ACRO_ROLL_RATE") == rate0 + 10,
           get_param("ACRO_ROLL_RATE"))
     c.write_entry(acro_roll, list(struct.pack(">i", int(rate0))))
+    c.write_entry(yaw_gain, list(struct.pack(">i", 20)))
+    time.sleep(0.5)
+    check("yaw damper accepted while armed", abs(get_param("YAW2SRV_DAMP") - 0.2) < 1e-4, get_param("YAW2SRV_DAMP"))
+    c.write_entry(yaw_gain, list(struct.pack(">i", 0)))
+    roll_p = find("P", "Roll gains")
+    p0 = get_param("RLL_RATE_P")
+    c.write_entry(roll_p, list(struct.pack(">i", 100)))
+    time.sleep(0.5)
+    check("roll P accepted while armed", abs(get_param("RLL_RATE_P") - 0.1) < 1e-5, get_param("RLL_RATE_P"))
+    set_param("RLL_RATE_P", p0)
+    speed0 = get_param("SCALING_SPEED")
+    c.write_entry(cruise, list(struct.pack(">i", int(speed0) + 2)))
+    time.sleep(0.5)
+    check("speed refused while armed", get_param("SCALING_SPEED") == speed0, get_param("SCALING_SPEED"))
     c.channels[4] = 988
     time.sleep(2)
     check("disarmed via ch5", is_armed() is False)

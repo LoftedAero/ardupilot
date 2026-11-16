@@ -266,9 +266,11 @@ end
                 sel = self.selected()
                 if sel is not None and label in sel:
                     return True
-                before = sel
+                # compare the whole screen: two entries in a row can show
+                # the same value (ACRO roll and pitch rate both 180d/s)
+                before = self.text()
                 self.press(key, settle=0.15)
-                if self.selected() == before:
+                if self.text() == before:
                     break       # reached the end of the list
         return False
 

@@ -154,8 +154,8 @@ codes = dict(kv.split("=") for kv in probe[0].split()[1:]) if probe else {}
 detail = probe[0] if probe else "no PROBE message (vehicle stalled?)"
 check("gyro calibration done", codes.get("gyro") == "0", detail)
 check("level calibration done", codes.get("level") == "0", detail)
-check("calibration texts sent", any("Gyro: gyro calibration done" in t for t in texts)
-      and any("Gyro: level calibration done" in t for t in texts))
+check("calibration texts sent", any("StabRX: gyro calibration done" in t for t in texts)
+      and any("StabRX: level calibration done" in t for t in texts))
 check("no heartbeat gap over 3 s", max_hb_gap < 3.0, f"longest gap {max_hb_gap:.1f} s")
 errors = lua_errors(texts)
 check("no Lua errors (calibration run)", not errors, "; ".join(errors))

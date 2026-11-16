@@ -162,10 +162,10 @@ try:
     open_entry("Other Devices")
     sim.idle(1)
     shot("other_devices")
-    check("device listed as Gyro", sim.contains("[Gyro]"), sim.text())
+    check("device listed as Stabilization", sim.contains("[Stabilization]"), sim.text())
 
     # 2. open the device: Status and the folders are its top level
-    open_entry("Gyro")
+    open_entry("Stabilization")
     # entries arrive one by one; the last top-level folder is Tools
     check("all folders load", sim.wait_for("Tools", 60))
     shot("top_level")
@@ -177,11 +177,16 @@ try:
     # 3. edit a number: ACRO roll rate, one step up and back
     open_entry("6 Tuning")
     shot("tuning")
+    # the roll gains folder inside 6 Tuning holds FF, P, I, D and the ACRO roll rate
+    open_entry("Roll gains")
+    shot("roll_gains")
+    check("roll gains show FF, P, I, D and the ACRO rate",
+          all(sim.contains(n) for n in ("FF", "P", "I", "D", "ACRO roll rate")), sim.text())
     before = get_param("ACRO_ROLL_RATE")
-    sim.select("d/s")               # ACRO roll rate is the first d/s value
+    sim.select("d/s")               # ACRO roll rate is the only d/s value here
     sim.press("enter")              # edit
     sim.press("next")               # one step up
-    shot("tuning_editing")
+    shot("roll_rate_editing")
     sim.press("enter")              # save
     sim.idle(1)
     after = get_param("ACRO_ROLL_RATE")
@@ -191,7 +196,7 @@ try:
     sim.press("enter")
     sim.idle(1)
     check("number edit back", get_param("ACRO_ROLL_RATE") == before)
-    check("back returns to the folders", back(), sim.text())
+    check("back from Roll gains returns to the folders", back(), sim.text())
 
     # 4. edit a selection: Channel 5 function None -> Aileron and back
     open_entry("4 Outputs")

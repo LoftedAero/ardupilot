@@ -197,6 +197,7 @@ def parse_entry(param_id, data):
     elif ftype == 8:
         value, vmin, vmax, vdef = struct.unpack(">iiii", data[off:off + 16])
         dec = data[off + 16]
+        e["decimals"] = dec
         e["value"] = value / (10 ** dec)
         e["shown"] = "%g" % e["value"]
         e["min"], e["max"] = vmin / (10 ** dec), vmax / (10 ** dec)
