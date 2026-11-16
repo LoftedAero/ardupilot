@@ -62,7 +62,7 @@ define HAL_CRSF_TELEM_TEXT_SELECTION_ENABLED 1
 define AP_CRSF_SCRIPTING_ENABLED 1
 # Name radios show for the flight controller (ELRS Lua header and
 # Other Devices list) instead of the firmware version string.
-define AP_CRSF_DEVICE_NAME "Gyro"
+define AP_CRSF_DEVICE_NAME "Stabilization"
 
 # --- Keep ------------------------------------------------------------
 # Logging stays on for autotune review (board must provide a
