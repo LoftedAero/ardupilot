@@ -18,6 +18,9 @@ define HAL_STORAGE_SIZE 15360
 # TODO: request a board ID from ArduPilot (Tools/AP_Bootloader/board_types.txt)
 APJ_BOARD_ID 5999
 
+# name shown by the host for the USB device (both ArduPilot and StabRX builds)
+USB_STRING_PRODUCT "Lofted Aero F405-SRX"
+
 # TIM5 is the 32-bit system timer (its pins PA0-PA3 are used by USART2)
 define STM32_ST_USE_TIMER 5
 define CH_CFG_ST_RESOLUTION 32
