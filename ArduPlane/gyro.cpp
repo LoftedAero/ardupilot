@@ -40,7 +40,7 @@ const AP_Param::GroupInfo PlaneGyro::var_info[] = {
 
     // @Param: CAL
     // @DisplayName: Gyro calibration request
-    // @Description: Used by the transmitter setup menu. Set to 1 to calibrate the gyros, or 2 to calibrate level (simple accelerometer calibration with the model held at its level flight attitude). The calibration runs on the main thread, only while disarmed, like a ground station calibration. The value reads back 0 when the calibration succeeded and -1 when it failed or was refused. It is reset to 0 at boot.
+    // @Description: Used by the transmitter setup menu. Set to 1 to calibrate the gyros, or 2 to calibrate level (the AHRS trim, as a ground station's level calibration, with the model held at its level flight attitude). The calibration runs on the main thread, only while disarmed, like a ground station calibration. The value reads back 0 when the calibration succeeded and -1 when it failed or was refused. It is reset to 0 at boot.
     // @Values: -1:Last calibration failed,0:Idle,1:Calibrate gyros,2:Calibrate level
     // @User: Advanced
     AP_GROUPINFO("CAL", 6, PlaneGyro, cal_request, 0),
@@ -154,7 +154,8 @@ void PlaneGyro::update_calibration()
         if (req == 1) {
             ok = AP::ins().calibrate_gyros();
         } else {
-            ok = AP::ins().simple_accel_cal() == MAV_RESULT_ACCEPTED;
+            // the trim only: it keeps the 6-position accelerometer calibration
+            ok = AP::ins().calibrate_trim() == MAV_RESULT_ACCEPTED;
         }
         plane.in_calibration = false;
         GCS_SEND_TEXT(MAV_SEVERITY_INFO, "StabRX: %s calibration %s",

@@ -202,6 +202,27 @@ const StickStep stick_steps[] = {
 };
 const char stick_letters[] = {'A', 'E', 'R', 'T'};
 
+#if HAL_INS_ACCELCAL_ENABLED
+// the accel calibration poses, in AP_AccelCal's order
+const char *const accel_cal_poses[] = {
+    "level", "LEFT wing down", "RIGHT wing down", "nose DOWN", "nose UP", "upside down",
+};
+
+// receives the accel calibration's result; it calibrates nothing itself
+class AccelCalResult : public AP_AccelCal_Client {
+public:
+    enum class Result : uint8_t { NONE, SUCCESS, FAILED, CANCELLED };
+    Result result;
+private:
+    AccelCalibrator *_acal_get_calibrator(uint8_t) override { return nullptr; }
+    void _acal_save_calibrations() override {}
+    void _acal_event_success() override { result = Result::SUCCESS; }
+    void _acal_event_cancellation() override { result = Result::CANCELLED; }
+    void _acal_event_failure() override { result = Result::FAILED; }
+};
+AccelCalResult accel_cal_result;
+#endif
+
 // control surface outputs: the ones a trim copy sets
 bool is_surface(SRV_Channel::Function f)
 {
@@ -566,6 +587,9 @@ bool PlaneGyroMenu::build()
     AP_CRSF_Telem::ScriptedMenu *m = submenu(root, "1 Calibration");
     add(m, Handler::ORIENT, 0, "Orientation");
     add(m, Handler::ORIENT_DETECT, 0, "Detect orientation");
+#if HAL_INS_ACCELCAL_ENABLED
+    add(m, Handler::CAL_ACCEL, 0, "Calibrate accel");
+#endif
     add(m, Handler::CAL_LEVEL, 0, "Calibrate level");
     add(m, Handler::CAL_GYRO, 0, "Calibrate gyros");
 
@@ -751,6 +775,7 @@ uint8_t PlaneGyroMenu::pack(const Item &item, uint8_t *buf, uint8_t size)
     }
     case Handler::TRIM_COPY:
     case Handler::ORIENT_DETECT:
+    case Handler::CAL_ACCEL:
     case Handler::CAL_LEVEL:
     case Handler::CAL_GYRO:
     case Handler::LEARN_STICKS:
@@ -791,6 +816,7 @@ uint8_t PlaneGyroMenu::write(const Item &item, const uint8_t *payload, uint8_t l
     switch (item.handler) {
     case Handler::TRIM_COPY:
     case Handler::ORIENT_DETECT:
+    case Handler::CAL_ACCEL:
     case Handler::CAL_LEVEL:
     case Handler::CAL_GYRO:
     case Handler::LEARN_STICKS:
@@ -1028,6 +1054,88 @@ void PlaneGyroMenu::restore_trims()
     }
 }
 
+void PlaneGyroMenu::abandon()
+{
+    restore_trims();
+#if HAL_INS_ACCELCAL_ENABLED
+    if (cmd.stage == Stage::ACAL_POSE || cmd.stage == Stage::ACAL_SAMPLE) {
+        AP_AccelCal *acal = AP::ins().get_acal();
+        if (acal != nullptr && acal->running()) {
+            // ends with the offsets as they were
+            acal->cancel();
+        }
+    }
+#endif
+}
+
+#if HAL_INS_ACCELCAL_ENABLED
+void PlaneGyroMenu::accel_cal_pose_prompt()
+{
+    command_prompt(CMD_CONFIRMATION_NEEDED, "Pose %u/6: %s, then OK", unsigned(cmd.step + 1),
+                   accel_cal_poses[cmd.step]);
+    if (!text_fits()) {
+        command_prompt(CMD_CONFIRMATION_NEEDED, "%u/6: %s, OK", unsigned(cmd.step + 1),
+                       accel_cal_poses[cmd.step]);
+    }
+}
+
+/*
+  the accel calibration runs in the main loop (AP_Vehicle's
+  accel_cal_update). Pass it each pose the pilot confirms, as a ground
+  station does with MAV_CMD_ACCELCAL_VEHICLE_POS, and show its progress.
+ */
+void PlaneGyroMenu::accel_cal_update()
+{
+    AP_AccelCal *acal = AP::ins().get_acal();
+    if (acal == nullptr) {
+        return;
+    }
+    switch (accel_cal_result.result) {
+    case AccelCalResult::Result::SUCCESS:
+        // the new offsets apply after a restart (stock pre-arm check)
+        GCS_SEND_TEXT(MAV_SEVERITY_INFO, "StabRX: accel calibration done, restarting");
+        reboot_at_ms = AP_HAL::millis() + 1500;
+        command_finish("Done, restarting");
+        return;
+    case AccelCalResult::Result::FAILED:
+        command_finish("Failed: hold each pose still");
+        return;
+    case AccelCalResult::Result::CANCELLED:
+        command_finish("Cancelled");
+        return;
+    case AccelCalResult::Result::NONE:
+        break;
+    }
+    if (cmd.stage != Stage::ACAL_SAMPLE) {
+        return;
+    }
+    if (!cmd.acal_accepted) {
+        // refused until the calibration is ready for this pose
+        cmd.acal_accepted = acal->gcs_vehicle_position(cmd.step + 1);
+        if (!cmd.acal_accepted && AP_HAL::millis() - cmd.acal_ms > 5000) {
+            if (acal->running()) {
+                acal->cancel();
+            }
+            command_finish("Not ready, try again");
+        }
+        return;
+    }
+    const accel_cal_status_t status = acal->get_status();
+    if (status == ACCEL_CAL_COLLECTING_SAMPLE) {
+        cmd.acal_sampling = true;
+    } else if (status == ACCEL_CAL_WAITING_FOR_ORIENTATION && cmd.acal_sampling) {
+        cmd.step++;
+        if (cmd.step < ARRAY_SIZE(accel_cal_poses)) {
+            cmd.stage = Stage::ACAL_POSE;
+            accel_cal_pose_prompt();
+        }
+    } else if (cmd.acal_sampling && cmd.step + 1U >= ARRAY_SIZE(accel_cal_poses)) {
+        // all poses taken: the fit and the save follow
+        command_prompt(CMD_PROGRESS, "Calculating");
+    }
+}
+#endif
+
 const RC_Channel *PlaneGyroMenu::stick_off_centre(int16_t percent)
 {
     // raw values: a trim inside the stick dead zone still moves the
@@ -1043,7 +1151,7 @@ const RC_Channel *PlaneGyroMenu::stick_off_centre(int16_t percent)
 
 void PlaneGyroMenu::command_cancel()
 {
-    restore_trims();
+    abandon();
     command_close();
 }
 
@@ -1051,7 +1159,7 @@ void PlaneGyroMenu::command_start(uint8_t index)
 {
     // abandon whatever was open before
     if (cmd.item >= 0 && cmd.stage != Stage::DONE) {
-        restore_trims();
+        abandon();
     }
     cmd = {};
     cmd.item = index;
@@ -1091,6 +1199,18 @@ void PlaneGyroMenu::command_start(uint8_t index)
         cmd.stage = Stage::ORIENT_LEVEL;
         command_prompt(CMD_CONFIRMATION_NEEDED, "Hold model level, nose forward");
         break;
+#if HAL_INS_ACCELCAL_ENABLED
+    case Handler::CAL_ACCEL:
+        if (AP::ins().get_acal() != nullptr && AP::ins().get_acal()->running()) {
+            command_finish("Already running from a GCS");
+            return;
+        }
+        // forget the result of an earlier run
+        accel_cal_result.result = AccelCalResult::Result::NONE;
+        cmd.stage = Stage::ACAL_POSE;
+        accel_cal_pose_prompt();
+        break;
+#endif
     case Handler::CAL_LEVEL:
         cmd.stage = Stage::CONFIRM;
         command_prompt(CMD_CONFIRMATION_NEEDED, "Hold model at level attitude");
@@ -1306,7 +1426,7 @@ void PlaneGyroMenu::command_confirm()
         return;
     }
     if (armed()) {
-        restore_trims();
+        abandon();
         command_finish("Disarm first");
         return;
     }
@@ -1363,6 +1483,30 @@ void PlaneGyroMenu::command_confirm()
             break;
         }
         break;
+
+#if HAL_INS_ACCELCAL_ENABLED
+    case Stage::ACAL_POSE: {
+        if (cmd.step == 0) {
+            // the stock calibration, as a ground station starts it. Its
+            // own messages and pose requests go to the first MAVLink port
+            GCS_MAVLINK *link = gcs().chan(0);
+            AP::ins().acal_init();
+            AP_AccelCal *acal = AP::ins().get_acal();
+            if (link == nullptr || acal == nullptr) {
+                command_finish("Not available");
+                break;
+            }
+            AP_AccelCal::register_client(&accel_cal_result);
+            acal->start(link, 0, 0);
+        }
+        cmd.acal_accepted = false;
+        cmd.acal_sampling = false;
+        cmd.acal_ms = AP_HAL::millis();
+        cmd.stage = Stage::ACAL_SAMPLE;
+        command_prompt(CMD_PROGRESS, "Hold still");
+        break;
+    }
+#endif
 
     case Stage::ORIENT_LEVEL: {
         Vector3f a = AP::ins().get_accel();
@@ -1689,7 +1833,7 @@ void PlaneGyroMenu::command_watchdog()
     }
     const uint32_t limit = cmd.status == CMD_PROGRESS ? ABANDON_PROGRESS_MS : ABANDON_CONFIRM_MS;
     if (now - cmd.request_ms > limit) {
-        restore_trims();
+        abandon();
         command_finish("Timed out");
     }
 }
@@ -1718,6 +1862,12 @@ void PlaneGyroMenu::update()
     if (cmd.stage == Stage::STICK_STEP) {
         learn_sticks_step();
     }
+
+#if HAL_INS_ACCELCAL_ENABLED
+    if (cmd.stage == Stage::ACAL_POSE || cmd.stage == Stage::ACAL_SAMPLE) {
+        accel_cal_update();
+    }
+#endif
 
     process_requests();
     command_watchdog();

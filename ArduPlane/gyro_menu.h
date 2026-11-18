@@ -44,7 +44,8 @@ private:
         TRIM_COPY,      // command: copy transmitter trims into the servo trims
         ORIENT,         // select: AHRS_ORIENTATION
         ORIENT_DETECT,  // command: detect orientation (level, then nose up)
-        CAL_LEVEL,      // command: level (simple accel) calibration
+        CAL_ACCEL,      // command: 6-position accelerometer calibration
+        CAL_LEVEL,      // command: level calibration (AHRS trim)
         CAL_GYRO,       // command: gyro calibration
         LEARN_STICKS,   // command: learn stick channels and directions
         AUX_CH,         // select: channel of a switch function (arg = AuxFunc)
@@ -84,6 +85,8 @@ private:
         NONE,
         CONFIRM,            // waiting for OK on a confirmation prompt
         CAL_RUNNING,        // calibration requested, waiting for result
+        ACAL_POSE,          // accel calibration: waiting for OK with the model in pose step + 1
+        ACAL_SAMPLE,        // accel calibration: sampling pose step + 1, then the fit after the last
         ORIENT_LEVEL,       // waiting for OK with the model level
         ORIENT_NOSE_UP,     // waiting for OK with the nose raised
         STICK_CENTER,       // waiting for OK with sticks and trims centred
@@ -129,6 +132,10 @@ private:
         uint16_t knob_low;          // gain knob value at its low gain end
         // orientation detection
         Vector3f level_accel;
+        // accel calibration: the pose was accepted, and its sampling seen
+        bool acal_accepted;
+        bool acal_sampling;
+        uint32_t acal_ms;           // when the pilot confirmed the pose
         // trim copy: servo trims before the copy, 0 where not changed. The
         // copied trims are in use but not stored until the last OK
         uint16_t saved_trim[NUM_OUTPUTS];
@@ -170,6 +177,11 @@ private:
     void mode_watch_prompt();
     // undo a trim copy that was not confirmed
     void restore_trims();
+    // undo what an abandoned command has not confirmed
+    void abandon();
+    // move the accel calibration on through its poses
+    void accel_cal_update();
+    void accel_cal_pose_prompt();
     // end a command the radio no longer asks about
     void command_watchdog();
     // first stick (roll, pitch, yaw) further from centre than percent, or nullptr
