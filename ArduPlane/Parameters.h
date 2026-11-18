@@ -597,7 +597,7 @@ public:
 #endif
 
 #if AP_PLANE_GYRO_ENABLED
-    // gyro-style helpers (gain knob, logging gate)
+    // gyro-style helpers (gain knob, turn correction, setup menu)
     PlaneGyro gyro;
 #endif
 };

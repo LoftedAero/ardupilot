@@ -1463,7 +1463,7 @@ void PlaneGyroMenu::command_confirm()
             break;
         }
         case Handler::CAL_LEVEL:
-            plane.g2.gyro.request_calibration(2);
+            plane.g2.gyro.request_level_calibration();
             cmd.stage = Stage::CAL_RUNNING;
             command_prompt(CMD_PROGRESS, "Calibrating, hold still");
             break;
@@ -1710,10 +1710,10 @@ void PlaneGyroMenu::command_poll()
 
     switch (cmd.stage) {
     case Stage::CAL_RUNNING: {
-        const int8_t state = plane.g2.gyro.calibration_state();
-        if (state == 0) {
+        const PlaneGyro::LevelCalState state = plane.g2.gyro.level_calibration_state();
+        if (state == PlaneGyro::LEVEL_CAL_DONE) {
             command_finish("Calibration done");
-        } else if (state < 0) {
+        } else if (state == PlaneGyro::LEVEL_CAL_FAILED) {
             command_finish("Calibration failed");
         }
         break;
@@ -1816,7 +1816,7 @@ void PlaneGyroMenu::command_watchdog()
         return;
     }
     const uint32_t now = AP_HAL::millis();
-    if (cmd.stage == Stage::CAL_RUNNING && plane.g2.gyro.calibration_state() > 0) {
+    if (cmd.stage == Stage::CAL_RUNNING && plane.g2.gyro.level_calibration_state() == PlaneGyro::LEVEL_CAL_PENDING) {
         // the calibration blocks the main loop, and with it our answers
         cmd.request_ms = now;
         return;

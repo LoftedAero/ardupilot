@@ -2,22 +2,20 @@
 
 /*
   "Gyro" behaviours that make ArduPlane act like a consumer RC gyro
-  (AS3X / SAFE style) for pilots who never arm and never open a ground
-  station:
+  (AS3X / SAFE style) for pilots who set it up from the transmitter
+  and never open a ground station:
 
    - a transmitter master gain knob that scales the roll, pitch and yaw
      rate controllers (P and D, and the I build-up rate; feedforward is
      untouched)
-   - a throttle based logging gate for vehicles with ARMING_REQUIRE 0,
-     which otherwise log continuously from boot
-   - a calibration request parameter (GYRO_CAL) so gyro and level
-     calibration run on the main thread when requested from a menu
+   - the level calibration the menu requests, run on the next update
+     so the menu can answer the radio first
    - an assumed airspeed for the attitude estimate's turn correction
      when the model flies with no GPS and no airspeed sensor
    - the transmitter setup menu over CRSF (gyro_menu.cpp)
 
-  Everything is off by default; stock ArduPlane behaviour is unchanged
-  until a GYRO_ parameter enables it.
+  The knob and the turn correction are off until their GYRO_ parameter
+  is set. The menu runs when a CRSF receiver is connected.
  */
 
 #include <AP_Common/AP_Common.h>
@@ -43,15 +41,16 @@ public:
     // scheduler task, 10Hz
     void update();
 
-    // true when the logger should treat the vehicle as armed
-    bool logging_allowed() const { return log_allowed; }
-
     float get_gain_scale() const { return gain_scale; }
 
-    // calibration requests (GYRO_CAL): 1 gyros, 2 level. The state reads
-    // back the request while pending, 0 when done and -1 when it failed
-    void request_calibration(int8_t type) { cal_request.set(type); }
-    int8_t calibration_state() const { return cal_request.get(); }
+    // level calibration (AHRS trim) requested by the menu
+    enum LevelCalState : int8_t {
+        LEVEL_CAL_FAILED = -1,
+        LEVEL_CAL_DONE = 0,
+        LEVEL_CAL_PENDING = 1,
+    };
+    void request_level_calibration() { level_cal_state = LEVEL_CAL_PENDING; }
+    LevelCalState level_calibration_state() const { return level_cal_state; }
 
 #if AP_PLANE_GYRO_MENU_ENABLED
     // scheduler task, 50Hz: transmitter setup menu over CRSF
@@ -66,14 +65,10 @@ private:
     AP_Int8 gain_ch;
     AP_Float gain_min;
     AP_Float gain_max;
-    AP_Int8 log_thr;
-    AP_Int8 cal_request;
     AP_Int8 turn_corr;
 
     float gain_scale = 1.0f;
-    bool log_allowed = false;   // never let the logger see "armed" before the first update()
-    uint32_t last_thr_high_ms;
-    bool cal_request_cleared;
+    LevelCalState level_cal_state;
 
     // assumed airspeed: the model counts as airborne from a second of
     // armed throttle until it is disarmed and still
@@ -86,7 +81,6 @@ private:
 #endif
 
     void update_gain_scale();
-    void update_logging_gate(uint32_t now_ms);
     void update_calibration();
     void update_assumed_airspeed(uint32_t now_ms);
     void write_log();

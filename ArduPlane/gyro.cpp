@@ -30,20 +30,8 @@ const AP_Param::GroupInfo PlaneGyro::var_info[] = {
 
     // index 4 was TRIM_CAP (trim capture, removed): do not reuse
 
-    // @Param: LOG_THR
-    // @DisplayName: Gyro logging throttle threshold
-    // @Description: Only used when ARMING_REQUIRE is 0, where the vehicle counts as armed from boot and would otherwise log continuously. Logging is treated as armed while the throttle output is at or above this percentage, for 60 seconds after it last was, or while the vehicle is detected as flying. 0 disables the gate and logs from boot.
-    // @Range: 0 100
-    // @Units: %
-    // @User: Standard
-    AP_GROUPINFO("LOG_THR", 5, PlaneGyro, log_thr, 0),
-
-    // @Param: CAL
-    // @DisplayName: Gyro calibration request
-    // @Description: Used by the transmitter setup menu. Set to 1 to calibrate the gyros, or 2 to calibrate level (the AHRS trim, as a ground station's level calibration, with the model held at its level flight attitude). The calibration runs on the main thread, only while disarmed, like a ground station calibration. The value reads back 0 when the calibration succeeded and -1 when it failed or was refused. It is reset to 0 at boot.
-    // @Values: -1:Last calibration failed,0:Idle,1:Calibrate gyros,2:Calibrate level
-    // @User: Advanced
-    AP_GROUPINFO("CAL", 6, PlaneGyro, cal_request, 0),
+    // index 5 was LOG_THR (logging gate without arming, removed): do not reuse
+    // index 6 was CAL (calibration request, now internal): do not reuse
 
     // @Param: TURN_CORR
     // @DisplayName: Gyro turn correction without GPS
@@ -64,7 +52,6 @@ void PlaneGyro::update()
 {
     const uint32_t now_ms = AP_HAL::millis();
     update_gain_scale();
-    update_logging_gate(now_ms);
     update_calibration();
     update_assumed_airspeed(now_ms);
 
@@ -104,44 +91,13 @@ void PlaneGyro::update_gain_scale()
 }
 
 /*
-  throttle based logging gate for vehicles that never arm
- */
-void PlaneGyro::update_logging_gate(uint32_t now_ms)
-{
-    if (log_thr.get() <= 0 ||
-        plane.arming.arming_required() != AP_Arming::Required::NO) {
-        // stock behaviour
-        log_allowed = true;
-        return;
-    }
-    const float thr = SRV_Channels::get_output_scaled(SRV_Channel::k_throttle);
-    if (thr >= log_thr.get()) {
-        last_thr_high_ms = now_ms;
-    }
-    const bool recent_throttle = (last_thr_high_ms != 0) && (now_ms - last_thr_high_ms < 60000U);
-    log_allowed = recent_throttle || plane.is_flying();
-}
-
-/*
-  run a calibration requested through GYRO_CAL. Calling the calibration
-  from a Lua script directly (gcs:run_command_int) blocks the main loop
-  while the calibration waits for IMU samples, so the script only sets
-  the request and the calibration runs here, on the main thread.
+  run the level calibration the menu requested. It blocks the main loop
+  while it waits for IMU samples, so the menu only sets the request and
+  answers the radio, and the calibration runs here on the next update.
  */
 void PlaneGyro::update_calibration()
 {
-    if (!cal_request_cleared) {
-        // a request must never survive a reboot (for example if a
-        // ground station saved the parameter)
-        cal_request_cleared = true;
-        if (cal_request.get() != 0) {
-            cal_request.set_and_save(0);
-        }
-        return;
-    }
-
-    const int8_t req = cal_request.get();
-    if (req != 1 && req != 2) {
+    if (level_cal_state != LEVEL_CAL_PENDING) {
         return;
     }
 
@@ -151,17 +107,12 @@ void PlaneGyro::update_calibration()
     } else {
         EXPECT_DELAY_MS(30000);
         plane.in_calibration = true;
-        if (req == 1) {
-            ok = AP::ins().calibrate_gyros();
-        } else {
-            // the trim only: it keeps the 6-position accelerometer calibration
-            ok = AP::ins().calibrate_trim() == MAV_RESULT_ACCEPTED;
-        }
+        // the trim only: it keeps the 6-position accelerometer calibration
+        ok = AP::ins().calibrate_trim() == MAV_RESULT_ACCEPTED;
         plane.in_calibration = false;
-        GCS_SEND_TEXT(MAV_SEVERITY_INFO, "StabRX: %s calibration %s",
-                      req == 1 ? "gyro" : "level", ok ? "done" : "failed");
+        GCS_SEND_TEXT(MAV_SEVERITY_INFO, "StabRX: level calibration %s", ok ? "done" : "failed");
     }
-    cal_request.set(ok ? 0 : -1);
+    level_cal_state = ok ? LEVEL_CAL_DONE : LEVEL_CAL_FAILED;
 }
 
 /*
@@ -213,13 +164,11 @@ void PlaneGyro::write_log()
     // @Description: Gyro-style helper state
     // @Field: TimeUS: Time since system startup
     // @Field: Gain: master gain scale applied to the rate controllers
-    // @Field: LogOK: logging gate state
     // @Field: ASpd: airspeed assumed for the attitude estimate's turn correction, 0 when none
-    AP::logger().WriteStreaming("GYRO", "TimeUS,Gain,LogOK,ASpd",
-                                "s--n", "F--0", "QfBf",
+    AP::logger().WriteStreaming("GYRO", "TimeUS,Gain,ASpd",
+                                "s-n", "F-0", "Qff",
                                 AP_HAL::micros64(),
                                 gain_scale,
-                                (uint8_t)log_allowed,
                                 plane.ahrs.get_assumed_airspeed_EAS());
 #endif
 }
