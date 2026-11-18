@@ -469,9 +469,10 @@ void AP_CRSF_Telem::adjust_packet_weight(bool queue_empty)
     /*
      whenever we detect a pending request we configure the scheduler
      to allow faster parameters processing.
-     We start a "fast parameter window" that we close after 5sec
+     We start a "fast parameter window" that we close
+     AP_CRSF_PARAMS_MODE_TIMEOUT_MS after the last request
     */
-    bool expired = (now_ms - _custom_telem.params_mode_start_ms) > 5000;
+    bool expired = (now_ms - _custom_telem.params_mode_start_ms) > AP_CRSF_PARAMS_MODE_TIMEOUT_MS;
     if (!_custom_telem.params_mode_active && should_enter_scheduler_params_mode()) {
         // fast window start
         _custom_telem.params_mode_start_ms = now_ms;

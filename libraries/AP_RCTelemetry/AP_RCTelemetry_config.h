@@ -26,3 +26,8 @@
 #define AP_CRSF_SCRIPTING_ENABLED HAL_CRSF_TELEM_TEXT_SELECTION_ENABLED && AP_SCRIPTING_ENABLED
 #endif
 
+// CRSF telemetry leaves parameter mode this long after the last parameter request
+#ifndef AP_CRSF_PARAMS_MODE_TIMEOUT_MS
+#define AP_CRSF_PARAMS_MODE_TIMEOUT_MS 5000
+#endif
+
