@@ -57,6 +57,7 @@ private:
         OUT_MAX,        // number: SERVOn_MAX
         OUT_REV,        // select: SERVOn_REVERSED
         LINK_LOSS,      // select: FS_LONG_ACTN
+        GPS_FITTED,     // select: GPS off or on (GPS1_TYPE, EKF3, GPS arming checks), restarts
         NUMBER,         // number bound to a parameter (arg = number spec)
         RESET,          // command: reset all parameters and reboot
     };
@@ -184,6 +185,9 @@ private:
     // switch functions
     static uint8_t aux_channel(uint8_t func);
     static void set_aux_channel(uint8_t func, uint8_t ch);
+    static bool gps_fitted();
+    // switch the GPS on or off; true when that changed anything
+    static bool set_gps_fitted(bool on);
     static int8_t channel_owner(uint8_t ch, uint8_t except_func);
 
     // wing templates

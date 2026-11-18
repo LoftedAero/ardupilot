@@ -81,6 +81,10 @@ const Choice orientation_choices[] = {
     {"Roll180 Yaw270", ROTATION_ROLL_180_YAW_270},
 };
 const Choice link_loss_choices[] = {{"FBWA glide", 2}, {"RTL if GPS", 1}};
+const Choice gps_choices[] = {{"Off", 0}, {"On", 1}};
+// ARMING_SKIPCHK bits for the GPS and GPS_CONFIG checks: skipped while
+// the GPS is off, checked while it is on
+constexpr int32_t GPS_ARMING_CHECKS = (1U << 3) | (1U << 12);
 const Choice reversed_choices[] = {{"Normal", 0}, {"Reversed", 1}};
 const Choice channel_choices[] = {
     {"Off", 0}, {"Ch5", 5}, {"Ch6", 6}, {"Ch7", 7}, {"Ch8", 8}, {"Ch9", 9}, {"Ch10", 10},
@@ -355,6 +359,30 @@ bool PlaneGyroMenu::gps_present()
     return AP::gps().status() != AP_GPS_FixType::NO_GPS;
 }
 
+/*
+  GPS off: no GPS driver and DCM, which flies without one. GPS on: the
+  stock ArduPlane setup, EKF3 and the GPS arming checks, so the model
+  arms only once EKF3 has started with a fix: EKF3 never starts in the
+  air from a turn's tilted accelerations.
+ */
+bool PlaneGyroMenu::gps_fitted()
+{
+    return int8_t(param_get("GPS1_TYPE")) != 0;
+}
+
+bool PlaneGyroMenu::set_gps_fitted(bool on)
+{
+    if (on == gps_fitted()) {
+        return false;
+    }
+    param_set("GPS1_TYPE", on ? 1 : 0);
+    param_set("EK3_ENABLE", on ? 1 : 0);
+    param_set("AHRS_EKF_TYPE", on ? 3 : 0);
+    const int32_t skip = int32_t(param_get("ARMING_SKIPCHK"));
+    param_set("ARMING_SKIPCHK", on ? (skip & ~GPS_ARMING_CHECKS) : (skip | GPS_ARMING_CHECKS));
+    return true;
+}
+
 bool PlaneGyroMenu::armed()
 {
     return plane.arming.is_armed();
@@ -571,6 +599,7 @@ bool PlaneGyroMenu::build()
     }
 
     m = submenu(root, "5 Failsafe");
+    add(m, Handler::GPS_FITTED, 0, "GPS");
     add(m, Handler::LINK_LOSS, 0, "Link loss");
     add(m, Handler::NUMBER, NUM_RTL_ALT, "RTL altitude");
     add(m, Handler::NO_GPS_INFO, 0, "RTL");
@@ -664,7 +693,7 @@ uint8_t PlaneGyroMenu::pack(const Item &item, uint8_t *buf, uint8_t size)
         // on this menu (Lofty PFD's Gyro Setup) uses them only for a version
         // it knows; raise it when an entry it relies on changes name, kind,
         // place or meaning.
-        pack_info(p, CRSF_HIDDEN, item.name, "3");
+        pack_info(p, CRSF_HIDDEN, item.name, "4");
         break;
     case Handler::NO_GPS_INFO:
         pack_info(p, gps_present() ? CRSF_HIDDEN : 0, item.name, "needs a GPS");
@@ -710,6 +739,9 @@ uint8_t PlaneGyroMenu::pack(const Item &item, uint8_t *buf, uint8_t size)
     case Handler::LINK_LOSS:
         pack_select(p, 0, item.name, link_loss_choices, ARRAY_SIZE(link_loss_choices),
                     int16_t(param_get("FS_LONG_ACTN")));
+        break;
+    case Handler::GPS_FITTED:
+        pack_select(p, 0, item.name, gps_choices, ARRAY_SIZE(gps_choices), gps_fitted() ? 1 : 0);
         break;
     case Handler::NUMBER: {
         const NumberSpec &n = number_specs[item.arg];
@@ -902,6 +934,14 @@ uint8_t PlaneGyroMenu::write(const Item &item, const uint8_t *payload, uint8_t l
             param_set("FS_LONG_ACTN", link_loss_choices[idx].value);
         }
         p.u8(choice_index(link_loss_choices, ARRAY_SIZE(link_loss_choices), int16_t(param_get("FS_LONG_ACTN"))));
+        break;
+    case Handler::GPS_FITTED:
+        if (idx < ARRAY_SIZE(gps_choices) && set_gps_fitted(gps_choices[idx].value != 0)) {
+            // the GPS driver and EKF3 start at boot
+            GCS_SEND_TEXT(MAV_SEVERITY_INFO, "StabRX: GPS %s, restarting", gps_fitted() ? "on" : "off");
+            reboot_at_ms = AP_HAL::millis() + 1500;
+        }
+        p.u8(gps_fitted() ? 1 : 0);
         break;
     default:
         // info entries are read only
