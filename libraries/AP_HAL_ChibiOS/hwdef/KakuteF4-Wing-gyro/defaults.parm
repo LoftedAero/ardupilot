@@ -7,11 +7,14 @@
 # --- Arming: switch on channel 5 (ELRS AUX1), throttle must be low, other optional checks skipped, no rudder arming ---
 # Throttle is held at minimum PWM while disarmed so the ESC stays quiet.
 ARMING_REQUIRE 1
-# Skip every optional check except RC (-65 = all bits but bit 6), and with RC_OPTIONS
+# Run the RC and INS checks (-81 = all bits skipped but 4 and 6), and with RC_OPTIONS
 # 96 run only its throttle part: arming is refused unless the throttle is low.
+# INS: gyros and accelerometers healthy and calibrated (run "Calibrate accel" once
+# before the first flight) and the attitude estimate ready. The GPS checks (bits 3
+# and 12) run only while the GPS is on (menu: 5 Failsafe, GPS).
 # RC_OPTIONS bit 12 (4096) adds a star to the CRSF flight mode while disarmed, which is
 # the only way a radio on plain CRSF telemetry can tell armed from disarmed.
-ARMING_SKIPCHK -65
+ARMING_SKIPCHK -81
 RC_OPTIONS 4192
 ARMING_RUDDER 0
 RC5_OPTION 153
@@ -19,6 +22,10 @@ INS_GYR_CAL 1
 
 # --- Sensors ---
 COMPASS_ENABLE 0
+# --- GPS: off by default (menu: 5 Failsafe, GPS) ---
+# Off: no GPS driver, DCM attitude estimate. On: GPS1_TYPE 1, EKF3, GPS arming checks.
+GPS1_TYPE 0
+EK3_ENABLE 0
 AHRS_EKF_TYPE 0
 ARSPD_TYPE 0
 

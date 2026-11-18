@@ -12,9 +12,9 @@
 #   include ../include/gyro.inc
 
 # --- Navigation ------------------------------------------------------
-# EKF3 is the single largest flash consumer. DCM is enough for
-# rate/attitude stabilization and for GPS-based RTL.
-define HAL_NAVEKF3_AVAILABLE 0
+# EKF3 stays in for models with a GPS: the menu's GPS setting (5 Failsafe)
+# selects EKF3 and the GPS arming checks when on, and DCM with the
+# GYRO_TURN_CORR turn correction when off (the default).
 define AP_TERRAIN_AVAILABLE 0
 define HAL_RALLY_ENABLED 0
 define AP_FENCE_ENABLED 0
