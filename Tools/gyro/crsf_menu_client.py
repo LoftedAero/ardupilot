@@ -68,6 +68,9 @@ class CrsfClient:
         self.lock = threading.Lock()
         self.running = True
         self.buf = b""
+        # (arrival time, frame type) of every frame, when record is set
+        self.record = False
+        self.arrivals = []
         threading.Thread(target=self._rc_loop, daemon=True).start()
         threading.Thread(target=self._rx_loop, daemon=True).start()
 
@@ -113,6 +116,8 @@ class CrsfClient:
                     continue
                 with self.lock:
                     self.frames.append((body[0], bytes(body[1:])))
+                    if self.record:
+                        self.arrivals.append((time.time(), body[0]))
 
     def wait_frame(self, match, timeout=0.5):
         t0 = time.time()
