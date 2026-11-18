@@ -18,8 +18,12 @@ Ground rules (decided 2026-09-14):
 - Arm switch on channel 5 (ELRS AUX1), decided 2026-09-14 after first
   trying no arming at all. It lets calibration, logging and home
   position work the stock way and doubles as a throttle cut. Optional
-  pre-arm checks are skipped (ARMING_SKIPCHK -65: all but RC, with
-  RC_OPTIONS 96 so only the throttle-low check runs), no rudder arming.
+  pre-arm checks are skipped except RC and INS (ARMING_SKIPCHK -81 since
+  2026-11-18, was -65; RC_OPTIONS 96 so only the throttle-low RC check
+  runs; INS catches a failed boot gyro calibration and an uncalibrated
+  accelerometer: a new board needs the menu's 6-position Calibrate accel
+  once, added 2026-11-18), no rudder arming. The menu's GPS setting adds the GPS
+  checks while it is On.
   RC_OPTIONS bit 12 is also on (4192, added 2026-11-08) so radios on
   plain CRSF telemetry can show armed or disarmed (the flight mode
   carries a star while disarmed); Lofty PFD reads it.
@@ -45,7 +49,7 @@ Ground rules (decided 2026-09-14):
 | Gyro behavior | Stock ArduPlane | Gap |
 |---|---|---|
 | Rate damping / self-level / off | ACRO / FBWA / MANUAL | none |
-| Return home | RTL on DCM + GPS, no compass needed | RTL with no home is unguarded |
+| Return home | RTL with the GPS setting On (EKF3), no compass needed | RTL with no home is unguarded |
 | Servo mixing (elevon, V-tail, flaperon) | SERVOn_FUNCTION | none |
 | Autotune | AUTOTUNE mode, FW_AUTOTUNE aux | none |
 | Power on and fly | Arm switch, like a throttle cut | none |
@@ -60,13 +64,13 @@ Ground rules (decided 2026-09-14):
 Files:
 
 - `libraries/AP_HAL_ChibiOS/hwdef/include/gyro.inc`: shared feature
-  profile. Include it after any base board hwdef. Disables EKF3, terrain,
+  profile. Include it after any base board hwdef. Disables terrain,
   rally, fence, ADSB, soaring, landing gear, quadplane, OSD, video TX,
   camera, mount, scripting. Keeps logging, tuning, CRSF telemetry.
 - `libraries/AP_HAL_ChibiOS/hwdef/KakuteF4-Wing-gyro/hwdef.dat`: base
   board plus the profile.
 - `libraries/AP_HAL_ChibiOS/hwdef/KakuteF4-Wing-gyro/defaults.parm`:
-  arm switch on channel 5, DCM only, CRSF on SERIAL3, mode switch on
+  arm switch on channel 5, GPS off (DCM; the menu GPS setting selects EKF3), CRSF on SERIAL3, mode switch on
   channel 6, RTL on channel 7, gain knob on channel 8, servo auto-trim,
   RTL-or-glide failsafe, ACRO rates, scripting on.
 - `Tools/bootloaders/KakuteF4-Wing-gyro_bl.*`: symlinks to the base
@@ -303,8 +307,10 @@ Design rules (user feedback 2026-10-02):
 - Borrowed from AS3X: learn the transmitter by moving sticks and
   switches; detect board orientation by holding the model level and
   then raising the nose; one gain plus a knob.
-- Avoided: per-mode gain tables, multi-position calibration, firmware
-  parameter names on the radio.
+- Avoided: per-mode gain tables, firmware parameter names on the radio.
+  Multi-position calibration was avoided until 2026-11-18; it is now the
+  stock 6-position accelerometer calibration (Calibrate accel), which
+  the INS arming checks require.
 
 Menu (ELRS Lua shows folders, numbers, selections, info lines and
 commands with OK/Cancel popups; values refresh when a menu is reopened):
@@ -314,7 +320,8 @@ Gyro (device top level)
 ├─ Status                   DISARMED · FBWA · GPS: none      (info)
 ├─ 1 Calibration ▸
 │   ├─ Board orientation    current value          [Detect]: level, then nose up
-│   ├─ Level calibration    [Run]                  (GYRO_CAL 2)
+│   ├─ Accel calibration    [Run]  6 poses, then restarts (stock AP_AccelCal)
+│   ├─ Level calibration    [Run]  level trim only (GYRO_CAL 2)
 │   └─ Gyro calibration     [Run]                  (GYRO_CAL 1)
 ├─ 2 Radio ▸
 │   ├─ Learn sticks         [Start]  center, then 8 held moves (Loft GCS order):
@@ -334,6 +341,7 @@ Gyro (device top level)
 │   ├─ Check directions     [Start]  yes/no per surface, flips Reversed
 │   └─ Channel 1..N ▸       Function, Min, Trim, Max, Reversed
 ├─ 5 Failsafe ▸
+│   ├─ GPS                  Off / On: GPS driver, EKF3, GPS arming checks; restarts
 │   ├─ Link loss            FBWA glide / RTL       (RTL only with a GPS)
 │   └─ RTL altitude         m                      (only with a GPS)
 ├─ 6 Tuning ▸

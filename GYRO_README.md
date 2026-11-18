@@ -46,8 +46,6 @@ Kept from ArduPlane:
 Removed to fit a 1 MB flight controller and to keep the pilot-facing
 behavior simple:
 
-- EKF navigation filter (the older DCM attitude estimator is used; it is
-  fine for stabilization and GPS return home)
 - Terrain, rally points, geofence, ADS-B, soaring
 - Quadplane / VTOL
 - OSD, video transmitter control, camera and gimbal control
@@ -367,10 +365,37 @@ The link-loss action can be changed in the transmitter menu between
 
 ## 9. GPS and return to launch
 
-A GPS is optional. Everything except RTL works without one, and the
-firmware arms without one.
+A GPS is optional. Everything except RTL works without one. The GPS
+setting in the menu (5 Failsafe, GPS) says whether one is fitted; it
+is Off by default, and changing it restarts the flight controller.
 
-With a u-blox GPS on SERIAL1:
+- **Off**: no GPS driver (`GPS1_TYPE 0`), even with a GPS plugged in.
+  The attitude estimate is DCM, with the GYRO_TURN_CORR turn
+  correction, and the gains scale with the throttle. The firmware arms
+  without a GPS.
+- **On**: the stock ArduPlane setup: `GPS1_TYPE 1`, EKF3
+  (`AHRS_EKF_TYPE 3`, `EK3_ENABLE 1`) and the GPS arming checks
+  (ARMING_SKIPCHK bits 3 and 12 cleared). The plane arms only once the
+  GPS has a fix and EKF3 has started with it, so EKF3 never starts in
+  the air. The gains scale with EKF3's airspeed estimate. Without a fix
+  arming is refused with a PreArm message; set the GPS Off to fly
+  without it.
+
+Why a setting rather than automatic: EKF3 on a plane starts only with a
+GPS fix. Started in the air during a turn (a GPS that found its first
+fix after takeoff), it took its first attitude from the turn's tilted
+accelerations and was up to 37 degrees wrong for 9 s in SITL. DCM with a
+GPS has its own fault: its wind estimate reads yaw swings (rudder
+pumping, knife edge) as wind; in a RealFlight test its airspeed
+estimate fell from 17 m/s to 0, which doubled every gain. With the GPS
+On, EKF3's wind estimate stayed near the true 0.5 m/s in that flight.
+After a GPS loss in flight EKF3 goes on by dead reckoning (attitude
+within 0.4 degrees for the 55 s tested in SITL) and uses the GPS again
+when it returns; if EKF3 stops navigating, ArduPilot falls back to DCM
+(`AHRS: DCM active` / `AHRS: EKF3 active`). `sitl_gps_optional_test.py`
+covers this.
+
+With the GPS On and a u-blox GPS on SERIAL1:
 
 - The home position is set on the first 3D fix, refreshed every few
   seconds while disarmed, and locked at the moment of arming. Arm at
@@ -397,6 +422,13 @@ again. The script remembers how many entries the flight controller had
 when it first saw it, and with a stale count part of the menu stays
 empty.
 
+While disarmed, reading the menu pauses the CRSF telemetry (GPS,
+battery, attitude, flight mode) so the entries load quickly. The pause
+ends 0.5 s after the last read (`AP_CRSF_PARAMS_MODE_TIMEOUT_MS`;
+ArduPilot's default is 5 s, long enough for a radio to announce its
+sensors lost). In SITL, opening a folder pauses telemetry for about
+1.5 s. Armed, the menu never pauses telemetry.
+
 The menu follows the Loft GCS setup order. Values are read from and
 saved to ArduPilot parameters immediately. Status and the folders sit
 at the device's top level: the ExpressLRS script returns there on Back
@@ -405,11 +437,11 @@ from any folder, including from a channel inside 4 Outputs.
 | Folder | Entries |
 |---|---|
 | Status | armed state, flight mode, GPS state |
-| 1 Calibration | Orientation, Detect orientation, Calibrate level, Calibrate gyros |
+| 1 Calibration | Orientation, Detect orientation, Calibrate accel, Calibrate level, Calibrate gyros |
 | 2 Radio | Learn sticks; Arm switch, Mode switch, RTL switch, Autotune switch, Gain knob, each with a Learn command |
 | 3 Flight modes | Check mode switch; Low, Middle and High positions: MANUAL, ACRO, FBWA or AUTOTUNE |
 | 4 Outputs | Wing type; Copy stick trims; Channel 1 to 8 (servo outputs), each with Function, Min, Trim, Max, Reversed |
-| 5 Failsafe | Link loss (FBWA glide or RTL if GPS), RTL altitude |
+| 5 Failsafe | GPS (Off/On, restarts), Link loss (FBWA glide or RTL if GPS), RTL altitude |
 | 6 Tuning | Gain knob min and max, FBWA bank and pitch limits, Autotune level; four folders: Speeds (see below), Roll gains and Pitch gains (FF, P, I, D: `RLL_RATE_*`, `PTCH_RATE_*`; and the ACRO roll or pitch rate), Yaw gains (Yaw damper `YAW2SRV_DAMP`, Rudder mix `KFF_RDDRMIX`). Speeds: Cruise speed (writes `SCALING_SPEED` and `AIRSPEED_CRUISE`), Min speed (`AIRSPEED_MIN`), Max speed (`AIRSPEED_MAX`), in m/s |
 | Tools | Firmware version, Reset to defaults; a hidden Menu version |
 
@@ -474,6 +506,25 @@ Min speed.
   and press OK, then raise the nose about 45 degrees and press OK. The
   firmware works out how the board is mounted and sets Orientation.
   Run Calibrate level afterwards.
+- **Calibrate accel** is ArduPilot's 6-position accelerometer
+  calibration, the one a ground station runs. It is needed once before
+  the first flight: until it is done, arming is refused with
+  `PreArm: 3D Accel calibration needed`. Set Orientation first. The
+  popup asks for six poses in turn: `Pose 1/6: level, then OK`, then
+  LEFT wing down, RIGHT wing down, nose DOWN, nose UP and upside down.
+  Hold the model still in each pose and press OK; `Hold still` shows
+  while that pose is measured. The level pose also sets the level trim,
+  so hold the model at its level flight attitude there. The result is
+  `Done, restarting`: the new calibration applies after a restart
+  (stock ArduPilot refuses arming until then), and the board restarts
+  1.5 s later. `Failed: hold each pose still` keeps the board
+  uncalibrated; run it again. Exit at any pose cancels and keeps the
+  previous calibration.
+- **Calibrate level** sets only the level trim (`AHRS_TRIM`), as a
+  ground station's level calibration, with the model held at its level
+  flight attitude. It keeps the 6-position calibration. Use it after
+  Detect orientation or a change of Orientation, or to correct the
+  level trim. The model must be within 10 degrees of level.
 - **Calibrate level** and **Calibrate gyros** run on the main loop
   like a ground station calibration. The flight controller pauses for
   a second or two, so the radio may briefly report lost telemetry.
@@ -502,7 +553,12 @@ Min speed.
      percent off the middle of its travel
      (`Ch1 not centred at start, retry`) ends the learning instead.
 - **Learn** for a switch: flip the switch when asked. A channel already
-  used by another of these functions is refused. The arm switch is only
+  used by another of these functions asks first (`Ch8 is the Gain knob.
+  Replace?`). Cancel keeps everything as it was; OK goes on with the
+  learning, and the old function is cleared only when the new one is
+  saved (`Arm switch: Ch8 (was Gain knob)`, or without the old name when
+  that does not fit the popup). The channel rows in 2 Radio still refuse
+  a channel in use, because a selection cannot ask. The arm switch is only
   assigned once it is in its off position, because assigning it while
   on would arm the plane. The arm switch in use stays assigned while a
   new one is learned; flipping it does not arm while the command is
@@ -530,6 +586,9 @@ kind, place or meaning. Version 2: Wing type applies itself and Apply
 template is gone. Version 3: 6 Tuning holds the folders Speeds, Roll
 gains, Pitch gains and Yaw gains (the 2026-11-14 build had the speeds
 in a 7 Speeds folder and a Yaw gain in 6 Tuning, and still said 2).
+Version 4: 1 Calibration has Calibrate accel after Detect orientation,
+and 5 Failsafe starts with the GPS setting (Off/On); each moves every
+later entry by one.
 
 ---
 
@@ -545,6 +604,10 @@ was unaffected. The roll and yaw rate controllers now assume the middle
 of AIRSPEED_MIN and AIRSPEED_MAX in that case, as the pitch controller
 already did. `Tools/gyro/sitl_autotune_test.py` flies a no-GPS,
 no-airspeed autotune in SITL and checks both axes tune.
+
+The board defaults tune roll and pitch only (`AUTOTUNE_AXES 3`). The
+rudder works through the yaw damper, which autotune does not tune; set
+its gain in 6 Tuning, Yaw gains.
 
 Procedure:
 
@@ -613,7 +676,7 @@ Parameters added by this build:
 | GYRO_GAIN_MIN | 0.0 | Scale at knob minimum |
 | GYRO_GAIN_MAX | 1.5 | Scale at knob maximum |
 | GYRO_LOG_THR | 0 | Throttle percent that starts logging when ARMING_REQUIRE is 0; unused with the arm switch |
-| GYRO_CAL | 0 | Calibration request used by the transmitter menu: 1 = gyros, 2 = level. Reads back 0 when done, -1 when failed or refused. Reset at boot. |
+| GYRO_CAL | 0 | Calibration request used by the transmitter menu: 1 = gyros, 2 = level (the level trim only). Reads back 0 when done, -1 when failed or refused. Reset at boot. |
 | GYRO_TURN_CORR | 1 | Assumed airspeed for the attitude estimate's turn correction when there is no GPS and no airspeed sensor (0 in the source, 1 in the board defaults) |
 
 Standard ArduPlane parameters set by the defaults:
@@ -621,7 +684,7 @@ Standard ArduPlane parameters set by the defaults:
 | Parameter | Default | Meaning |
 |---|---|---|
 | ARMING_REQUIRE | 1 | Arm switch required; throttle at minimum PWM when disarmed |
-| ARMING_SKIPCHK | -65 | Skip all optional pre-arm checks except RC |
+| ARMING_SKIPCHK | -81 | Run the RC and INS checks (sensors healthy, accelerometers calibrated with Calibrate accel, attitude estimate ready), skip the others; the GPS setting adds the GPS checks |
 | RC_OPTIONS | 4192 (SRX: 12640) | RC check runs only its throttle-low part (bit 5 on, bit 6 skips roll/pitch/yaw); bit 12 marks a disarmed flight mode with a star in CRSF telemetry; on the SRX bit 8 adds passthrough telemetry for scripts such as Lofty PFD and bit 13 is the 420 kbaud link to its ELRS receiver |
 | ARMING_RUDDER | 0 | No rudder-stick arming |
 | RC5_OPTION | 153 | Channel 5 arms and disarms |
@@ -631,7 +694,9 @@ Standard ArduPlane parameters set by the defaults:
 | SERIAL3_PROTOCOL / SERIAL6_PROTOCOL | 23 | CRSF receiver on the board's RC port (Kakute / Lucid). The SRX hwdef sets SERIAL2 |
 | RSSI_TYPE | 3 (SRX only) | RSSI and link quality from the CRSF link statistics |
 | RC_PROTOCOLS | 512 | CRSF only |
-| AHRS_EKF_TYPE | 0 | DCM attitude estimation |
+| GPS1_TYPE | 0 | No GPS driver: the GPS setting is Off |
+| EK3_ENABLE | 0 | EKF3 not running while the GPS is Off |
+| AHRS_EKF_TYPE | 0 | DCM attitude estimate while the GPS is Off (3, EKF3, while it is On) |
 | COMPASS_ENABLE | 0 | No compass |
 | ARSPD_TYPE | 0 | No airspeed sensor |
 | SERVO_AUTO_TRIM | 1 | Servo auto-trim in FBWA (needs a GPS fix) |
@@ -639,6 +704,7 @@ Standard ArduPlane parameters set by the defaults:
 | FLIGHT_OPTIONS | 32 | Bit 5: ACRO uses the yaw damper and rudder mix on the rudder, as FBWA does (stock ACRO passes the rudder stick through). No effect on the damper while the Yaw damper gain is 0 |
 | KFF_RDDRMIX | 0.2 | Aileron to rudder mix in FBWA and ACRO (stock 0.5). It follows the aileron output, so the rudder also moves a little with the roll corrections |
 | YAW2SRV_DAMP | 0.1 | Yaw damper gain, the menu's Yaw damper in 6 Tuning, Yaw gains (stock 0). A gentle value: about 7% rudder at 30 deg/s of yaw at cruise, up to 2.8 times that at idle without a speed estimate. Not tuned by autotune; the gain knob scales it |
+| AUTOTUNE_AXES | 3 | Autotune tunes roll and pitch (stock 7 adds yaw, which needs the yaw rate controller; the rudder stays on the yaw damper) |
 | THR_FAILSAFE | 1 | RC failsafe enabled |
 | FS_SHORT_ACTN | 2 | Short failsafe: FBWA at zero throttle |
 | RC_FS_TIMEOUT | 1 | Seconds without RC before the short failsafe |
@@ -686,8 +752,11 @@ parameter screens, CRSF menu engine on):
 ./waf plane
 python3 Tools/gyro/sitl_gyro_test.py        # arming, no trim capture, gain knob, failsafe, RTL guard, logging
 python3 Tools/gyro/sitl_menu_test.py        # menu builds; calibration requests complete
+python3 Tools/gyro/sitl_accel_cal_test.py   # the 6-position accel calibration over CRSF (SITL calibration model)
 python3 Tools/gyro/sitl_crsf_menu_test.py   # the menu over CRSF, driven like the ExpressLRS script
 ELRS_LUA=/path/to/elrsV3.lua python3 Tools/gyro/sitl_elrs_lua_test.py   # the real ExpressLRS script
+python3 Tools/gyro/sitl_crsf_telem_gap_test.py   # how long menu reads pause CRSF telemetry
+python3 Tools/gyro/sitl_gps_optional_test.py     # EKF3 with a GPS, DCM after losing it, back to EKF3
 python3 Tools/gyro/sitl_autotune_test.py    # autotune flight with no GPS or airspeed sensor
 python3 Tools/gyro/sitl_turn_test.py        # held FBWA turn with no GPS: bank limit and attitude estimate
 ```
@@ -748,9 +817,9 @@ add `--gps` to fit one.
   about 3 degrees. On the ground, once the throttle has been above 30% for a
   second, a taxi turn tilts the estimate by several degrees for a few
   seconds: let the plane roll straight before an FBWA takeoff.
-- **No EKF.** DCM is used for attitude. It is adequate for
-  stabilization and GPS return home but less precise than the EKF in
-  turbulent flight and does not use a compass.
+- **GPS setting not yet flown on a real model.** With the GPS On the
+  plane flies on EKF3, with it Off on DCM (section 9). SITL and one
+  RealFlight flight only.
 - **Take off in MANUAL or ACRO without a GPS.** Without GPS or airspeed
   the attitude estimate cannot tell the takeoff run's acceleration
   from a pitch change. In SITL an FBWA runway takeoff without GPS
