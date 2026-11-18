@@ -147,10 +147,9 @@ matching parameter is set, so stock behavior is unchanged by default.
    with zero demand. Skipped silently otherwise. Trim clicks made in
    ACRO or FBWA are captured on the next pass through MANUAL. In FBWA,
    `SERVO_AUTO_TRIM` continues to refine the servo trims.
-4. **Logging without arming.** `GYRO_LOG_THR` (percent), only for
-   ARMING_REQUIRE 0 setups. Off by default now that the arm switch
-   drives logging the stock way. One-line change in
-   `AP_Arming_Plane::update_soft_armed()`.
+4. **Logging without arming.** Was `GYRO_LOG_THR` (percent), only for
+   ARMING_REQUIRE 0 setups. Removed 2026-11-18: the arm switch drives
+   logging the stock way, so it had no use.
 5. **Boot calibration.** Unchanged. Gyro calibration retries for up to
    30 s waiting for the model to be still, then uses the best average
    and flags the calibration as failed. With no arming the aircraft
@@ -208,8 +207,9 @@ GPS sets home, disarm on channel 5, and GYRO.Gain following the knob
   menu now sets the new `GYRO_CAL` parameter and `PlaneGyro` runs the
   calibration on the main thread, like a ground station calibration,
   then writes back 0 (done) or -1 (failed or armed).
-  `sitl_menu_test.py` verifies this path; `sitl_gyro_test.py` checks it
-  is refused while armed.
+  2026-11-18: the native menu replaced the Lua one, so the request is
+  internal to `PlaneGyro` and `GYRO_CAL` is gone; only the level
+  calibration remains (the gyros calibrate at each start).
 - SITL limitation found on the way: with the in-process CRSF simulator
   attached (`--serial5=sim:crsf`), any blocking calibration, including
   a plain MAVLink PREFLIGHT_CALIBRATION, freezes the simulated vehicle
@@ -318,11 +318,11 @@ commands with OK/Cancel popups; values refresh when a menu is reopened):
 ```
 Gyro (device top level)
 ├─ Status                   DISARMED · FBWA · GPS: none      (info)
-├─ 1 Calibration ▸
+├─ 1 Sensors ▸
 │   ├─ Board orientation    current value          [Detect]: level, then nose up
 │   ├─ Accel calibration    [Run]  6 poses, then restarts (stock AP_AccelCal)
-│   ├─ Level calibration    [Run]  level trim only (GYRO_CAL 2)
-│   └─ Gyro calibration     [Run]                  (GYRO_CAL 1)
+│   ├─ Level calibration    [Run]  level trim only
+│   └─ GPS                  Off / On: GPS driver, EKF3, GPS arming checks; restarts
 ├─ 2 Radio ▸
 │   ├─ Learn sticks         [Start]  center, then 8 held moves (Loft GCS order):
 │   │                                RCMAP_*, RCn_REVERSED/MIN/MAX/TRIM
@@ -338,10 +338,8 @@ Gyro (device top level)
 │   ├─ Wing type            Normal / Flying wing / V-tail: sets channels 1-4
 │   ├─ Copy stick trims     [Run]  MANUAL: outputs' positions -> SERVOn_TRIM,
 │   │                              then center TX trims; Exit undoes
-│   ├─ Check directions     [Start]  yes/no per surface, flips Reversed
 │   └─ Channel 1..N ▸       Function, Min, Trim, Max, Reversed
 ├─ 5 Failsafe ▸
-│   ├─ GPS                  Off / On: GPS driver, EKF3, GPS arming checks; restarts
 │   ├─ Link loss            FBWA glide / RTL       (RTL only with a GPS)
 │   └─ RTL altitude         m                      (only with a GPS)
 ├─ 6 Tuning ▸
@@ -377,7 +375,7 @@ Notes:
   board's PWM outputs.
 - The menu needs new firmware support for the learn steps (live RC
   channel detection) and orientation detection (accelerometer), in the
-  gyro module, triggered from the menu like GYRO_CAL.
+  gyro module, triggered from the menu.
 
 ## Autotune without an airspeed estimate (2026-10-03)
 

@@ -67,7 +67,7 @@ power-up and wants no movement for a few seconds.
 Expect in the Messages tab:
 
 - [ ] `ArduPilot Ready`
-- [ ] `Gyro: setup menu ready (75 entries)` once the receiver is
+- [ ] `StabRX: setup menu ready (90 entries)` once the receiver is
       linked (may be missed if the ground station connected late; step
       11 checks the menu directly)
 
@@ -167,7 +167,7 @@ Mode switch low, sticks centered.
       the ground station. Some radios have very fine trim steps; use
       enough clicks to move the channel by 30 us or more.
 - [ ] Repeat, but press Exit at `Now center the TX trims`: the servo
-      trims go back (`Gyro: trim copy undone` in the ground station).
+      trims go back (`StabRX: trim copy undone` in the ground station).
 
 Set surface neutrals with 4 Outputs, Channel N, Trim (section 11), not
 with the transmitter trims.
@@ -191,10 +191,10 @@ with the transmitter trims.
 ## 11. Transmitter menu
 
 On the radio, open the ExpressLRS Lua script, go to Other Devices and
-select Gyro. TBS Agent Lite works too. If you
+select Stabilization. TBS Agent Lite works too. If you
 reflashed while the script was open, exit it and start it again first.
 
-- [ ] Gyro shows Status, then 1 Calibration to 6 Tuning, then Tools, and
+- [ ] Stabilization shows Status, then 1 Sensors to 6 Tuning, then Tools, and
       every folder has entries (give it about 20 seconds to load).
 - [ ] Back from 4 Outputs > Channel 1 returns to that list.
 - [ ] Status reads `DISARMED`, the current mode and the GPS state.
@@ -202,7 +202,7 @@ reflashed while the script was open, exit it and start it again first.
       the ground station: it matches. Set it back.
 - [ ] 4 Outputs, Channel 1: change Trim by one step and watch the
       surface move; set it back.
-- [ ] 1 Calibration, Calibrate level, disarmed, model at its level flight
+- [ ] 1 Sensors, Calibrate level, disarmed, model at its level flight
       attitude: `Hold model at level attitude`, OK, `Calibrating`, then
       `Calibration done`. The radio may briefly report lost telemetry
       while it runs; that is expected.
@@ -230,10 +230,10 @@ reflashed while the script was open, exit it and start it again first.
 - [ ] 3 Flight modes, Check mode switch: flip the mode switch through
       all three positions. The popup follows it (`Ch6 Low: MANUAL`,
       `Middle: ACRO`, `High: FBWA`). Exit closes it.
-- [ ] 1 Calibration, Detect orientation: level then nose up. It reports
+- [ ] 1 Sensors, Detect orientation: level then nose up. It reports
       the board orientation you expect for how the board is mounted.
 
-If Gyro is not listed, check that both receiver wires are
+If Stabilization is not listed, check that both receiver wires are
 connected and that ELRS telemetry is on.
 
 ## 12. GPS and RTL (optional)

@@ -57,8 +57,6 @@ Added on top of ArduPlane, all in one module (`ArduPlane/gyro.cpp`):
 - A master gain knob on a transmitter channel
 - Return to launch is refused, with a glide fallback, when no home
   position is known
-- A throttle-based logging gate for setups that do not arm (off by
-  default)
 - A transmitter setup menu over CRSF (`ArduPlane/gyro_menu.cpp`)
 
 ---
@@ -358,15 +356,15 @@ deliberately.
 
 A ground station link loss does nothing (GCS failsafe is off).
 
-The link-loss action can be changed in the transmitter menu between
-"RTL if home" and "Level glide".
+The link-loss action can be changed in the transmitter menu (5 Failsafe,
+Link loss) between "RTL if GPS" and "FBWA glide".
 
 ---
 
 ## 9. GPS and return to launch
 
 A GPS is optional. Everything except RTL works without one. The GPS
-setting in the menu (5 Failsafe, GPS) says whether one is fitted; it
+setting in the menu (1 Sensors, GPS) says whether one is fitted; it
 is Off by default, and changing it restarts the flight controller.
 
 - **Off**: no GPS driver (`GPS1_TYPE 0`), even with a GPS plugged in.
@@ -437,11 +435,11 @@ from any folder, including from a channel inside 4 Outputs.
 | Folder | Entries |
 |---|---|
 | Status | armed state, flight mode, GPS state |
-| 1 Calibration | Orientation, Detect orientation, Calibrate accel, Calibrate level, Calibrate gyros |
+| 1 Sensors | Orientation, Detect orientation, Calibrate accel, Calibrate level, GPS (Off/On, restarts) |
 | 2 Radio | Learn sticks; Arm switch, Mode switch, RTL switch, Autotune switch, Gain knob, each with a Learn command |
 | 3 Flight modes | Check mode switch; Low, Middle and High positions: MANUAL, ACRO, FBWA or AUTOTUNE |
 | 4 Outputs | Wing type; Copy stick trims; Channel 1 to 8 (servo outputs), each with Function, Min, Trim, Max, Reversed |
-| 5 Failsafe | GPS (Off/On, restarts), Link loss (FBWA glide or RTL if GPS), RTL altitude |
+| 5 Failsafe | Link loss (FBWA glide or RTL if GPS), RTL altitude |
 | 6 Tuning | Gain knob min and max, FBWA bank and pitch limits, Autotune level; four folders: Speeds (see below), Roll gains and Pitch gains (FF, P, I, D: `RLL_RATE_*`, `PTCH_RATE_*`; and the ACRO roll or pitch rate), Yaw gains (Yaw damper `YAW2SRV_DAMP`, Rudder mix `KFF_RDDRMIX`). Speeds: Cruise speed (writes `SCALING_SPEED` and `AIRSPEED_CRUISE`), Min speed (`AIRSPEED_MIN`), Max speed (`AIRSPEED_MAX`), in m/s |
 | Tools | Firmware version, Reset to defaults; a hidden Menu version |
 
@@ -525,8 +523,12 @@ Min speed.
   flight attitude. It keeps the 6-position calibration. Use it after
   Detect orientation or a change of Orientation, or to correct the
   level trim. The model must be within 10 degrees of level.
-- **Calibrate level** and **Calibrate gyros** run on the main loop
-  like a ground station calibration. The flight controller pauses for
+- The gyros calibrate at each start (`INS_GYR_CAL 1`), so the menu has
+  no gyro calibration. If the model moved during the start, arming is
+  refused with `Gyros not calibrated`: restart the board with the
+  model still.
+- **Calibrate level** runs on the main loop like a ground station
+  calibration. The flight controller pauses for
   a second or two, so the radio may briefly report lost telemetry.
 - **Learn sticks** measures the sticks: channel order, direction and
   endpoints, in the same steps as the Loft GCS radio calibration.
@@ -586,9 +588,9 @@ kind, place or meaning. Version 2: Wing type applies itself and Apply
 template is gone. Version 3: 6 Tuning holds the folders Speeds, Roll
 gains, Pitch gains and Yaw gains (the 2026-11-14 build had the speeds
 in a 7 Speeds folder and a Yaw gain in 6 Tuning, and still said 2).
-Version 4: 1 Calibration has Calibrate accel after Detect orientation,
-and 5 Failsafe starts with the GPS setting (Off/On); each moves every
-later entry by one.
+Version 4: 1 Calibration is renamed 1 Sensors. It has Calibrate accel
+after Detect orientation, no Calibrate gyros, and the GPS setting
+(Off/On) last; the entries after it move.
 
 ---
 
@@ -648,7 +650,6 @@ Besides the standard ArduPlane messages, the `GYRO` message records at
 | Field | Meaning |
 |---|---|
 | Gain | Master gain scale applied to the rate controllers |
-| LogOK | Logging gate state (always 1 with the arm switch) |
 | ASpd | Airspeed assumed for the turn correction in m/s, 0 when none is used |
 
 ---
@@ -675,8 +676,6 @@ Parameters added by this build:
 | GYRO_GAIN_CH | 8 | RC channel for the gain knob, 0 to disable |
 | GYRO_GAIN_MIN | 0.0 | Scale at knob minimum |
 | GYRO_GAIN_MAX | 1.5 | Scale at knob maximum |
-| GYRO_LOG_THR | 0 | Throttle percent that starts logging when ARMING_REQUIRE is 0; unused with the arm switch |
-| GYRO_CAL | 0 | Calibration request used by the transmitter menu: 1 = gyros, 2 = level (the level trim only). Reads back 0 when done, -1 when failed or refused. Reset at boot. |
 | GYRO_TURN_CORR | 1 | Assumed airspeed for the attitude estimate's turn correction when there is no GPS and no airspeed sensor (0 in the source, 1 in the board defaults) |
 
 Standard ArduPlane parameters set by the defaults:
@@ -731,7 +730,7 @@ Source of the customization:
 | `libraries/AP_HAL_ChibiOS/hwdef/KakuteF4-Wing-gyro/` | Kakute variant: hwdef and defaults |
 | `libraries/AP_HAL_ChibiOS/hwdef/TBS_LUCID_H7_WING-gyro/` | Lucid H7 Wing variant, same layout |
 | `libraries/AP_HAL_ChibiOS/hwdef/LoftedAero-SRX-gyro/` | LoftedAero-SRX variant, same layout. The base board is `LoftedAero-SRX/` |
-| `ArduPlane/gyro.h`, `ArduPlane/gyro.cpp` | The gyro module: gain knob, logging gate, calibration requests, assumed airspeed, GYRO_ parameters |
+| `ArduPlane/gyro.h`, `ArduPlane/gyro.cpp` | The gyro module: gain knob, the menu's level calibration, assumed airspeed, GYRO_ parameters |
 | `ArduPlane/gyro_menu.h`, `ArduPlane/gyro_menu.cpp` | The transmitter setup menu |
 | `ArduPlane/mode_rtl.cpp`, `ArduPlane/events.cpp` | RTL refused without home; failsafe falls back to FBWA |
 | `ArduPlane/Attitude.cpp` | No 25 degree stall prevention bank limit when there is no airspeed estimate |
