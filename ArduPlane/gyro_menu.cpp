@@ -934,6 +934,11 @@ void PlaneGyroMenu::command_finish(const char *fmt, ...)
     cmd.stage = Stage::DONE;
 }
 
+bool PlaneGyroMenu::text_fits() const
+{
+    return strlen(items[cmd.item].name) + strnlen(cmd.info, sizeof(cmd.info)) <= CMD_TEXT_MAX;
+}
+
 void PlaneGyroMenu::command_close()
 {
     cmd.status = CMD_READY;
@@ -1427,14 +1432,17 @@ void PlaneGyroMenu::command_confirm()
         break;
     }
 
+    case Stage::AUX_REPLACE:
+        aux_found(item.arg, true);
+        break;
+
     case Stage::AUX_CONFIRM:
         if (item.arg == AUX_ARM && !switch_low(cmd.aux_ch)) {
             // ask again: assigning it now would arm the vehicle
             command_prompt(CMD_CONFIRMATION_NEEDED, "Arm switch off first, then OK");
             break;
         }
-        set_aux_channel(item.arg, cmd.aux_ch);
-        command_finish("%s: Ch%u", aux_specs[item.arg].label, unsigned(cmd.aux_ch));
+        aux_save(item.arg);
         break;
 
     case Stage::KNOB_LOW:
@@ -1462,14 +1470,59 @@ void PlaneGyroMenu::command_confirm()
         param_set(name, (uint32_t(high) + cmd.knob_low) / 2);
         hal.util->snprintf(name, sizeof(name), "RC%u_REVERSED", unsigned(ch));
         param_set(name, high < cmd.knob_low ? 1 : 0);
+        if (cmd.replaces >= 0) {
+            set_aux_channel(cmd.replaces, 0);
+        }
         set_aux_channel(AUX_GAIN, ch);
-        command_finish("Gain knob: Ch%u %u-%u%s", unsigned(ch), unsigned(MIN(high, cmd.knob_low)),
-                       unsigned(MAX(high, cmd.knob_low)), high < cmd.knob_low ? ", reversed" : "");
+        if (cmd.replaces >= 0) {
+            // no room for the range next to the replaced function
+            command_finish("Gain knob: Ch%u (was %s)%s", unsigned(ch), aux_specs[cmd.replaces].label,
+                           high < cmd.knob_low ? ", reversed" : "");
+        }
+        if (cmd.replaces < 0 || !text_fits()) {
+            command_finish("Gain knob: Ch%u %u-%u%s", unsigned(ch), unsigned(MIN(high, cmd.knob_low)),
+                           unsigned(MAX(high, cmd.knob_low)), high < cmd.knob_low ? ", reversed" : "");
+        }
         break;
     }
 
     default:
         break;
+    }
+}
+
+// the channel for a switch function is known (cmd.aux_ch)
+void PlaneGyroMenu::aux_found(uint8_t func, bool replace_confirmed)
+{
+    if (func == AUX_GAIN) {
+        // learn the knob's ends too: they set its range and direction
+        cmd.stage = Stage::KNOB_LOW;
+        command_prompt(CMD_CONFIRMATION_NEEDED, "Ch%u. Knob to LOW gain end, OK", unsigned(cmd.aux_ch));
+        return;
+    }
+    cmd.stage = Stage::AUX_CONFIRM;
+    if (func == AUX_ARM) {
+        command_prompt(CMD_CONFIRMATION_NEEDED, "Ch%u: switch it off, then OK", unsigned(cmd.aux_ch));
+    } else if (replace_confirmed) {
+        // the pilot has just said yes to this channel
+        aux_save(func);
+    } else {
+        command_prompt(CMD_CONFIRMATION_NEEDED, "Use Ch%u for %s?", unsigned(cmd.aux_ch), aux_specs[func].label);
+    }
+}
+
+void PlaneGyroMenu::aux_save(uint8_t func)
+{
+    if (cmd.replaces >= 0) {
+        set_aux_channel(cmd.replaces, 0);
+    }
+    set_aux_channel(func, cmd.aux_ch);
+    if (cmd.replaces >= 0) {
+        command_finish("%s: Ch%u (was %s)", aux_specs[func].label, unsigned(cmd.aux_ch),
+                       aux_specs[cmd.replaces].label);
+    }
+    if (cmd.replaces < 0 || !text_fits()) {
+        command_finish("%s: Ch%u", aux_specs[func].label, unsigned(cmd.aux_ch));
     }
 }
 
@@ -1505,24 +1558,22 @@ void PlaneGyroMenu::command_poll()
         if (abs(best_delta) < LEARN_SWITCH_DELTA) {
             break;
         }
+        cmd.aux_ch = best_ch;
         const int8_t owner = channel_owner(best_ch, item.arg);
         if (owner >= 0) {
-            command_finish("Ch%u is the %s", unsigned(best_ch), aux_specs[owner].label);
+            // the old function stays until the final save, so a cancel
+            // at any step leaves it in place
+            cmd.replaces = owner;
+            cmd.stage = Stage::AUX_REPLACE;
+            command_prompt(CMD_CONFIRMATION_NEEDED, "Ch%u is the %s. Replace?", unsigned(best_ch),
+                           aux_specs[owner].label);
+            if (!text_fits()) {
+                command_prompt(CMD_CONFIRMATION_NEEDED, "Ch%u is %s. Replace?", unsigned(best_ch),
+                               aux_specs[owner].label);
+            }
             break;
         }
-        cmd.aux_ch = best_ch;
-        if (item.arg == AUX_GAIN) {
-            // learn the knob's ends too: they set its range and direction
-            cmd.stage = Stage::KNOB_LOW;
-            command_prompt(CMD_CONFIRMATION_NEEDED, "Ch%u. Knob to LOW gain end, OK", unsigned(best_ch));
-            break;
-        }
-        cmd.stage = Stage::AUX_CONFIRM;
-        if (item.arg == AUX_ARM) {
-            command_prompt(CMD_CONFIRMATION_NEEDED, "Ch%u: switch it off, then OK", unsigned(best_ch));
-        } else {
-            command_prompt(CMD_CONFIRMATION_NEEDED, "Use Ch%u for %s?", unsigned(best_ch), aux_specs[item.arg].label);
-        }
+        aux_found(item.arg, false);
         break;
     }
 

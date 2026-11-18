@@ -90,6 +90,7 @@ private:
         STICK_REVIEW,       // showing the learned endpoints, waiting for OK
         STICK_CONFIRM,      // learned all sticks, waiting for OK to save
         AUX_MOVE,           // waiting for a switch to move
+        AUX_REPLACE,        // learned a channel in use, waiting for OK to replace its function
         AUX_CONFIRM,        // learned a switch, waiting for OK to save
         KNOB_LOW,           // gain knob found, waiting for OK at its low gain end
         KNOB_HIGH,          // waiting for OK at the knob's high gain end
@@ -123,6 +124,7 @@ private:
         uint32_t held_ms[4];
         // switch learning
         uint8_t aux_ch;
+        int8_t replaces = -1;       // function aux_ch is taken from at the save, or -1
         uint16_t knob_low;          // gain knob value at its low gain end
         // orientation detection
         Vector3f level_accel;
@@ -150,8 +152,13 @@ private:
     void command_confirm();
     void command_poll();
     void command_cancel();
+    // switch learning: the next step once the channel is known, and the save
+    void aux_found(uint8_t func, bool replace_confirmed);
+    void aux_save(uint8_t func);
     void command_finish(const char *fmt, ...) FMT_PRINTF(2, 3);
     void command_close();
+    // true when the open command's name and popup text fit in one reply
+    bool text_fits() const;
     void command_prompt(uint8_t status, const char *fmt, ...) FMT_PRINTF(3, 4);
     void step_prompt();
     // widen the travel seen on channels 1-4 while learning sticks
