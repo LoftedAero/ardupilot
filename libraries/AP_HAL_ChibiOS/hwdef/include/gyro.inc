@@ -63,6 +63,9 @@ define AP_CRSF_SCRIPTING_ENABLED 1
 # Name radios show for the flight controller (ELRS Lua header and
 # Other Devices list) instead of the firmware version string.
 define AP_CRSF_DEVICE_NAME "Stabilization"
+# A menu read while disarmed stops CRSF telemetry; resume it 0.5 s after
+# the last read instead of 5 s, so the radio does not report its sensors lost.
+define AP_CRSF_PARAMS_MODE_TIMEOUT_MS 500
 
 # --- Keep ------------------------------------------------------------
 # Logging stays on for autotune review (board must provide a
