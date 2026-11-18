@@ -50,7 +50,7 @@ with open(parm, "w") as f:
     # SCALING_SPEED 19 is near the simulated plane's speed at 45% throttle
     f.write("""
 ARMING_REQUIRE 1
-ARMING_SKIPCHK -65
+ARMING_SKIPCHK -81
 RC_OPTIONS 96
 RC5_OPTION 153
 FLTMODE_CH 6
@@ -153,8 +153,15 @@ try:
     # takeoff in MANUAL (mode switch low), climb in FBWA (middle)
     wait_sim(5)
     ground_alt = get("alt")
-    rc[4] = 2000                        # arm switch
-    wait_sim(2)
+    # the arm switch arms on its move: flip it again while a pre-arm
+    # check (SITL's two IMUs must agree for 10 s after boot) refuses
+    t_arm = sim_s()
+    while not get("armed") and sim_s() - t_arm < 30:
+        rc[4] = 2000
+        wait_sim(2)
+        if not get("armed"):
+            rc[4] = 1000
+            wait_sim(1)
     check("armed with the arm switch", get("armed") is True, get("mode"))
     rc[2] = 2000                        # full throttle, neutral elevator
     climb_to(10, 40)

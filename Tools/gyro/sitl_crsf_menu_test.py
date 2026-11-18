@@ -53,7 +53,7 @@ parm = os.path.join(HERE, "test.parm")
 with open(parm, "w") as f:
     f.write("""
 ARMING_REQUIRE 1
-ARMING_SKIPCHK -65
+ARMING_SKIPCHK -81
 RC_OPTIONS 96
 ARMING_RUDDER 0
 SERIAL5_PROTOCOL 23
@@ -137,7 +137,7 @@ try:
         raise KeyError(name)
 
     version = entries.get(find("Menu version", "Tools"), {})
-    check("the menu version is hidden in Tools", version.get("hidden") and version.get("shown") == "3",
+    check("the menu version is hidden in Tools", version.get("hidden") and version.get("shown") == "4",
           version)
 
     def command(pid, action):
@@ -472,6 +472,86 @@ try:
     check("arm assigned once off", get_param("RC9_OPTION") == 153 and get_param("RC5_OPTION") == 0,
           (state, get_param("RC9_OPTION"), get_param("RC5_OPTION")))
     command(learn_arm, CMD_CONFIRM)
+
+    # 9b. learning onto a channel in use asks to replace its function; the
+    # old function is only cleared at the final save
+    set_param("GYRO_GAIN_CH", 10)
+    command(learn_arm, CMD_START)
+    c.channels[9] = 2000                                  # ch10, the gain knob
+    time.sleep(0.5)
+    state = command(learn_arm, CMD_POLL)
+    check("a channel in use asks to replace", state is not None and state[0] == CMD_CONFIRMATION_NEEDED
+          and state[1] == "Ch10 is the Gain knob. Replace?", state)
+    state = command(learn_arm, CMD_CANCEL)
+    check("cancel keeps the old function", state is not None and state[0] == CMD_READY
+          and get_param("GYRO_GAIN_CH") == 10 and get_param("RC9_OPTION") == 153 and get_param("RC10_OPTION") == 0,
+          (state, get_param("GYRO_GAIN_CH"), get_param("RC10_OPTION")))
+    c.channels[9] = 1500
+    time.sleep(0.5)
+    # arm switch: after the replace it still asks for the switch off
+    command(learn_arm, CMD_START)
+    c.channels[9] = 2000
+    time.sleep(0.5)
+    command(learn_arm, CMD_POLL)
+    state = command(learn_arm, CMD_CONFIRM)
+    check("replace, then the arm switch asks to switch off", state is not None and "Ch10: switch it off" in state[1],
+          state)
+    state = command(learn_arm, CMD_CONFIRM)               # still high: must not assign
+    check("replace: arm refused while on, old function kept", "off first" in state[1]
+          and get_param("RC10_OPTION") == 0 and get_param("GYRO_GAIN_CH") == 10, state)
+    c.channels[9] = 988
+    time.sleep(0.5)
+    state = command(learn_arm, CMD_CONFIRM)
+    check("replace: arm saved and the gain knob cleared", state is not None
+          and state[1] == "Arm switch: Ch10 (was Gain knob)" and get_param("RC10_OPTION") == 153
+          and get_param("GYRO_GAIN_CH") == 0 and get_param("RC9_OPTION") == 0,
+          (state, get_param("RC10_OPTION"), get_param("GYRO_GAIN_CH")))
+    command(learn_arm, CMD_CONFIRM)
+    check("vehicle did not arm while replacing", is_armed() is False)
+    # gain knob onto the arm switch's channel: it still learns both ends
+    command(learn_knob, CMD_START)
+    c.channels[9] = 2000
+    time.sleep(0.5)
+    state = command(learn_knob, CMD_POLL)
+    check("knob onto the arm switch asks to replace", state is not None
+          and state[1] == "Ch10 is the Arm switch. Replace?", state)
+    state = command(learn_knob, CMD_CONFIRM)
+    check("replace, then the knob asks for its low end", state is not None and "LOW" in state[1], state)
+    c.channels[9] = 988
+    time.sleep(0.4)
+    command(learn_knob, CMD_CONFIRM)
+    c.channels[9] = 2012
+    time.sleep(0.4)
+    check("old function kept until the knob is saved", get_param("RC10_OPTION") == 153 and is_armed() is False)
+    state = command(learn_knob, CMD_CONFIRM)
+    check("replace: knob saved and the arm switch cleared", state is not None
+          and state[1] == "Gain knob: Ch10 (was Arm switch)" and get_param("GYRO_GAIN_CH") == 10
+          and get_param("RC10_OPTION") == 0, (state, get_param("GYRO_GAIN_CH"), get_param("RC10_OPTION")))
+    command(learn_knob, CMD_CONFIRM)
+    c.channels[9] = 1500
+    time.sleep(0.5)
+    # another switch: one OK replaces and saves, with no second question
+    learn_at = find("Learn autotune sw")
+    command(learn_at, CMD_START)
+    c.channels[9] = 2000
+    time.sleep(0.5)
+    state = command(learn_at, CMD_POLL)
+    check("autotune onto the gain knob asks to replace", state is not None
+          and state[1] == "Ch10 is the Gain knob. Replace?", state)
+    c.channels[9] = 988                                   # switch off before it becomes autotune
+    time.sleep(0.4)
+    state = command(learn_at, CMD_CONFIRM)
+    # "Autotune switch: Ch10 (was Gain knob)" does not fit next to the
+    # command name in one reply, so the short result is shown
+    check("replace: autotune saved at once", state is not None and state[1] == "Autotune switch: Ch10"
+          and get_param("RC10_OPTION") == 107 and get_param("GYRO_GAIN_CH") == 0,
+          (state, get_param("RC10_OPTION"), get_param("GYRO_GAIN_CH")))
+    command(learn_at, CMD_CONFIRM)
+    set_param("RC10_OPTION", 0)
+    set_param("RC10_REVERSED", 0)
+    c.channels[9] = 1500
+    time.sleep(0.5)
+
     arm_sw = find("Arm switch")
     c.write_entry(arm_sw, [entries[arm_sw]["options"].index("Ch5")])
     check("arm switch back on ch5", get_param("RC5_OPTION") == 153 and get_param("RC9_OPTION") == 0)
@@ -523,6 +603,27 @@ try:
     c.channels[4] = 988
     time.sleep(2)
     check("disarmed via ch5", is_armed() is False)
+
+    # 11. GPS setting (last: switching it restarts the flight controller)
+    gps = find("GPS", "5 Failsafe")
+    e = cm.parse_entry(gps, c.read_entry(gps))
+    check("GPS entry is Off/On, first in 5 Failsafe", e["options"] == ["Off", "On"]
+          and min(pid for pid, x in entries.items() if x["parent"] == entries[gps]["parent"]) == gps, e)
+    set_param("GPS1_TYPE", 0)
+    set_param("ARMING_SKIPCHK", -81)
+    drain()
+    r = c.write_entry(gps, [0])
+    time.sleep(2)
+    check("GPS Off when already off changes nothing", r is not None and get_param("GPS1_TYPE") == 0
+          and get_param("ARMING_SKIPCHK") == -81)
+    drain()
+    c.write_entry(gps, [1])
+    # read before the restart, 1.5 s later; get_param drops older messages
+    restarting = m.recv_match(type="STATUSTEXT", blocking=True, timeout=1,
+                              condition="'GPS on, restarting' in STATUSTEXT.text")
+    on = [get_param(n) for n in ("GPS1_TYPE", "EK3_ENABLE", "AHRS_EKF_TYPE", "ARMING_SKIPCHK")]
+    check("GPS On sets the GPS driver, EKF3 and the GPS arming checks", on == [1, 1, 3, -4185], on)
+    check("GPS On restarts the flight controller", restarting is not None)
 
     c.close()
 finally:

@@ -42,7 +42,7 @@ extra = os.path.join(HERE, "gyro_test.parm")
 with open(extra, "w") as f:
     f.write("""
 ARMING_REQUIRE 1
-ARMING_SKIPCHK -65
+ARMING_SKIPCHK -81
 RC_OPTIONS 96
 ARMING_RUDDER 0
 AHRS_EKF_TYPE 0

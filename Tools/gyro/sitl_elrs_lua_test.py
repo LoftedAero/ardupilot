@@ -55,7 +55,7 @@ parm = os.path.join(HERE, "test.parm")
 with open(parm, "w") as f:
     f.write("""
 ARMING_REQUIRE 1
-ARMING_SKIPCHK -65
+ARMING_SKIPCHK -81
 RC_OPTIONS 96
 SERIAL5_PROTOCOL 23
 RC_PROTOCOLS 512
@@ -291,6 +291,7 @@ try:
     # 8. no GPS: RTL settings hidden, explanation shown
     open_entry("5 Failsafe")
     shot("failsafe_no_gps")
+    check("GPS setting shown as Off", sim.contains("GPS") and sim.contains("Off"), sim.text())
     check("RTL altitude hidden", not sim.contains("RTL altitude"))
     check("needs a GPS shown", sim.contains("needs a GPS"))
 
