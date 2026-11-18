@@ -153,7 +153,7 @@ try:
         # folder, however deep, returns to the device's top level, which
         # is why the menu's folders sit there
         sim.press("exit")
-        return sim.contains("1 Calibration") and sim.contains("Tools")
+        return sim.contains("1 Sensors") and sim.contains("Tools")
 
     # 1. root and device list
     sim.idle(3)
@@ -169,7 +169,7 @@ try:
     # entries arrive one by one; the last top-level folder is Tools
     check("all folders load", sim.wait_for("Tools", 60))
     shot("top_level")
-    for folder in ("1 Calibration", "2 Radio", "3 Flight modes", "4 Outputs", "5 Failsafe", "6 Tuning",
+    for folder in ("1 Sensors", "2 Radio", "3 Flight modes", "4 Outputs", "5 Failsafe", "6 Tuning",
                    "Tools"):
         check("folder %s shown" % folder, sim.contains(folder))
     check("status line", sim.contains("DISARMED"))
@@ -235,10 +235,13 @@ try:
     c.channels[5] = 988
     back()
 
-    # 5. command popups: calibrate gyros
-    open_entry("1 Calibration")
-    open_entry("Calibrate gyros")
-    check("calibration asks to keep still", sim.wait_for("Keep the model still", 5))
+    # 5. command popups: calibrate level
+    open_entry("1 Sensors")
+    shot("sensors")
+    check("GPS setting shown as Off in 1 Sensors", sim.contains("GPS") and sim.contains("Off"), sim.text())
+    check("no Calibrate gyros entry", not sim.contains("Calibrate gyros"))
+    open_entry("Calibrate level")
+    check("calibration asks to hold level", sim.wait_for("Hold model at level attitude", 5))
     shot("cal_prompt")
     sim.press("enter")              # OK
     check("calibration result shown", sim.wait_for("Calibration done", 20))
@@ -291,7 +294,7 @@ try:
     # 8. no GPS: RTL settings hidden, explanation shown
     open_entry("5 Failsafe")
     shot("failsafe_no_gps")
-    check("GPS setting shown as Off", sim.contains("GPS") and sim.contains("Off"), sim.text())
+    check("no GPS setting in 5 Failsafe", not sim.contains("Off"), sim.text())
     check("RTL altitude hidden", not sim.contains("RTL altitude"))
     check("needs a GPS shown", sim.contains("needs a GPS"))
 

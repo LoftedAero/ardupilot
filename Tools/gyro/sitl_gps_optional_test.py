@@ -2,7 +2,7 @@
 """
 AP_FLAKE8_CLEAN
 
-SITL check of the gyro build with its GPS setting on (menu: 5 Failsafe,
+SITL check of the gyro build with its GPS setting on (menu: 1 Sensors,
 GPS): GPS1_TYPE 1, EKF3 (AHRS_EKF_TYPE 3) and the GPS arming checks, no
 compass, no airspeed sensor. With the GPS off the build flies on DCM, as
 sitl_turn_test.py and sitl_autotune_test.py check.

@@ -3,7 +3,7 @@
 AP_FLAKE8_CLEAN
 
 SITL test of the menu's 6-position accelerometer calibration
-("1 Calibration", "Calibrate accel"), driven over CRSF the way the
+("1 Sensors", "Calibrate accel"), driven over CRSF the way the
 ExpressLRS Lua script drives it (see crsf_menu_client.py).
 
 SITL runs its "calibration" model: servo outputs 5-8 turn the model. They
@@ -207,11 +207,10 @@ try:
                 return pid
         raise KeyError(name)
 
-    cal_folder = find("1 Calibration")
+    cal_folder = find("1 Sensors")
     names = [e["name"] for pid, e in sorted(entries.items()) if e["parent"] == cal_folder]
-    check("1 Calibration: orientation, accel, level, gyros",
-          names == ["Orientation", "Detect orientation", "Calibrate accel", "Calibrate level", "Calibrate gyros"],
-          names)
+    check("1 Sensors: orientation, accel, level, GPS",
+          names == ["Orientation", "Detect orientation", "Calibrate accel", "Calibrate level", "GPS"], names)
 
     def command(pid, action):
         r = c.write_entry(pid, [action])
@@ -246,7 +245,7 @@ try:
     offs0 = link.vec("INS_ACCOFFS")
 
     # 2. Exit after the first pose keeps the old offsets
-    acc = find("Calibrate accel", "1 Calibration")
+    acc = find("Calibrate accel", "1 Sensors")
     state = command(acc, CMD_START)
     check("first prompt asks for the level pose", state == (CMD_CONFIRMATION_NEEDED, "Pose 1/6: level, then OK"),
           state)
@@ -319,7 +318,7 @@ try:
     scal_before = link.vec("INS_ACCSCAL")
     pose(0, LEVEL_PITCH)
     entries = load()
-    level = find("Calibrate level", "1 Calibration")
+    level = find("Calibrate level", "1 Sensors")
     state = command(level, CMD_START)
     command(level, CMD_CONFIRM)
     state = poll_while_progress(level, timeout=30)

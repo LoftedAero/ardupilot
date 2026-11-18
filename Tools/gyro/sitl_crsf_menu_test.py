@@ -125,7 +125,7 @@ try:
     check("every parent is a folder", not bad_parent, bad_parent)
     top = [e["name"] for pid, e in sorted(entries.items()) if e["parent"] == 0]
     check("top level is Status then the folders",
-          top == ["Status", "1 Calibration", "2 Radio", "3 Flight modes", "4 Outputs", "5 Failsafe", "6 Tuning",
+          top == ["Status", "1 Sensors", "2 Radio", "3 Flight modes", "4 Outputs", "5 Failsafe", "6 Tuning",
                   "Tools"], top)
 
     def find(name, parent_name=None):
@@ -315,10 +315,12 @@ try:
     time.sleep(1)
 
     # 5. calibration popup flow
-    first, final = run_command(find("Calibrate gyros"))
-    check("calibration asks to keep still", first is not None and first[0] == CMD_CONFIRMATION_NEEDED, first)
+    check("no Calibrate gyros entry (the gyros calibrate at each start)",
+          "Calibrate gyros" not in [e.get("name") for e in entries.values()])
+    first, final = run_command(find("Calibrate level"))
+    check("calibration asks to hold level", first is not None and first[0] == CMD_CONFIRMATION_NEEDED, first)
     check("calibration reports done", final is not None and final[1] == "Calibration done", final)
-    closed = command(find("Calibrate gyros"), CMD_CONFIRM)
+    closed = command(find("Calibrate level"), CMD_CONFIRM)
     check("OK closes the result", closed is not None and closed[0] == CMD_READY, closed)
 
     # 6. wing type: written, it sets channels 1-4 at once
@@ -605,10 +607,13 @@ try:
     check("disarmed via ch5", is_armed() is False)
 
     # 11. GPS setting (last: switching it restarts the flight controller)
-    gps = find("GPS", "5 Failsafe")
+    gps = find("GPS", "1 Sensors")
     e = cm.parse_entry(gps, c.read_entry(gps))
-    check("GPS entry is Off/On, first in 5 Failsafe", e["options"] == ["Off", "On"]
-          and min(pid for pid, x in entries.items() if x["parent"] == entries[gps]["parent"]) == gps, e)
+    sensors = [x["name"] for pid, x in sorted(entries.items()) if x["parent"] == entries[gps]["parent"]]
+    check("GPS entry is Off/On, last in 1 Sensors", e["options"] == ["Off", "On"]
+          and sensors[-1] == "GPS"
+          and not any(x["name"] == "GPS" and entries.get(x["parent"], {}).get("name") == "5 Failsafe"
+                      for x in entries.values()), sensors)
     set_param("GPS1_TYPE", 0)
     set_param("ARMING_SKIPCHK", -81)
     drain()

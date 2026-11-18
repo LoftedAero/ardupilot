@@ -18,7 +18,6 @@ Checks:
   C. long RC failsafe falls back to FBWA when RTL is refused
   D. RTL accepted once GPS gives a home
   E. GYRO.Gain in the dataflash log follows the knob
-  G. a GYRO_CAL calibration request is refused while armed
 """
 import glob
 import os
@@ -201,13 +200,6 @@ try:
     check("B: no trim capture", trims_after == trims_before and not any("trim complete" in t for t in texts),
           f"before={trims_before} after={trims_after}")
     rc[0], rc[1] = 1500, 1500
-
-    # G. calibration request is refused while armed
-    texts.clear()
-    set_param("GYRO_CAL", 1)
-    pump(2)
-    check("G: calibration refused while armed", get_param("GYRO_CAL") == -1
-          and any("disarm to calibrate" in t for t in texts))
 
     # E (part 1): gain knob high, then low, to leave marks in the log
     rc[7] = 2000
