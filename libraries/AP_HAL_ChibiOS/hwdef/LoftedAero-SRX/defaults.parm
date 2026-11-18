@@ -1,4 +1,4 @@
-# LoftedAero-SRX default parameters (gyro-receiver defaults to be added)
+# LoftedAero-SRX default parameters (the StabRX defaults are in LoftedAero-SRX-gyro)
 
 # Onboard ExpressLRS receiver on SERIAL2 (CRSF; SERIAL2_PROTOCOL=23 comes from the hwdef)
 # RSSI and link quality from CRSF link statistics

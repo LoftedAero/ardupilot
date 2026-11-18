@@ -11,7 +11,7 @@ ARMING_REQUIRE 1
 # 96 run only its throttle part: arming is refused unless the throttle is low.
 # INS: gyros and accelerometers healthy and calibrated (run "Calibrate accel" once
 # before the first flight) and the attitude estimate ready. The GPS checks (bits 3
-# and 12) run only while the GPS is on (menu: 5 Failsafe, GPS).
+# and 12) run only while the GPS is on (menu: 1 Sensors, GPS).
 # RC_OPTIONS bit 12 (4096) adds a star to the CRSF flight mode while disarmed, which is
 # the only way a radio on plain CRSF telemetry can tell armed from disarmed.
 # Bit 8 (256) adds ArduPilot passthrough telemetry to the CRSF link, for radio
@@ -25,7 +25,7 @@ INS_GYR_CAL 1
 
 # --- Sensors ---
 COMPASS_ENABLE 0
-# --- GPS: off by default (menu: 5 Failsafe, GPS) ---
+# --- GPS: off by default (menu: 1 Sensors, GPS) ---
 # Off: no GPS driver, DCM attitude estimate. On: GPS1_TYPE 1, EKF3, GPS arming checks.
 GPS1_TYPE 0
 EK3_ENABLE 0
