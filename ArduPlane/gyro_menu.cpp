@@ -584,14 +584,16 @@ bool PlaneGyroMenu::build()
 
     add(root, Handler::STATUS, 0, "Status");
 
-    AP_CRSF_Telem::ScriptedMenu *m = submenu(root, "1 Calibration");
+    // the sensors fitted and their calibration. The gyros calibrate at
+    // each start (INS_GYR_CAL 1)
+    AP_CRSF_Telem::ScriptedMenu *m = submenu(root, "1 Sensors");
     add(m, Handler::ORIENT, 0, "Orientation");
     add(m, Handler::ORIENT_DETECT, 0, "Detect orientation");
 #if HAL_INS_ACCELCAL_ENABLED
     add(m, Handler::CAL_ACCEL, 0, "Calibrate accel");
 #endif
     add(m, Handler::CAL_LEVEL, 0, "Calibrate level");
-    add(m, Handler::CAL_GYRO, 0, "Calibrate gyros");
+    add(m, Handler::GPS_FITTED, 0, "GPS");
 
     m = submenu(root, "2 Radio");
     add(m, Handler::LEARN_STICKS, 0, "Learn sticks");
@@ -623,7 +625,6 @@ bool PlaneGyroMenu::build()
     }
 
     m = submenu(root, "5 Failsafe");
-    add(m, Handler::GPS_FITTED, 0, "GPS");
     add(m, Handler::LINK_LOSS, 0, "Link loss");
     add(m, Handler::NUMBER, NUM_RTL_ALT, "RTL altitude");
     add(m, Handler::NO_GPS_INFO, 0, "RTL");
@@ -777,7 +778,6 @@ uint8_t PlaneGyroMenu::pack(const Item &item, uint8_t *buf, uint8_t size)
     case Handler::ORIENT_DETECT:
     case Handler::CAL_ACCEL:
     case Handler::CAL_LEVEL:
-    case Handler::CAL_GYRO:
     case Handler::LEARN_STICKS:
     case Handler::AUX_LEARN:
     case Handler::MODE_CHECK:
@@ -818,7 +818,6 @@ uint8_t PlaneGyroMenu::write(const Item &item, const uint8_t *payload, uint8_t l
     case Handler::ORIENT_DETECT:
     case Handler::CAL_ACCEL:
     case Handler::CAL_LEVEL:
-    case Handler::CAL_GYRO:
     case Handler::LEARN_STICKS:
     case Handler::AUX_LEARN:
     case Handler::MODE_CHECK:
@@ -1215,10 +1214,6 @@ void PlaneGyroMenu::command_start(uint8_t index)
         cmd.stage = Stage::CONFIRM;
         command_prompt(CMD_CONFIRMATION_NEEDED, "Hold model at level attitude");
         break;
-    case Handler::CAL_GYRO:
-        cmd.stage = Stage::CONFIRM;
-        command_prompt(CMD_CONFIRMATION_NEEDED, "Keep the model still");
-        break;
     case Handler::RESET:
         cmd.stage = Stage::CONFIRM;
         command_prompt(CMD_CONFIRMATION_NEEDED, "Erase ALL settings and restart?");
@@ -1468,8 +1463,7 @@ void PlaneGyroMenu::command_confirm()
             break;
         }
         case Handler::CAL_LEVEL:
-        case Handler::CAL_GYRO:
-            plane.g2.gyro.request_calibration(item.handler == Handler::CAL_LEVEL ? 2 : 1);
+            plane.g2.gyro.request_calibration(2);
             cmd.stage = Stage::CAL_RUNNING;
             command_prompt(CMD_PROGRESS, "Calibrating, hold still");
             break;

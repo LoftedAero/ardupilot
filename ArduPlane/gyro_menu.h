@@ -6,7 +6,7 @@
 
   It is built natively on AP_CRSF_Telem's scripted-menu structures, so
   no Lua scripting is needed. The menu follows the Loft GCS setup order
-  (calibration, radio, flight modes, outputs with the wing template,
+  (sensors, radio, flight modes, outputs with the wing template,
   failsafe, tuning) and reads and writes ordinary ArduPilot parameters.
  */
 
@@ -46,7 +46,6 @@ private:
         ORIENT_DETECT,  // command: detect orientation (level, then nose up)
         CAL_ACCEL,      // command: 6-position accelerometer calibration
         CAL_LEVEL,      // command: level calibration (AHRS trim)
-        CAL_GYRO,       // command: gyro calibration
         LEARN_STICKS,   // command: learn stick channels and directions
         AUX_CH,         // select: channel of a switch function (arg = AuxFunc)
         AUX_LEARN,      // command: learn a switch channel (arg = AuxFunc)
