@@ -101,6 +101,9 @@ KFF_RDDRMIX 0.2
 # a gentle yaw damper: about 7% rudder at 30 deg/s of yaw at cruise; no effect without a rudder
 YAW2SRV_DAMP 0.1
 
+# --- Autotune: roll and pitch; the rudder stays on the yaw damper ---
+AUTOTUNE_AXES 3
+
 # --- Link loss: short = FBWA at zero throttle; long = RTL if home is set, else FBWA glide
 THR_FAILSAFE 1
 FS_SHORT_ACTN 2
