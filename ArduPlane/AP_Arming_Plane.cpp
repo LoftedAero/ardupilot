@@ -283,11 +283,11 @@ void AP_Arming_Plane::change_arm_state(void)
 
 bool AP_Arming_Plane::arm(const AP_Arming::Method method, const bool do_arming_checks)
 {
-#if AP_PLANE_GYRO_MENU_ENABLED
+#if AP_PLANE_STABRX_MENU_ENABLED
     // never arm in the middle of a setup step on the transmitter menu:
     // the sticks and switches are being moved to learn them, not to fly.
     // No arming check option skips this.
-    if (plane.g2.gyro.menu_busy()) {
+    if (plane.g2.stabrx.menu_busy()) {
         check_failed(true, "StabRX: setup step open on radio");
         return false;
     }

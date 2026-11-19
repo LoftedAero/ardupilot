@@ -13,16 +13,16 @@
 #include <AP_HAL/AP_HAL_Boards.h>
 #include <AP_RCTelemetry/AP_RCTelemetry_config.h>
 
-#ifndef AP_PLANE_GYRO_MENU_ENABLED
-#define AP_PLANE_GYRO_MENU_ENABLED (AP_PLANE_GYRO_ENABLED && HAL_CRSF_TELEM_ENABLED && AP_CRSF_SCRIPTING_ENABLED)
+#ifndef AP_PLANE_STABRX_MENU_ENABLED
+#define AP_PLANE_STABRX_MENU_ENABLED (AP_PLANE_STABRX_ENABLED && HAL_CRSF_TELEM_ENABLED && AP_CRSF_SCRIPTING_ENABLED)
 #endif
 
-#if AP_PLANE_GYRO_MENU_ENABLED
+#if AP_PLANE_STABRX_MENU_ENABLED
 
 #include <AP_Math/AP_Math.h>
 #include <AP_RCTelemetry/AP_CRSF_Telem.h>
 
-class PlaneGyroMenu {
+class PlaneStabRXMenu {
 public:
     // called at 50Hz: builds the menu once a CRSF receiver is talking,
     // then answers the radio's read and write requests
@@ -212,4 +212,4 @@ private:
     bool orientation_from(const Vector3f &level, const Vector3f &nose_up, uint8_t &rotation) const;
 };
 
-#endif  // AP_PLANE_GYRO_MENU_ENABLED
+#endif  // AP_PLANE_STABRX_MENU_ENABLED

@@ -12,29 +12,29 @@
      so the menu can answer the radio first
    - an assumed airspeed for the attitude estimate's turn correction
      when the model flies with no GPS and no airspeed sensor
-   - the transmitter setup menu over CRSF (gyro_menu.cpp)
+   - the transmitter setup menu over CRSF (stabrx_menu.cpp)
 
-  The knob and the turn correction are off until their GYRO_ parameter
+  The knob and the turn correction are off until their STABRX_ parameter
   is set. The menu runs when a CRSF receiver is connected.
  */
 
 #include <AP_Common/AP_Common.h>
 #include <AP_Param/AP_Param.h>
 
-#ifndef AP_PLANE_GYRO_ENABLED
-#define AP_PLANE_GYRO_ENABLED 1
+#ifndef AP_PLANE_STABRX_ENABLED
+#define AP_PLANE_STABRX_ENABLED 1
 #endif
 
-#if AP_PLANE_GYRO_ENABLED
+#if AP_PLANE_STABRX_ENABLED
 
-#include "gyro_menu.h"
+#include "stabrx_menu.h"
 
-class PlaneGyro {
+class PlaneStabRX {
 public:
-    PlaneGyro();
+    PlaneStabRX();
 
     /* Do not allow copies */
-    CLASS_NO_COPY(PlaneGyro);
+    CLASS_NO_COPY(PlaneStabRX);
 
     static const struct AP_Param::GroupInfo var_info[];
 
@@ -52,7 +52,7 @@ public:
     void request_level_calibration() { level_cal_state = LEVEL_CAL_PENDING; }
     LevelCalState level_calibration_state() const { return level_cal_state; }
 
-#if AP_PLANE_GYRO_MENU_ENABLED
+#if AP_PLANE_STABRX_MENU_ENABLED
     // scheduler task, 50Hz: transmitter setup menu over CRSF
     void menu_update() { menu.update(); }
 
@@ -76,8 +76,8 @@ private:
     uint32_t thr_airborne_ms;
     uint32_t still_ms;
 
-#if AP_PLANE_GYRO_MENU_ENABLED
-    PlaneGyroMenu menu;
+#if AP_PLANE_STABRX_MENU_ENABLED
+    PlaneStabRXMenu menu;
 #endif
 
     void update_gain_scale();
@@ -86,4 +86,4 @@ private:
     void write_log();
 };
 
-#endif  // AP_PLANE_GYRO_ENABLED
+#endif  // AP_PLANE_STABRX_ENABLED

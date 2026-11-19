@@ -1,32 +1,32 @@
 #include "Plane.h"
-#include "gyro.h"
+#include "stabrx.h"
 
-#if AP_PLANE_GYRO_ENABLED
+#if AP_PLANE_STABRX_ENABLED
 
-const AP_Param::GroupInfo PlaneGyro::var_info[] = {
+const AP_Param::GroupInfo PlaneStabRX::var_info[] = {
 
     // @Param: GAIN_CH
     // @DisplayName: Gyro master gain channel
-    // @Description: RC input channel used as a master gain knob for the roll, pitch and yaw rate controllers, like the gain setting on a consumer RC gyro. The knob scales the P and D terms of the rate controllers and how fast the I term builds up, so turning it never steps the I output. Feedforward is not scaled, so stick authority in ACRO is unchanged. Knob centre gives a scale of 1.0 (the tuned gains), the low end gives GYRO_GAIN_MIN and the high end gives GYRO_GAIN_MAX. The scale keeps its last value during RC failsafe, and is held at 1.0 while autotune is running. Set to 0 to disable.
+    // @Description: RC input channel used as a master gain knob for the roll, pitch and yaw rate controllers, like the gain setting on a consumer RC gyro. The knob scales the P and D terms of the rate controllers and how fast the I term builds up, so turning it never steps the I output. Feedforward is not scaled, so stick authority in ACRO is unchanged. Knob centre gives a scale of 1.0 (the tuned gains), the low end gives STABRX_GAIN_MIN and the high end gives STABRX_GAIN_MAX. The scale keeps its last value during RC failsafe, and is held at 1.0 while autotune is running. Set to 0 to disable.
     // @Values: 0:Disabled,5:Chan5,6:Chan6,7:Chan7,8:Chan8,9:Chan9,10:Chan10,11:Chan11,12:Chan12,13:Chan13,14:Chan14,15:Chan15,16:Chan16
     // @User: Standard
-    AP_GROUPINFO("GAIN_CH", 1, PlaneGyro, gain_ch, 0),
+    AP_GROUPINFO("GAIN_CH", 1, PlaneStabRX, gain_ch, 0),
 
     // @Param: GAIN_MIN
     // @DisplayName: Gyro master gain at knob minimum
-    // @Description: Rate controller gain scale when the GYRO_GAIN_CH knob is at its low end. 0 removes the P and D correction and holds the I term at its current value, leaving feedforward.
+    // @Description: Rate controller gain scale when the STABRX_GAIN_CH knob is at its low end. 0 removes the P and D correction and holds the I term at its current value, leaving feedforward.
     // @Range: 0 1
     // @Increment: 0.05
     // @User: Standard
-    AP_GROUPINFO("GAIN_MIN", 2, PlaneGyro, gain_min, 0.0f),
+    AP_GROUPINFO("GAIN_MIN", 2, PlaneStabRX, gain_min, 0.0f),
 
     // @Param: GAIN_MAX
     // @DisplayName: Gyro master gain at knob maximum
-    // @Description: Rate controller gain scale when the GYRO_GAIN_CH knob is at its high end.
+    // @Description: Rate controller gain scale when the STABRX_GAIN_CH knob is at its high end.
     // @Range: 1 3
     // @Increment: 0.05
     // @User: Standard
-    AP_GROUPINFO("GAIN_MAX", 3, PlaneGyro, gain_max, 1.5f),
+    AP_GROUPINFO("GAIN_MAX", 3, PlaneStabRX, gain_max, 1.5f),
 
     // index 4 was TRIM_CAP (trim capture, removed): do not reuse
 
@@ -38,17 +38,17 @@ const AP_Param::GroupInfo PlaneGyro::var_info[] = {
     // @Description: Keeps the attitude estimate correct in turns when there is no GPS and no airspeed sensor. Without a speed the estimate cannot correct for the acceleration of a turn, and in a held FBWA turn the real bank and dive angles grow while the estimate reads steady. When enabled, an assumed airspeed is used for that correction: SCALING_SPEED at 45% throttle, lower at low throttle and higher at high throttle, the same model that scales the gains by throttle. Set SCALING_SPEED to the model's cruise speed. The assumed airspeed is used from one second of armed throttle above 30% until the model is disarmed and still, and never when a GPS or airspeed sensor gives a speed.
     // @Values: 0:Disabled,1:Enabled
     // @User: Standard
-    AP_GROUPINFO("TURN_CORR", 7, PlaneGyro, turn_corr, 0),
+    AP_GROUPINFO("TURN_CORR", 7, PlaneStabRX, turn_corr, 0),
 
     AP_GROUPEND
 };
 
-PlaneGyro::PlaneGyro()
+PlaneStabRX::PlaneStabRX()
 {
     AP_Param::setup_object_defaults(this, var_info);
 }
 
-void PlaneGyro::update()
+void PlaneStabRX::update()
 {
     const uint32_t now_ms = AP_HAL::millis();
     update_gain_scale();
@@ -61,9 +61,9 @@ void PlaneGyro::update()
 /*
   map the gain knob to a scale factor and push it into the rate
   controllers. Knob centre is always 1.0 so the autotuned gains are
-  reachable regardless of GYRO_GAIN_MIN/MAX.
+  reachable regardless of STABRX_GAIN_MIN/MAX.
  */
-void PlaneGyro::update_gain_scale()
+void PlaneStabRX::update_gain_scale()
 {
     float scale = 1.0f;
     const int8_t ch = gain_ch.get();
@@ -95,7 +95,7 @@ void PlaneGyro::update_gain_scale()
   while it waits for IMU samples, so the menu only sets the request and
   answers the radio, and the calibration runs here on the next update.
  */
-void PlaneGyro::update_calibration()
+void PlaneStabRX::update_calibration()
 {
     if (level_cal_state != LEVEL_CAL_PENDING) {
         return;
@@ -120,7 +120,7 @@ void PlaneGyro::update_calibration()
   with no GPS and no airspeed sensor. DCM uses it only for its
   centripetal correction and only when it has no other speed.
  */
-void PlaneGyro::update_assumed_airspeed(uint32_t now_ms)
+void PlaneStabRX::update_assumed_airspeed(uint32_t now_ms)
 {
     // throttle that counts as a takeoff or a launch, and for how long
     const float airborne_throttle_pct = 30;
@@ -157,15 +157,15 @@ void PlaneGyro::update_assumed_airspeed(uint32_t now_ms)
     plane.ahrs.set_assumed_airspeed_EAS(airspeed);
 }
 
-void PlaneGyro::write_log()
+void PlaneStabRX::write_log()
 {
 #if HAL_LOGGING_ENABLED
-    // @LoggerMessage: GYRO
+    // @LoggerMessage: STBX
     // @Description: Gyro-style helper state
     // @Field: TimeUS: Time since system startup
     // @Field: Gain: master gain scale applied to the rate controllers
     // @Field: ASpd: airspeed assumed for the attitude estimate's turn correction, 0 when none
-    AP::logger().WriteStreaming("GYRO", "TimeUS,Gain,ASpd",
+    AP::logger().WriteStreaming("STBX", "TimeUS,Gain,ASpd",
                                 "s-n", "F-0", "Qff",
                                 AP_HAL::micros64(),
                                 gain_scale,
@@ -173,4 +173,4 @@ void PlaneGyro::write_log()
 #endif
 }
 
-#endif  // AP_PLANE_GYRO_ENABLED
+#endif  // AP_PLANE_STABRX_ENABLED

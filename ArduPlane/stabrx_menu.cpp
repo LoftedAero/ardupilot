@@ -1,6 +1,6 @@
 #include "Plane.h"
 
-#if AP_PLANE_GYRO_MENU_ENABLED
+#if AP_PLANE_STABRX_MENU_ENABLED
 
 #include <stdarg.h>
 #include <AP_Common/AP_FWVersion.h>
@@ -138,8 +138,8 @@ bool number_in_flight(uint8_t arg)
 // precision at 3 but still divides by its own 10^3, so a value sent with 4
 // decimals would show 10 times too large.
 const NumberSpec number_specs[] = {
-    {"GYRO_GAIN_MIN", 0, 1, 0.05, 2, ""},
-    {"GYRO_GAIN_MAX", 1, 3, 0.05, 2, ""},
+    {"STABRX_GAIN_MIN", 0, 1, 0.05, 2, ""},
+    {"STABRX_GAIN_MAX", 1, 3, 0.05, 2, ""},
     {"ACRO_ROLL_RATE", 30, 500, 10, 0, "d/s"},
     {"ACRO_PITCH_RATE", 30, 500, 10, 0, "d/s"},
     {"ROLL_LIMIT_DEG", 10, 85, 5, 0, "deg"},
@@ -345,26 +345,26 @@ int32_t payload_i32(const uint8_t *payload)
 /*
   parameter helpers
  */
-float PlaneGyroMenu::param_get(const char *name)
+float PlaneStabRXMenu::param_get(const char *name)
 {
     float value = 0;
     AP_Param::get(name, value);
     return value;
 }
 
-void PlaneGyroMenu::param_set(const char *name, float value)
+void PlaneStabRXMenu::param_set(const char *name, float value)
 {
     AP_Param::set_and_save_by_name(name, value);
 }
 
-float PlaneGyroMenu::output_param(uint8_t output, const char *field)
+float PlaneStabRXMenu::output_param(uint8_t output, const char *field)
 {
     char name[17];
     hal.util->snprintf(name, sizeof(name), "SERVO%u_%s", unsigned(output), field);
     return param_get(name);
 }
 
-void PlaneGyroMenu::set_output_param(uint8_t output, const char *field, float value, bool save)
+void PlaneStabRXMenu::set_output_param(uint8_t output, const char *field, float value, bool save)
 {
     char name[17];
     hal.util->snprintf(name, sizeof(name), "SERVO%u_%s", unsigned(output), field);
@@ -375,7 +375,7 @@ void PlaneGyroMenu::set_output_param(uint8_t output, const char *field, float va
     }
 }
 
-bool PlaneGyroMenu::gps_present()
+bool PlaneStabRXMenu::gps_present()
 {
     return AP::gps().status() != AP_GPS_FixType::NO_GPS;
 }
@@ -386,12 +386,12 @@ bool PlaneGyroMenu::gps_present()
   arms only once EKF3 has started with a fix: EKF3 never starts in the
   air from a turn's tilted accelerations.
  */
-bool PlaneGyroMenu::gps_fitted()
+bool PlaneStabRXMenu::gps_fitted()
 {
     return int8_t(param_get("GPS1_TYPE")) != 0;
 }
 
-bool PlaneGyroMenu::set_gps_fitted(bool on)
+bool PlaneStabRXMenu::set_gps_fitted(bool on)
 {
     if (on == gps_fitted()) {
         return false;
@@ -404,12 +404,12 @@ bool PlaneGyroMenu::set_gps_fitted(bool on)
     return true;
 }
 
-bool PlaneGyroMenu::armed()
+bool PlaneStabRXMenu::armed()
 {
     return plane.arming.is_armed();
 }
 
-void PlaneGyroMenu::mode_name(const Mode &mode, char *buf, uint8_t size)
+void PlaneStabRXMenu::mode_name(const Mode &mode, char *buf, uint8_t size)
 {
     const char *name = mode.name();
     if (strlen(name) > 8) {
@@ -426,13 +426,13 @@ void PlaneGyroMenu::mode_name(const Mode &mode, char *buf, uint8_t size)
 /*
   switch functions
  */
-uint8_t PlaneGyroMenu::aux_channel(uint8_t func)
+uint8_t PlaneStabRXMenu::aux_channel(uint8_t func)
 {
     switch (func) {
     case AUX_MODE:
         return uint8_t(param_get("FLTMODE_CH"));
     case AUX_GAIN:
-        return uint8_t(param_get("GYRO_GAIN_CH"));
+        return uint8_t(param_get("STABRX_GAIN_CH"));
     default:
         break;
     }
@@ -446,14 +446,14 @@ uint8_t PlaneGyroMenu::aux_channel(uint8_t func)
     return 0;
 }
 
-void PlaneGyroMenu::set_aux_channel(uint8_t func, uint8_t ch)
+void PlaneStabRXMenu::set_aux_channel(uint8_t func, uint8_t ch)
 {
     switch (func) {
     case AUX_MODE:
         param_set("FLTMODE_CH", ch);
         return;
     case AUX_GAIN:
-        param_set("GYRO_GAIN_CH", ch);
+        param_set("STABRX_GAIN_CH", ch);
         return;
     default:
         break;
@@ -474,7 +474,7 @@ void PlaneGyroMenu::set_aux_channel(uint8_t func, uint8_t ch)
 }
 
 // which of our switch functions uses a channel, or -1
-int8_t PlaneGyroMenu::channel_owner(uint8_t ch, uint8_t except_func)
+int8_t PlaneStabRXMenu::channel_owner(uint8_t ch, uint8_t except_func)
 {
     if (ch == 0) {
         return -1;
@@ -497,7 +497,7 @@ static bool switch_low(uint8_t ch)
 /*
   wing templates
  */
-uint8_t PlaneGyroMenu::detect_wing()
+uint8_t PlaneStabRXMenu::detect_wing()
 {
     for (uint8_t w = 0; w < NUM_WINGS; w++) {
         bool match = true;
@@ -513,7 +513,7 @@ uint8_t PlaneGyroMenu::detect_wing()
     return NUM_WINGS;
 }
 
-void PlaneGyroMenu::apply_wing(uint8_t wing)
+void PlaneStabRXMenu::apply_wing(uint8_t wing)
 {
     for (uint8_t i = 0; i < 4; i++) {
         set_output_param(i + 1, "FUNCTION", wing_functions[wing][i]);
@@ -524,7 +524,7 @@ void PlaneGyroMenu::apply_wing(uint8_t wing)
   find the right-angle mounting under which the level sample points down
   and the nose-up sample has gravity moving towards the tail
  */
-bool PlaneGyroMenu::orientation_from(const Vector3f &level, const Vector3f &nose_up, uint8_t &rotation) const
+bool PlaneStabRXMenu::orientation_from(const Vector3f &level, const Vector3f &nose_up, uint8_t &rotation) const
 {
     const float g = GRAVITY_MSS;
     for (const uint8_t r : right_angle_rotations) {
@@ -545,7 +545,7 @@ bool PlaneGyroMenu::orientation_from(const Vector3f &level, const Vector3f &nose
 /*
   menu construction
  */
-void PlaneGyroMenu::add(AP_CRSF_Telem::ScriptedMenu *menu, Handler handler, uint8_t arg, const char *name)
+void PlaneStabRXMenu::add(AP_CRSF_Telem::ScriptedMenu *menu, Handler handler, uint8_t arg, const char *name)
 {
     if (menu == nullptr || num_items >= MAX_ITEMS) {
         return;
@@ -564,7 +564,7 @@ void PlaneGyroMenu::add(AP_CRSF_Telem::ScriptedMenu *menu, Handler handler, uint
     num_items++;
 }
 
-AP_CRSF_Telem::ScriptedMenu *PlaneGyroMenu::submenu(AP_CRSF_Telem::ScriptedMenu *parent, const char *name)
+AP_CRSF_Telem::ScriptedMenu *PlaneStabRXMenu::submenu(AP_CRSF_Telem::ScriptedMenu *parent, const char *name)
 {
     if (parent == nullptr) {
         return nullptr;
@@ -572,7 +572,7 @@ AP_CRSF_Telem::ScriptedMenu *PlaneGyroMenu::submenu(AP_CRSF_Telem::ScriptedMenu 
     return parent->add_menu(name, 2, parent->id);
 }
 
-bool PlaneGyroMenu::build()
+bool PlaneStabRXMenu::build()
 {
     AP_CRSF_Telem *crsf = AP::crsf_telem();
     if (crsf == nullptr) {
@@ -667,7 +667,7 @@ bool PlaneGyroMenu::build()
     return true;
 }
 
-PlaneGyroMenu::Item *PlaneGyroMenu::find_item(uint8_t id)
+PlaneStabRXMenu::Item *PlaneStabRXMenu::find_item(uint8_t id)
 {
     for (uint8_t i = 0; i < num_items; i++) {
         if (items[i].id == id) {
@@ -680,7 +680,7 @@ PlaneGyroMenu::Item *PlaneGyroMenu::find_item(uint8_t id)
 /*
   entries as the radio sees them
  */
-uint8_t PlaneGyroMenu::pack(const Item &item, uint8_t *buf, uint8_t size)
+uint8_t PlaneStabRXMenu::pack(const Item &item, uint8_t *buf, uint8_t size)
 {
     Packer p(buf, size);
     const uint8_t index = uint8_t(&item - items);
@@ -808,7 +808,7 @@ uint8_t PlaneGyroMenu::pack(const Item &item, uint8_t *buf, uint8_t size)
 /*
   writes from the radio
  */
-uint8_t PlaneGyroMenu::write(const Item &item, const uint8_t *payload, uint8_t length, uint8_t *buf, uint8_t size)
+uint8_t PlaneStabRXMenu::write(const Item &item, const uint8_t *payload, uint8_t length, uint8_t *buf, uint8_t size)
 {
     const uint8_t index = uint8_t(&item - items);
     Packer p(buf, size);
@@ -978,7 +978,7 @@ uint8_t PlaneGyroMenu::write(const Item &item, const uint8_t *payload, uint8_t l
 /*
   commands: a popup on the radio that walks through steps
  */
-void PlaneGyroMenu::command_prompt(uint8_t status, const char *fmt, ...)
+void PlaneStabRXMenu::command_prompt(uint8_t status, const char *fmt, ...)
 {
     va_list ap;
     va_start(ap, fmt);
@@ -989,7 +989,7 @@ void PlaneGyroMenu::command_prompt(uint8_t status, const char *fmt, ...)
 
 // show a result; the ELRS script closes a popup as soon as a command
 // reports READY, so results are shown as a confirmation the pilot dismisses
-void PlaneGyroMenu::command_finish(const char *fmt, ...)
+void PlaneStabRXMenu::command_finish(const char *fmt, ...)
 {
     va_list ap;
     va_start(ap, fmt);
@@ -999,19 +999,19 @@ void PlaneGyroMenu::command_finish(const char *fmt, ...)
     cmd.stage = Stage::DONE;
 }
 
-bool PlaneGyroMenu::text_fits() const
+bool PlaneStabRXMenu::text_fits() const
 {
     return strlen(items[cmd.item].name) + strnlen(cmd.info, sizeof(cmd.info)) <= CMD_TEXT_MAX;
 }
 
-void PlaneGyroMenu::command_close()
+void PlaneStabRXMenu::command_close()
 {
     cmd.status = CMD_READY;
     cmd.info[0] = 0;
     cmd.stage = Stage::DONE;
 }
 
-void PlaneGyroMenu::command(uint8_t index, uint8_t action)
+void PlaneStabRXMenu::command(uint8_t index, uint8_t action)
 {
     if (action == CMD_START) {
         command_start(index);
@@ -1037,7 +1037,7 @@ void PlaneGyroMenu::command(uint8_t index, uint8_t action)
     }
 }
 
-void PlaneGyroMenu::restore_trims()
+void PlaneStabRXMenu::restore_trims()
 {
     bool restored = false;
     for (uint8_t n = 1; n <= NUM_OUTPUTS; n++) {
@@ -1053,7 +1053,7 @@ void PlaneGyroMenu::restore_trims()
     }
 }
 
-void PlaneGyroMenu::abandon()
+void PlaneStabRXMenu::abandon()
 {
     restore_trims();
 #if HAL_INS_ACCELCAL_ENABLED
@@ -1068,7 +1068,7 @@ void PlaneGyroMenu::abandon()
 }
 
 #if HAL_INS_ACCELCAL_ENABLED
-void PlaneGyroMenu::accel_cal_pose_prompt()
+void PlaneStabRXMenu::accel_cal_pose_prompt()
 {
     command_prompt(CMD_CONFIRMATION_NEEDED, "Pose %u/6: %s, then OK", unsigned(cmd.step + 1),
                    accel_cal_poses[cmd.step]);
@@ -1083,7 +1083,7 @@ void PlaneGyroMenu::accel_cal_pose_prompt()
   accel_cal_update). Pass it each pose the pilot confirms, as a ground
   station does with MAV_CMD_ACCELCAL_VEHICLE_POS, and show its progress.
  */
-void PlaneGyroMenu::accel_cal_update()
+void PlaneStabRXMenu::accel_cal_update()
 {
     AP_AccelCal *acal = AP::ins().get_acal();
     if (acal == nullptr) {
@@ -1135,7 +1135,7 @@ void PlaneGyroMenu::accel_cal_update()
 }
 #endif
 
-const RC_Channel *PlaneGyroMenu::stick_off_centre(int16_t percent)
+const RC_Channel *PlaneStabRXMenu::stick_off_centre(int16_t percent)
 {
     // raw values: a trim inside the stick dead zone still moves the
     // surfaces in MANUAL, so it must count here too
@@ -1148,13 +1148,13 @@ const RC_Channel *PlaneGyroMenu::stick_off_centre(int16_t percent)
     return nullptr;
 }
 
-void PlaneGyroMenu::command_cancel()
+void PlaneStabRXMenu::command_cancel()
 {
     abandon();
     command_close();
 }
 
-void PlaneGyroMenu::command_start(uint8_t index)
+void PlaneStabRXMenu::command_start(uint8_t index)
 {
     // abandon whatever was open before
     if (cmd.item >= 0 && cmd.stage != Stage::DONE) {
@@ -1249,7 +1249,7 @@ void PlaneGyroMenu::command_start(uint8_t index)
 }
 
 // the mode switch position, the mode it selects and the mode flown now
-void PlaneGyroMenu::mode_watch_prompt()
+void PlaneStabRXMenu::mode_watch_prompt()
 {
     const uint8_t ch = aux_channel(AUX_MODE);
     const uint16_t pwm = radio_in(ch - 1);
@@ -1291,12 +1291,12 @@ void PlaneGyroMenu::mode_watch_prompt()
     }
 }
 
-void PlaneGyroMenu::step_prompt()
+void PlaneStabRXMenu::step_prompt()
 {
     command_prompt(CMD_PROGRESS, "%s", stick_steps[cmd.step].prompt);
 }
 
-void PlaneGyroMenu::learn_sticks_step()
+void PlaneStabRXMenu::learn_sticks_step()
 {
     const uint32_t now = AP_HAL::millis();
     if (now - cmd.start_ms > LEARN_TIMEOUT_MS) {
@@ -1391,7 +1391,7 @@ void PlaneGyroMenu::learn_sticks_step()
 }
 
 // two sticks' endpoints per page: aileron and elevator, then rudder and throttle
-void PlaneGyroMenu::review_prompt()
+void PlaneStabRXMenu::review_prompt()
 {
     const uint8_t s = cmd.step * 2;
     const uint8_t a = cmd.stick_ch[s] - 1;
@@ -1401,7 +1401,7 @@ void PlaneGyroMenu::review_prompt()
                    stick_letters[s + 1], unsigned(cmd.lo[b]), unsigned(cmd.hi[b]));
 }
 
-void PlaneGyroMenu::track_sticks()
+void PlaneStabRXMenu::track_sticks()
 {
     for (uint8_t i = 0; i < 4; i++) {
         const uint16_t v = radio_in(i);
@@ -1412,7 +1412,7 @@ void PlaneGyroMenu::track_sticks()
     }
 }
 
-void PlaneGyroMenu::command_confirm()
+void PlaneStabRXMenu::command_confirm()
 {
     const Item &item = items[cmd.item];
     if (cmd.stage == Stage::DONE) {
@@ -1463,7 +1463,7 @@ void PlaneGyroMenu::command_confirm()
             break;
         }
         case Handler::CAL_LEVEL:
-            plane.g2.gyro.request_level_calibration();
+            plane.g2.stabrx.request_level_calibration();
             cmd.stage = Stage::CAL_RUNNING;
             command_prompt(CMD_PROGRESS, "Calibrating, hold still");
             break;
@@ -1670,7 +1670,7 @@ void PlaneGyroMenu::command_confirm()
 }
 
 // the channel for a switch function is known (cmd.aux_ch)
-void PlaneGyroMenu::aux_found(uint8_t func, bool replace_confirmed)
+void PlaneStabRXMenu::aux_found(uint8_t func, bool replace_confirmed)
 {
     if (func == AUX_GAIN) {
         // learn the knob's ends too: they set its range and direction
@@ -1689,7 +1689,7 @@ void PlaneGyroMenu::aux_found(uint8_t func, bool replace_confirmed)
     }
 }
 
-void PlaneGyroMenu::aux_save(uint8_t func)
+void PlaneStabRXMenu::aux_save(uint8_t func)
 {
     if (cmd.replaces >= 0) {
         set_aux_channel(cmd.replaces, 0);
@@ -1704,16 +1704,16 @@ void PlaneGyroMenu::aux_save(uint8_t func)
     }
 }
 
-void PlaneGyroMenu::command_poll()
+void PlaneStabRXMenu::command_poll()
 {
     const Item &item = items[cmd.item];
 
     switch (cmd.stage) {
     case Stage::CAL_RUNNING: {
-        const PlaneGyro::LevelCalState state = plane.g2.gyro.level_calibration_state();
-        if (state == PlaneGyro::LEVEL_CAL_DONE) {
+        const PlaneStabRX::LevelCalState state = plane.g2.stabrx.level_calibration_state();
+        if (state == PlaneStabRX::LEVEL_CAL_DONE) {
             command_finish("Calibration done");
-        } else if (state == PlaneGyro::LEVEL_CAL_FAILED) {
+        } else if (state == PlaneStabRX::LEVEL_CAL_FAILED) {
             command_finish("Calibration failed");
         }
         break;
@@ -1763,7 +1763,7 @@ void PlaneGyroMenu::command_poll()
 /*
   answer the radio's requests for our entries
  */
-void PlaneGyroMenu::process_requests()
+void PlaneStabRXMenu::process_requests()
 {
     AP_CRSF_Telem *crsf = AP::crsf_telem();
     if (crsf == nullptr) {
@@ -1796,7 +1796,7 @@ void PlaneGyroMenu::process_requests()
     }
 }
 
-bool PlaneGyroMenu::busy() const
+bool PlaneStabRXMenu::busy() const
 {
     if (reboot_at_ms != 0) {
         return true;
@@ -1810,13 +1810,13 @@ bool PlaneGyroMenu::busy() const
   radio script is closed or the link drops in the middle of one, undo
   what was not confirmed and let the model arm again.
  */
-void PlaneGyroMenu::command_watchdog()
+void PlaneStabRXMenu::command_watchdog()
 {
     if (cmd.item < 0 || cmd.stage == Stage::NONE || cmd.stage == Stage::DONE) {
         return;
     }
     const uint32_t now = AP_HAL::millis();
-    if (cmd.stage == Stage::CAL_RUNNING && plane.g2.gyro.level_calibration_state() == PlaneGyro::LEVEL_CAL_PENDING) {
+    if (cmd.stage == Stage::CAL_RUNNING && plane.g2.stabrx.level_calibration_state() == PlaneStabRX::LEVEL_CAL_PENDING) {
         // the calibration blocks the main loop, and with it our answers
         cmd.request_ms = now;
         return;
@@ -1832,7 +1832,7 @@ void PlaneGyroMenu::command_watchdog()
     }
 }
 
-void PlaneGyroMenu::update()
+void PlaneStabRXMenu::update()
 {
     if (!built) {
         // build once a CRSF receiver is talking to us
@@ -1867,4 +1867,4 @@ void PlaneGyroMenu::update()
     command_watchdog();
 }
 
-#endif  // AP_PLANE_GYRO_MENU_ENABLED
+#endif  // AP_PLANE_STABRX_MENU_ENABLED

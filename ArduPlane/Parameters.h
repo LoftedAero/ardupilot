@@ -3,7 +3,7 @@
 #define AP_PARAM_VEHICLE_NAME plane
 
 #include <AP_Common/AP_Common.h>
-#include "gyro.h"
+#include "stabrx.h"
 
 // Global parameter class.
 //
@@ -596,9 +596,9 @@ public:
     AP_SystemID systemid;
 #endif
 
-#if AP_PLANE_GYRO_ENABLED
+#if AP_PLANE_STABRX_ENABLED
     // gyro-style helpers (gain knob, turn correction, setup menu)
-    PlaneGyro gyro;
+    PlaneStabRX stabrx;
 #endif
 };
 
