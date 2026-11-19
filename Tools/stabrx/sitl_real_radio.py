@@ -6,10 +6,10 @@ Run the gyro firmware in SITL for a real radio: the radio flies it and
 opens the transmitter setup menu over a real ExpressLRS link, through
 crsf_serial_bridge.py.
 
-Build first:  ./waf configure --board sitl --extra-hwdef=Tools/gyro/sitl-gyro.hwdef && ./waf plane
-Run:          python3 Tools/gyro/sitl_real_radio.py [--model flightaxis:HOST]
+Build first:  ./waf configure --board sitl --extra-hwdef=Tools/stabrx/sitl-stabrx.hwdef && ./waf plane
+Run:          python3 Tools/stabrx/sitl_real_radio.py [--model flightaxis:HOST]
 Then, on Windows:
-              py Tools/gyro/crsf_serial_bridge.py --port COM53
+              py Tools/stabrx/crsf_serial_bridge.py --port COM53
 
 SITL starts with the LoftedAero-SRX-gyro defaults, the receiver on its
 CRSF port (TCP 5765) and RC from that receiver only (RC_PROTOCOLS 512),
@@ -61,7 +61,7 @@ def main():
     ap.add_argument("--defaults", action="append", default=[], help="extra parameter file, may be repeated")
     ap.add_argument("--gps", action="store_true", help="fit a simulated GPS (the built-in plane model only)")
     ap.add_argument("--wipe", action="store_true", help="start from the defaults, forgetting earlier settings")
-    ap.add_argument("--dir", default=os.environ.get("GYRO_TEST_DIR", "/tmp/gyro_sitl_real_radio"),
+    ap.add_argument("--dir", default=os.environ.get("STABRX_TEST_DIR", "/tmp/stabrx_sitl_real_radio"),
                     help="working directory (keeps the settings)")
     args = ap.parse_args()
 

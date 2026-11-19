@@ -6,10 +6,10 @@ End-to-end SITL test of the gyro setup menu over CRSF, driven the way the
 ExpressLRS Lua script drives it (see crsf_menu_client.py).
 
 Build first, with the gyro-like SITL configuration:
-    ./waf configure --board sitl --extra-hwdef=Tools/gyro/sitl-gyro.hwdef
+    ./waf configure --board sitl --extra-hwdef=Tools/stabrx/sitl-stabrx.hwdef
     ./waf plane
 Run:
-    python3 Tools/gyro/sitl_crsf_menu_test.py
+    python3 Tools/stabrx/sitl_crsf_menu_test.py
 Needs pymavlink.
 
 Checks: every entry 1..count loads with a valid parent; selection, number
@@ -33,7 +33,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import crsf_menu_client as cm  # noqa: E402
 
 ROOT = os.path.abspath(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", ".."))
-HERE = os.environ.get("GYRO_TEST_DIR", "/tmp/gyro_sitl_crsf")
+HERE = os.environ.get("STABRX_TEST_DIR", "/tmp/stabrx_sitl_crsf")
 BIN = os.path.join(ROOT, "build/sitl/bin/arduplane")
 CRSF_PORT = 5765
 
@@ -114,7 +114,7 @@ try:
     # 1. the whole menu loads
     info = c.ping(timeout=15)
     check("device answers ping", info is not None, info)
-    with open(os.path.join(ROOT, "Tools/gyro/sitl-gyro.hwdef")) as hw:
+    with open(os.path.join(ROOT, "Tools/stabrx/sitl-stabrx.hwdef")) as hw:
         expected = [ln.split('"')[1] for ln in hw if ln.startswith("define AP_CRSF_DEVICE_NAME")][0]
     check("device name", info is not None and info["name"] == expected, info["name"] if info else None)
     entries, missing = cm.load_device(c, info["field_count"])
@@ -424,7 +424,7 @@ try:
     c.channels[9] = 988
     time.sleep(0.4)
     state = command(learn_knob, CMD_CONFIRM)
-    knob = [get_param(n) for n in ("GYRO_GAIN_CH", "RC10_MIN", "RC10_TRIM", "RC10_MAX", "RC10_REVERSED")]
+    knob = [get_param(n) for n in ("STABRX_GAIN_CH", "RC10_MIN", "RC10_TRIM", "RC10_MAX", "RC10_REVERSED")]
     check("knob learned reversed", state is not None and state[1] == "Gain knob: Ch10 988-2011, reversed", state)
     # this result makes the entry exactly 54 bytes long: one byte short of a
     # chunk, the length the stock chunk maths sent as an entry with no data
@@ -436,7 +436,7 @@ try:
           and abs(knob[3] - 2012) <= 4 and knob[4] == 1, knob)
     command(learn_knob, CMD_CONFIRM)
     c.channels[9] = 1500
-    set_param("GYRO_GAIN_CH", 0)
+    set_param("STABRX_GAIN_CH", 0)
     set_param("RC10_REVERSED", 0)
     time.sleep(1)
 
@@ -477,7 +477,7 @@ try:
 
     # 9b. learning onto a channel in use asks to replace its function; the
     # old function is only cleared at the final save
-    set_param("GYRO_GAIN_CH", 10)
+    set_param("STABRX_GAIN_CH", 10)
     command(learn_arm, CMD_START)
     c.channels[9] = 2000                                  # ch10, the gain knob
     time.sleep(0.5)
@@ -486,8 +486,8 @@ try:
           and state[1] == "Ch10 is the Gain knob. Replace?", state)
     state = command(learn_arm, CMD_CANCEL)
     check("cancel keeps the old function", state is not None and state[0] == CMD_READY
-          and get_param("GYRO_GAIN_CH") == 10 and get_param("RC9_OPTION") == 153 and get_param("RC10_OPTION") == 0,
-          (state, get_param("GYRO_GAIN_CH"), get_param("RC10_OPTION")))
+          and get_param("STABRX_GAIN_CH") == 10 and get_param("RC9_OPTION") == 153 and get_param("RC10_OPTION") == 0,
+          (state, get_param("STABRX_GAIN_CH"), get_param("RC10_OPTION")))
     c.channels[9] = 1500
     time.sleep(0.5)
     # arm switch: after the replace it still asks for the switch off
@@ -500,14 +500,14 @@ try:
           state)
     state = command(learn_arm, CMD_CONFIRM)               # still high: must not assign
     check("replace: arm refused while on, old function kept", "off first" in state[1]
-          and get_param("RC10_OPTION") == 0 and get_param("GYRO_GAIN_CH") == 10, state)
+          and get_param("RC10_OPTION") == 0 and get_param("STABRX_GAIN_CH") == 10, state)
     c.channels[9] = 988
     time.sleep(0.5)
     state = command(learn_arm, CMD_CONFIRM)
     check("replace: arm saved and the gain knob cleared", state is not None
           and state[1] == "Arm switch: Ch10 (was Gain knob)" and get_param("RC10_OPTION") == 153
-          and get_param("GYRO_GAIN_CH") == 0 and get_param("RC9_OPTION") == 0,
-          (state, get_param("RC10_OPTION"), get_param("GYRO_GAIN_CH")))
+          and get_param("STABRX_GAIN_CH") == 0 and get_param("RC9_OPTION") == 0,
+          (state, get_param("RC10_OPTION"), get_param("STABRX_GAIN_CH")))
     command(learn_arm, CMD_CONFIRM)
     check("vehicle did not arm while replacing", is_armed() is False)
     # gain knob onto the arm switch's channel: it still learns both ends
@@ -527,8 +527,8 @@ try:
     check("old function kept until the knob is saved", get_param("RC10_OPTION") == 153 and is_armed() is False)
     state = command(learn_knob, CMD_CONFIRM)
     check("replace: knob saved and the arm switch cleared", state is not None
-          and state[1] == "Gain knob: Ch10 (was Arm switch)" and get_param("GYRO_GAIN_CH") == 10
-          and get_param("RC10_OPTION") == 0, (state, get_param("GYRO_GAIN_CH"), get_param("RC10_OPTION")))
+          and state[1] == "Gain knob: Ch10 (was Arm switch)" and get_param("STABRX_GAIN_CH") == 10
+          and get_param("RC10_OPTION") == 0, (state, get_param("STABRX_GAIN_CH"), get_param("RC10_OPTION")))
     command(learn_knob, CMD_CONFIRM)
     c.channels[9] = 1500
     time.sleep(0.5)
@@ -546,8 +546,8 @@ try:
     # "Autotune switch: Ch10 (was Gain knob)" does not fit next to the
     # command name in one reply, so the short result is shown
     check("replace: autotune saved at once", state is not None and state[1] == "Autotune switch: Ch10"
-          and get_param("RC10_OPTION") == 107 and get_param("GYRO_GAIN_CH") == 0,
-          (state, get_param("RC10_OPTION"), get_param("GYRO_GAIN_CH")))
+          and get_param("RC10_OPTION") == 107 and get_param("STABRX_GAIN_CH") == 0,
+          (state, get_param("RC10_OPTION"), get_param("STABRX_GAIN_CH")))
     command(learn_at, CMD_CONFIRM)
     set_param("RC10_OPTION", 0)
     set_param("RC10_REVERSED", 0)

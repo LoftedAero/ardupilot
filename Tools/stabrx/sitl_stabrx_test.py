@@ -2,13 +2,13 @@
 """
 AP_FLAKE8_CLEAN
 
-SITL check of the gyro-build behaviours (ArduPlane/gyro.cpp and the RTL guard)
+SITL check of the gyro-build behaviours (ArduPlane/stabrx.cpp and the RTL guard)
 with the arm-switch channel layout used by the Kakute defaults:
   ch5 arm, ch6 mode (MANUAL/ACRO/FBWA), ch7 RTL, ch8 gain knob.
 
-Build first:  ./waf configure --board sitl --extra-hwdef=Tools/gyro/sitl-gyro.hwdef && ./waf plane
-Run:          python3 Tools/gyro/sitl_gyro_test.py
-Needs pymavlink. Scratch files and the dataflash log go to $GYRO_TEST_DIR (default /tmp/gyro_sitl_test).
+Build first:  ./waf configure --board sitl --extra-hwdef=Tools/stabrx/sitl-stabrx.hwdef && ./waf plane
+Run:          python3 Tools/stabrx/sitl_stabrx_test.py
+Needs pymavlink. Scratch files and the dataflash log go to $STABRX_TEST_DIR (default /tmp/stabrx_sitl_test).
 
 Checks:
   A. RTL refused with no home (disarmed and armed)
@@ -17,7 +17,7 @@ Checks:
   F. nothing logged before arming, log starts on arming
   C. long RC failsafe falls back to FBWA when RTL is refused
   D. RTL accepted once GPS gives a home
-  E. GYRO.Gain in the dataflash log follows the knob
+  E. STBX.Gain in the dataflash log follows the knob
 """
 import glob
 import os
@@ -30,7 +30,7 @@ import time
 from pymavlink import mavutil
 
 ROOT = os.path.abspath(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", ".."))
-HERE = os.environ.get("GYRO_TEST_DIR", "/tmp/gyro_sitl_test")
+HERE = os.environ.get("STABRX_TEST_DIR", "/tmp/stabrx_sitl_test")
 os.makedirs(HERE, exist_ok=True)
 BIN = os.path.join(ROOT, "build/sitl/bin/arduplane")
 
@@ -54,9 +54,9 @@ FLTMODE4 4
 FLTMODE5 5
 FLTMODE6 5
 RC7_OPTION 4
-GYRO_GAIN_CH 8
-GYRO_GAIN_MIN 0
-GYRO_GAIN_MAX 1.5
+STABRX_GAIN_CH 8
+STABRX_GAIN_MIN 0
+STABRX_GAIN_MAX 1.5
 FS_SHORT_ACTN 2
 RC_FS_TIMEOUT 1
 FS_LONG_ACTN 1
@@ -281,11 +281,11 @@ else:
                 in_failsafe = True
             elif "Throttle failsafe off" in msg.Message:
                 in_failsafe = False
-        elif msg.get_type() == "GYRO":
+        elif msg.get_type() == "STBX":
             gains.append(round(msg.Gain, 2))
             if in_failsafe:
                 failsafe_gains.append(round(msg.Gain, 2))
-    check("E: GYRO messages logged", len(gains) > 0, f"n={len(gains)}")
+    check("E: STBX messages logged", len(gains) > 0, f"n={len(gains)}")
     check("E: gain reached 1.5 at knob high", 1.5 in gains, f"max={max(gains) if gains else None}")
     check("E: gain reached 0.0 at knob low", 0.0 in gains, f"min={min(gains) if gains else None}")
     check("E: gain 1.0 at knob centre", 1.0 in gains)

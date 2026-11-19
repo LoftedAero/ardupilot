@@ -12,9 +12,9 @@ radio (SCRIPTS/TOOLS/elrsV3.lua, for example with
 RadioMaster AX12) or from the ExpressLRS repository (src/lua/elrsV3.lua),
 and point ELRS_LUA at it.
 
-Build first:  ./waf configure --board sitl --extra-hwdef=Tools/gyro/sitl-gyro.hwdef && ./waf plane
-Run:          ELRS_LUA=/path/to/elrsV3.lua python3 Tools/gyro/sitl_elrs_lua_test.py
-Screens go to $GYRO_TEST_DIR/screens (default /tmp/gyro_sitl_elrs/screens).
+Build first:  ./waf configure --board sitl --extra-hwdef=Tools/stabrx/sitl-stabrx.hwdef && ./waf plane
+Run:          ELRS_LUA=/path/to/elrsV3.lua python3 Tools/stabrx/sitl_elrs_lua_test.py
+Screens go to $STABRX_TEST_DIR/screens (default /tmp/stabrx_sitl_elrs/screens).
 Needs pymavlink, lupa and Pillow.
 """
 import os
@@ -31,7 +31,7 @@ import crsf_menu_client as cm  # noqa: E402
 from edgetx_sim import EdgeTxSim  # noqa: E402
 
 ROOT = os.path.abspath(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", ".."))
-HERE = os.environ.get("GYRO_TEST_DIR", "/tmp/gyro_sitl_elrs")
+HERE = os.environ.get("STABRX_TEST_DIR", "/tmp/stabrx_sitl_elrs")
 SCREENS = os.path.join(HERE, "screens")
 BIN = os.path.join(ROOT, "build/sitl/bin/arduplane")
 CRSF_PORT = 5765

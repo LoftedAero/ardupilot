@@ -13,10 +13,10 @@ that the gap is about the time of the reads, not several seconds. Armed,
 a menu read must not stop telemetry at all.
 
 Build first, with the gyro-like SITL configuration:
-    ./waf configure --board sitl --extra-hwdef=Tools/gyro/sitl-gyro.hwdef
+    ./waf configure --board sitl --extra-hwdef=Tools/stabrx/sitl-stabrx.hwdef
     ./waf plane
 Run:
-    python3 Tools/gyro/sitl_crsf_telem_gap_test.py
+    python3 Tools/stabrx/sitl_crsf_telem_gap_test.py
 Needs pymavlink.
 """
 import os
@@ -31,7 +31,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import crsf_menu_client as cm  # noqa: E402
 
 ROOT = os.path.abspath(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", ".."))
-HERE = os.environ.get("GYRO_TEST_DIR", "/tmp/gyro_sitl_telem_gap")
+HERE = os.environ.get("STABRX_TEST_DIR", "/tmp/stabrx_sitl_telem_gap")
 BIN = os.path.join(ROOT, "build/sitl/bin/arduplane")
 CRSF_PORT = 5765
 

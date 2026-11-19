@@ -2,13 +2,13 @@
 """
 AP_FLAKE8_CLEAN
 
-SITL check that the transmitter setup menu (ArduPlane/gyro_menu.cpp)
+SITL check that the transmitter setup menu (ArduPlane/stabrx_menu.cpp)
 builds once SITL's own simulated CRSF receiver on SERIAL5 is talking.
 sitl_crsf_menu_test.py drives the menu itself, Calibrate level included,
 and sitl_elrs_lua_test.py runs it in the ExpressLRS Lua script.
 
-Build first:  ./waf configure --board sitl --extra-hwdef=Tools/gyro/sitl-gyro.hwdef && ./waf plane
-Run:          python3 Tools/gyro/sitl_menu_test.py
+Build first:  ./waf configure --board sitl --extra-hwdef=Tools/stabrx/sitl-stabrx.hwdef && ./waf plane
+Run:          python3 Tools/stabrx/sitl_menu_test.py
 Needs pymavlink.
 """
 import os
@@ -21,7 +21,7 @@ import time
 from pymavlink import mavutil
 
 ROOT = os.path.abspath(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", ".."))
-HERE = os.environ.get("GYRO_TEST_DIR", "/tmp/gyro_sitl_menu")
+HERE = os.environ.get("STABRX_TEST_DIR", "/tmp/stabrx_sitl_menu")
 BIN = os.path.join(ROOT, "build/sitl/bin/arduplane")
 
 PARAMS = """
@@ -30,7 +30,7 @@ ARMING_SKIPCHK -81
 RC_OPTIONS 96
 SERIAL5_PROTOCOL 23
 RC_PROTOCOLS 512
-GYRO_GAIN_CH 8
+STABRX_GAIN_CH 8
 LOG_DISARMED 1
 """
 

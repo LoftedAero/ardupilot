@@ -22,9 +22,9 @@ trim from the first pose; the board restarts and then passes the
 accelerometer pre-arm checks; "Calibrate level" afterwards changes only
 the trim (AHRS_TRIM) and keeps the 6-position result.
 
-Build first:  ./waf configure --board sitl --extra-hwdef=Tools/gyro/sitl-gyro.hwdef && ./waf plane
-Run:          python3 Tools/gyro/sitl_accel_cal_test.py
-Needs pymavlink. Scratch files go to $GYRO_TEST_DIR (default /tmp/gyro_sitl_accel_cal).
+Build first:  ./waf configure --board sitl --extra-hwdef=Tools/stabrx/sitl-stabrx.hwdef && ./waf plane
+Run:          python3 Tools/stabrx/sitl_accel_cal_test.py
+Needs pymavlink. Scratch files go to $STABRX_TEST_DIR (default /tmp/stabrx_sitl_accel_cal).
 """
 import math
 import os
@@ -40,7 +40,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import crsf_menu_client as cm  # noqa: E402
 
 ROOT = os.path.abspath(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", ".."))
-HERE = os.environ.get("GYRO_TEST_DIR", "/tmp/gyro_sitl_accel_cal")
+HERE = os.environ.get("STABRX_TEST_DIR", "/tmp/stabrx_sitl_accel_cal")
 BIN = os.path.join(ROOT, "build/sitl/bin/arduplane")
 CRSF_PORT = 5765
 

@@ -2,23 +2,24 @@
 """
 AP_FLAKE8_CLEAN
 
-SITL check that autotune tunes both roll and pitch with no GPS and no
-airspeed sensor, the way a gyro build usually flies.
+SITL check of a held FBWA turn with no GPS and no airspeed sensor.
 
-The plane is armed with the gyro arm switch (ch5) and takes off in
-MANUAL (mode switch low), climbs in FBWA (middle), then the mode switch
-high selects AUTOTUNE. Roll and then pitch get alternating full stick
-inputs, as in ArduPilot's own AUTOTUNE autotest, until autotune reports
-"<axis>: Finished" for each.
+Without a speed the attitude estimate (DCM) has no centripetal
+correction: in a turn it follows the accelerometers towards a false
+level, FBWA rolls further to hold the bank it reads, and the plane
+spirals down. Stock stall prevention also limits the bank to 25 degrees
+when there is no airspeed estimate. The gyro build skips that limit and,
+with STABRX_TURN_CORR 1, gives the estimate an assumed airspeed.
 
-The takeoff is in MANUAL because without a GPS the attitude estimate
-(DCM) cannot tell the takeoff run's acceleration from a pitch change:
-an FBWA takeoff in SITL pushes the nose into the runway.
+The plane takes off in MANUAL, climbs in FBWA, then holds full roll
+stick for 20 s. The simulator's true attitude (SIMSTATE) is compared
+with the estimate (ATTITUDE).
 
-Build first:  ./waf configure --board sitl --extra-hwdef=Tools/gyro/sitl-gyro.hwdef && ./waf plane
-Run:          python3 Tools/gyro/sitl_autotune_test.py
-Needs pymavlink. Scratch files go to $GYRO_TEST_DIR (default /tmp/gyro_sitl_autotune).
+Build first:  ./waf configure --board sitl --extra-hwdef=Tools/stabrx/sitl-stabrx.hwdef && ./waf plane
+Run:          python3 Tools/stabrx/sitl_turn_test.py
+Needs pymavlink. Scratch files go to $STABRX_TEST_DIR (default /tmp/stabrx_sitl_turn).
 """
+import math
 import os
 import socket
 import subprocess
@@ -29,10 +30,11 @@ import time
 from pymavlink import mavutil
 
 ROOT = os.path.abspath(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", ".."))
-HERE = os.environ.get("GYRO_TEST_DIR", "/tmp/gyro_sitl_autotune")
+HERE = os.environ.get("STABRX_TEST_DIR", "/tmp/stabrx_sitl_turn")
 BIN = os.path.join(ROOT, "build/sitl/bin/arduplane")
 SPEEDUP = 4
-AXIS_TIMEOUT = 300      # simulated seconds allowed per axis
+BANK_LIMIT = 45
+HOLD_S = 20
 
 results = []
 
@@ -43,8 +45,9 @@ def check(name, ok, detail=""):
 
 
 os.makedirs(HERE, exist_ok=True)
-parm = os.path.join(HERE, "autotune.parm")
+parm = os.path.join(HERE, "turn.parm")
 with open(parm, "w") as f:
+    # SCALING_SPEED 19 is near the simulated plane's speed at 45% throttle
     f.write("""
 ARMING_REQUIRE 1
 ARMING_SKIPCHK -81
@@ -55,15 +58,17 @@ FLTMODE1 0
 FLTMODE2 0
 FLTMODE3 5
 FLTMODE4 5
-FLTMODE5 8
-FLTMODE6 8
-GYRO_GAIN_CH 8
-GYRO_TURN_CORR 1
+FLTMODE5 5
+FLTMODE6 5
+STABRX_GAIN_CH 8
+STABRX_TURN_CORR 1
+SCALING_SPEED 19
+ROLL_LIMIT_DEG %u
 AHRS_EKF_TYPE 0
 SIM_GPS1_ENABLE 0
 GPS1_TYPE 0
 ARSPD_TYPE 0
-""")
+""" % BANK_LIMIT)
 
 with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
     if sock.connect_ex(("127.0.0.1", 5760)) == 0:
@@ -79,11 +84,12 @@ try:
     m = mavutil.mavlink_connection("tcp:127.0.0.1:5760", source_system=255, autoreconnect=False)
     m.wait_heartbeat(timeout=60)
     m.mav.request_data_stream_send(m.target_system, m.target_component,
-                                   mavutil.mavlink.MAV_DATA_STREAM_ALL, 4, 1)
+                                   mavutil.mavlink.MAV_DATA_STREAM_ALL, 10, 1)
 
     # roll pitch thr yaw | arm mode rtl gain
     rc = [1500, 1500, 1000, 1500, 1000, 1000, 1000, 1500]
-    state = {"mode": None, "armed": None, "alt": None, "boot_ms": 0, "texts": [], "params": {}}
+    state = {"mode": None, "armed": None, "alt": None, "boot_ms": 0, "roll": 0.0, "pitch": 0.0,
+             "true_roll": 0.0, "true_pitch": 0.0, "nav_roll": 0.0}
     lock = threading.Lock()
 
     def rc_thread():
@@ -111,11 +117,16 @@ try:
                     state["alt"] = r.relative_alt * 0.001
                 elif t == "SYSTEM_TIME":
                     state["boot_ms"] = r.time_boot_ms
+                elif t == "ATTITUDE":
+                    state["roll"] = math.degrees(r.roll)
+                    state["pitch"] = math.degrees(r.pitch)
+                elif t == "SIMSTATE":
+                    state["true_roll"] = math.degrees(r.roll)
+                    state["true_pitch"] = math.degrees(r.pitch)
+                elif t == "NAV_CONTROLLER_OUTPUT":
+                    state["nav_roll"] = r.nav_roll
                 elif t == "STATUSTEXT":
-                    state["texts"].append(r.text)
                     print("   TEXT:", r.text, flush=True)
-                elif t == "PARAM_VALUE":
-                    state["params"][r.param_id] = r.param_value
 
     threading.Thread(target=rc_thread, daemon=True).start()
     threading.Thread(target=reader, daemon=True).start()
@@ -133,22 +144,6 @@ try:
         with lock:
             return state[key]
 
-    def get_param(name):
-        with lock:
-            state["params"].pop(name, None)
-        m.param_fetch_one(name)
-        t0 = time.time()
-        while time.time() - t0 < 5:
-            with lock:
-                if name in state["params"]:
-                    return state["params"][name]
-            time.sleep(0.05)
-        return None
-
-    gains = ("RLL_RATE_P", "RLL_RATE_FF", "PTCH_RATE_P", "PTCH_RATE_FF")
-    wait_sim(5)
-    before = {g: get_param(g) for g in gains}
-
     def climb_to(height, timeout):
         t0 = sim_s()
         while sim_s() - t0 < timeout and (get("alt") or 0) - ground_alt < height:
@@ -156,6 +151,7 @@ try:
         return (get("alt") or 0) - ground_alt
 
     # takeoff in MANUAL (mode switch low), climb in FBWA (middle)
+    wait_sim(5)
     ground_alt = get("alt")
     # the arm switch arms on its move: flip it again while a pre-arm
     # check (SITL's two IMUs must agree for 10 s after boot) refuses
@@ -170,36 +166,33 @@ try:
     rc[2] = 2000                        # full throttle, neutral elevator
     climb_to(10, 40)
     rc[5] = 1500                        # FBWA
-    climbed = climb_to(100, 60)
-    check("took off and climbed without a GPS", climbed >= 100, "%.0f m" % climbed)
+    climbed = climb_to(120, 60)
+    check("took off and climbed without a GPS", climbed >= 120, "%.0f m" % climbed)
     rc[2] = 1700                        # cruise throttle
+    wait_sim(5)
 
-    # AUTOTUNE on the mode switch, then alternating stick inputs per axis
-    rc[5] = 2000
-    wait_sim(2)
-    check("AUTOTUNE selected", get("mode") == "AUTOTUNE", get("mode"))
-    for axis, ch in (("Roll", 0), ("Pitch", 1)):
-        value = 1000
-        t0 = sim_s()
-        finished = False
-        while sim_s() - t0 < AXIS_TIMEOUT and proc.poll() is None:
-            with lock:
-                finished = any(t.startswith("%s: Finished" % axis) for t in state["texts"])
-            if finished:
-                break
-            value = 2000 if value == 1000 else 1000
-            rc[ch] = value
-            wait_sim(1)
-        rc[0], rc[1] = 1500, 1500
-        check("%s autotune finished" % axis, finished, "after %.0f s" % (sim_s() - t0))
-        wait_sim(10)
+    # hold full roll stick, elevator neutral
+    start_height = (get("alt") or 0) - ground_alt
+    rc[0] = 2000
+    peak_demand = 0.0
+    worst_roll = 0.0
+    worst_pitch = 0.0
+    for second in range(HOLD_S):
+        wait_sim(1)
+        peak_demand = max(peak_demand, abs(get("nav_roll")))
+        if second >= 2:
+            # after the roll into the turn
+            worst_roll = max(worst_roll, abs(get("true_roll") - get("roll")))
+            worst_pitch = max(worst_pitch, abs(get("true_pitch") - get("pitch")))
+    lost = start_height - ((get("alt") or 0) - ground_alt)
+    check("bank demand reaches ROLL_LIMIT_DEG", peak_demand >= BANK_LIMIT - 1, "%.0f deg" % peak_demand)
+    check("bank estimate stays true in the turn", worst_roll < 8, "worst error %.1f deg" % worst_roll)
+    check("pitch estimate stays true in the turn", worst_pitch < 8, "worst error %.1f deg" % worst_pitch)
+    check("the turn does not become a spiral dive", lost < 30, "%.0f m lost in %u s" % (lost, HOLD_S))
 
-    rc[5] = 1500                        # back to FBWA
-    wait_sim(2)
-    after = {g: get_param(g) for g in gains}
-    for g in gains:
-        changed = before[g] is not None and after[g] is not None and abs(after[g] - before[g]) > 1e-4
-        check("%s changed" % g, changed, "%s -> %s" % (before[g], after[g]))
+    rc[0] = 1500
+    wait_sim(5)
+    check("level after the turn", abs(get("true_roll")) < 5, "true bank %.1f deg" % get("true_roll"))
     m.close()
 finally:
     proc.kill()

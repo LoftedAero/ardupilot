@@ -7,8 +7,8 @@ firmware, the real ExpressLRS Lua script runs against it (see
 edgetx_sim.py), and a local web page shows the radio screen with the
 radio's keys and sliders for the RC channels.
 
-Build first:  ./waf configure --board sitl --extra-hwdef=Tools/gyro/sitl-gyro.hwdef && ./waf plane
-Run:          ELRS_LUA=/path/to/elrsV3.lua python3 Tools/gyro/elrs_menu_playground.py
+Build first:  ./waf configure --board sitl --extra-hwdef=Tools/stabrx/sitl-stabrx.hwdef && ./waf plane
+Run:          ELRS_LUA=/path/to/elrsV3.lua python3 Tools/stabrx/elrs_menu_playground.py
 Then open     http://localhost:8765 (from Windows too, when running in WSL2)
 
 Keys on the page: Up/Down move, Enter selects or edits, Esc or
@@ -194,7 +194,7 @@ def main():
             if sock.connect_ex(("127.0.0.1", port)) == 0:
                 sys.exit("TCP port %u is already in use; stop the running simulator first" % port)
 
-    work = os.environ.get("GYRO_TEST_DIR", "/tmp/gyro_menu_playground")
+    work = os.environ.get("STABRX_TEST_DIR", "/tmp/stabrx_menu_playground")
     os.makedirs(work, exist_ok=True)
     parm = os.path.join(work, "playground.parm")
     with open(parm, "w") as f:

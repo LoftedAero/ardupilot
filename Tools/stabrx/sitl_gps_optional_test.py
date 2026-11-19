@@ -23,9 +23,9 @@ the plane takes off in MANUAL, climbs in FBWA, then:
 The simulator's true attitude (SIMSTATE) is compared with the estimate
 (ATTITUDE). SITL has no wind, so the true airspeed is the ground speed.
 
-Build first:  ./waf configure --board sitl --extra-hwdef=Tools/gyro/sitl-gyro.hwdef && ./waf plane
-Run:          python3 Tools/gyro/sitl_gps_optional_test.py
-Needs pymavlink. Scratch files go to $GYRO_TEST_DIR (default /tmp/gyro_sitl_gps_optional).
+Build first:  ./waf configure --board sitl --extra-hwdef=Tools/stabrx/sitl-stabrx.hwdef && ./waf plane
+Run:          python3 Tools/stabrx/sitl_gps_optional_test.py
+Needs pymavlink. Scratch files go to $STABRX_TEST_DIR (default /tmp/stabrx_sitl_gps_optional).
 """
 import math
 import os
@@ -38,7 +38,7 @@ import time
 from pymavlink import mavutil
 
 ROOT = os.path.abspath(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", ".."))
-HERE = os.environ.get("GYRO_TEST_DIR", "/tmp/gyro_sitl_gps_optional")
+HERE = os.environ.get("STABRX_TEST_DIR", "/tmp/stabrx_sitl_gps_optional")
 BIN = os.path.join(ROOT, "build/sitl/bin/arduplane")
 SPEEDUP = 4
 BANK_LIMIT = 45
@@ -68,8 +68,8 @@ FLTMODE3 5
 FLTMODE4 5
 FLTMODE5 5
 FLTMODE6 5
-GYRO_GAIN_CH 8
-GYRO_TURN_CORR 1
+STABRX_GAIN_CH 8
+STABRX_TURN_CORR 1
 SCALING_SPEED 19
 ROLL_LIMIT_DEG %u
 GPS1_TYPE 1
