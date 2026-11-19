@@ -9,12 +9,12 @@
 # Include this AFTER the base board hwdef so it can override the
 # board's own feature defines, e.g.
 #   include ../KakuteF4-Wing/hwdef.dat
-#   include ../include/gyro.inc
+#   include ../include/stabrx.inc
 
 # --- Navigation ------------------------------------------------------
 # EKF3 stays in for models with a GPS: the menu's GPS setting (1 Sensors)
 # selects EKF3 and the GPS arming checks when on, and DCM with the
-# GYRO_TURN_CORR turn correction when off (the default).
+# STABRX_TURN_CORR turn correction when off (the default).
 define AP_TERRAIN_AVAILABLE 0
 define HAL_RALLY_ENABLED 0
 define AP_FENCE_ENABLED 0
@@ -51,7 +51,7 @@ define HAL_MSP_SENSORS_ENABLED 0
 undef ROMFS
 
 # --- Transmitter menu ------------------------------------------------
-# The transmitter setup menu is built natively in ArduPlane (gyro_menu.cpp)
+# The transmitter setup menu is built natively in ArduPlane (stabrx_menu.cpp)
 # on the CRSF scripted-menu engine, so Lua scripting is not needed and
 # stays off (frees ~60 KB of RAM and ~120 KB of flash on an F405).
 # The menu engine is normally tied to scripting and the OSD, so it is

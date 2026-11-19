@@ -3,7 +3,7 @@
 # applies the shared gyro feature profile.
 
 include ../TBS_LUCID_H7_WING/hwdef.dat
-include ../include/gyro.inc
+include ../include/stabrx.inc
 
 # SERIAL3 is the HD VTX DisplayPort on the base board; MSP is compiled
 # out in the gyro profile, so leave the port idle.

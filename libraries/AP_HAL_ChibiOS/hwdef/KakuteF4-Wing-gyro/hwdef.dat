@@ -3,4 +3,4 @@
 # applies the shared gyro feature profile.
 
 include ../KakuteF4-Wing/hwdef.dat
-include ../include/gyro.inc
+include ../include/stabrx.inc
