@@ -10,7 +10,7 @@ over USB throughout and watch its Messages tab. Several checks rely on
 the text messages the firmware sends.
 
 How the firmware is meant to behave is described in
-[GYRO_README.md](GYRO_README.md).
+[STABRX_README.md](STABRX_README.md).
 
 ---
 
@@ -22,7 +22,7 @@ Lucid H7 Wing.
 **Parameters already on the board.** Flashing keeps saved parameters.
 If the board was set up before, either reset parameters to defaults
 after flashing (then redo the accelerometer calibration) or check the
-values in GYRO_README.md's parameter reference by hand.
+values in STABRX_README.md's parameter reference by hand.
 
 **Build and flash.**
 
@@ -222,8 +222,8 @@ reflashed while the script was open, exit it and start it again first.
 - [ ] 2 Radio, Learn gain knob: turn the knob, then OK at its low gain
       end and again at its high gain end. `Gain knob: ChN 987-2011`
       (with `, reversed` when the low end reads high). Turning the knob from
-      low to high then raises the gain from GYRO_GAIN_MIN to
-      GYRO_GAIN_MAX, center 1.0.
+      low to high then raises the gain from STABRX_GAIN_MIN to
+      STABRX_GAIN_MAX, center 1.0.
 - [ ] 2 Radio, Learn arm switch: flip the arm switch when asked. It
       asks you to switch it off, and only then accepts OK. The plane
       must not arm during this.
@@ -250,7 +250,7 @@ Only with a GPS connected, outdoors, propellers off.
 Download the latest log over USB.
 
 - [ ] A log exists covering the armed period.
-- [ ] It contains `GYRO` messages whose `Gain` follows the knob.
+- [ ] It contains `STBX` messages whose `Gain` follows the knob.
 
 ---
 

@@ -63,7 +63,7 @@ Ground rules (decided 2026-09-14):
 
 Files:
 
-- `libraries/AP_HAL_ChibiOS/hwdef/include/gyro.inc`: shared feature
+- `libraries/AP_HAL_ChibiOS/hwdef/include/stabrx.inc`: shared feature
   profile. Include it after any base board hwdef. Disables terrain,
   rally, fence, ADSB, soaring, landing gear, quadplane, OSD, video TX,
   camera, mount, scripting. Keeps logging, tuning, CRSF telemetry.
@@ -77,7 +77,7 @@ Files:
   board bootloader.
 
 Porting to a new board is two files: a hwdef that includes the base
-board and `gyro.inc`, and a defaults.parm. `TBS_LUCID_H7_WING-gyro` is
+board and `stabrx.inc`, and a defaults.parm. `TBS_LUCID_H7_WING-gyro` is
 the second such port (RC on SERIAL6, GPS on SERIAL2, SD-card logging).
 
 ### Base moved to master of 2026-11-06, LoftedAero-SRX added (2026-11-13)
@@ -93,7 +93,7 @@ What the new base changed for the gyro code:
   axis when there is no estimate, so the gyro's own change of the roll
   controller is gone. The yaw rate controller still needs it.
 - `RC_Channels::get_radio_in(chan)` and the `AP_GPS::` fix names are
-  gone; `gyro_menu.cpp` has a local `radio_in()` and uses
+  gone; `stabrx_menu.cpp` has a local `radio_in()` and uses
   `AP_GPS_FixType`.
 - DCM reports no location until it has had a GPS position, so MAVLink
   `VFR_HUD.alt` reads 0 with no GPS. The height above home
@@ -104,7 +104,7 @@ What the new base changed for the gyro code:
   as its stock default.
 
 `LoftedAero-SRX-gyro` is the third port: the base board's hwdef and
-bootloader, `gyro.inc`, and the Kakute defaults with the receiver on
+bootloader, `stabrx.inc`, and the Kakute defaults with the receiver on
 SERIAL2 (set by the hwdef), `RC_OPTIONS 12640` (adds CRSF passthrough
 telemetry and the 420 kbaud ELRS link) and `RSSI_TYPE 3`. It keeps board ID 5999, the placeholder that
 the bootloader on board 1 accepts. No relay is assigned: GPIO 70 and 71
@@ -113,11 +113,14 @@ yet run on a board.
 
 ## Phase 2: small source changes (done, builds clean)
 
-All new behavior lives in `ArduPlane/gyro.h` and `ArduPlane/gyro.cpp`
-(class `PlaneGyro`, parameter group `GYRO_`, registered as ParametersG2
+All new behavior lives in `ArduPlane/stabrx.h` and `ArduPlane/stabrx.cpp`
+(class `PlaneStabRX`, parameter group `STABRX_`, registered as ParametersG2
 subgroup 42, scheduler task at 10 Hz). Every hook into existing code is
-a few lines, guarded by `AP_PLANE_GYRO_ENABLED`, and a no-op until the
+a few lines, guarded by `AP_PLANE_STABRX_ENABLED`, and a no-op until the
 matching parameter is set, so stock behavior is unchanged by default.
+Until 2026-11-19 these were `gyro.h`/`gyro.cpp`, class `PlaneGyro`, the
+`GYRO_` group and the `GYRO` log message; the notes below that name a
+removed `GYRO_` parameter keep its old name.
 
 1. **Failsafe: RTL only when home is set.** `ModeRTL::_enter()` refuses
    with "RTL refused: no home position" when AHRS has no home. Long
@@ -125,8 +128,8 @@ matching parameter is set, so stock behavior is unchanged by default.
    RTL entry fails. The RTL aux switch is refused the same way. Home is
    set on the first 3D fix regardless of arming, so RTL works with
    ARMING_REQUIRE 0 once a GPS has locked. Not parameter gated.
-2. **Master gain scalar.** `GYRO_GAIN_CH`, `GYRO_GAIN_MIN`,
-   `GYRO_GAIN_MAX`. The knob is read each cycle; knob centre is always
+2. **Master gain scalar.** `STABRX_GAIN_CH`, `STABRX_GAIN_MIN`,
+   `STABRX_GAIN_MAX`. The knob is read each cycle; knob centre is always
    1.0, low end maps to MIN, high end to MAX. The scale is pushed into
    `AP_FW_Controller` (roll, pitch) and `AP_YawController` via a new
    `set_gain_scale()`, passed to AC_PID's `update_all()` as `pd_scale`
@@ -135,7 +138,7 @@ matching parameter is set, so stock behavior is unchanged by default.
    wound up the integrator at low gain and kicked when the knob was
    raised). The yaw damper scales D only. FF is untouched so ACRO stick
    authority is unchanged. Held at 1.0 during
-   RC failsafe and while autotune is running. Logged as `GYRO.Gain`.
+   RC failsafe and while autotune is running. Logged as `STBX.Gain`.
 3. **Gyro-style trims (removed 2026-10-03: it also captured any stick
    held at that moment; trims now work the standard ArduPilot way).**
    `GYRO_TRIM_CAP 1` called the existing
@@ -155,20 +158,20 @@ matching parameter is set, so stock behavior is unchanged by default.
    and flags the calibration as failed. With no arming the aircraft
    still flies, just with less accurate offsets.
 
-Kakute defaults now set `GYRO_GAIN_CH 8`, `GYRO_GAIN_MIN 0`,
-`GYRO_GAIN_MAX 1.5`, `GYRO_TRIM_CAP 1` and `FS_LONG_ACTN 1` (RTL, glide
+Kakute defaults now set `STABRX_GAIN_CH 8`, `STABRX_GAIN_MIN 0`,
+`STABRX_GAIN_MAX 1.5`, `GYRO_TRIM_CAP 1` and `FS_LONG_ACTN 1` (RTL, glide
 fallback).
 
-Verified in SITL with `Tools/gyro/sitl_gyro_test.py` (24 checks): RTL
+Verified in SITL with `Tools/stabrx/sitl_stabrx_test.py` (24 checks): RTL
 refused without home, arming on channel 5 with trim capture, a second
 capture on MANUAL -> ACRO, no log bytes before arming, long RC failsafe
 ending in FBWA with RTL refused while staying armed, RTL accepted once
-GPS sets home, disarm on channel 5, and GYRO.Gain following the knob
+GPS sets home, disarm on channel 5, and STBX.Gain following the knob
 (0.0, 1.0, 1.5). Not yet flight tested.
 
 ## Phase 3: transmitter menu (done, builds clean, load-tested in SITL)
 
-- `gyro.inc` now keeps Lua scripting on and forces
+- `stabrx.inc` now keeps Lua scripting on and forces
   `HAL_CRSF_TELEM_TEXT_SELECTION_ENABLED 1` so the CRSF parameter-menu
   code is compiled without the OSD.
 - `AP_CRSF_Telem` assumed the OSD parameter screens exist whenever the
@@ -187,7 +190,7 @@ GPS sets home, disarm on channel 5, and GYRO.Gain following the knob
   "Disarm first" in that case.
 - The applet and `crsf_helper.lua` are embedded in ROMFS by the Kakute
   hwdef; `SCR_ENABLE 1` is in the defaults.
-- `Tools/gyro/sitl_menu_test.py` starts SITL with a simulated CRSF
+- `Tools/stabrx/sitl_menu_test.py` starts SITL with a simulated CRSF
   receiver and confirms the menu builds without Lua errors. Radio-side
   interaction is not simulated; test on a real ELRS transmitter.
 - Fixed 2026-09-28 before hardware testing, three problems in the
@@ -204,11 +207,11 @@ GPS sets home, disarm on channel 5, and GYRO.Gain following the knob
      behave differently (IMU reads run on their own thread there), but
      it is not a path to rely on.
   The upstream `crsf-calibrate.lua` applet has all three. The fix: the
-  menu now sets the new `GYRO_CAL` parameter and `PlaneGyro` runs the
+  menu now sets the new `GYRO_CAL` parameter and `PlaneStabRX` runs the
   calibration on the main thread, like a ground station calibration,
   then writes back 0 (done) or -1 (failed or armed).
   2026-11-18: the native menu replaced the Lua one, so the request is
-  internal to `PlaneGyro` and `GYRO_CAL` is gone; only the level
+  internal to `PlaneStabRX` and `GYRO_CAL` is gone; only the level
   calibration remains (the gyros calibrate at each start).
 - SITL limitation found on the way: with the in-process CRSF simulator
   attached (`--serial5=sim:crsf`), any blocking calibration, including
@@ -220,7 +223,7 @@ GPS sets home, disarm on channel 5, and GYRO.Gain following the knob
   1. The 15 KB `crsf_helper` module could not even be opened: compressed
      ROMFS files are decompressed into a heap buffer, and only ~14 KB of
      RAM is free once the 43 KB Lua heap is allocated. Fixed by
-     `env ROMFS_UNCOMPRESSED True` in `gyro.inc` (files read straight
+     `env ROMFS_UNCOMPRESSED True` in `stabrx.inc` (files read straight
      from flash, +24 KB flash).
   2. The Lua heap is then too small: `not enough mem, increase
      SCR_HEAP_SIZE`. With SCR_HEAP_SIZE 52 KB plus Lua's automatic heap
@@ -250,13 +253,13 @@ GPS sets home, disarm on channel 5, and GYRO.Gain following the knob
 
 ## Phase 3b: native C++ transmitter menu (built 2026-10-02)
 
-Status: built in `ArduPlane/gyro_menu.cpp` and served by the gyro
+Status: built in `ArduPlane/stabrx_menu.cpp` and served by the gyro
 module at 50 Hz. Gyro builds now have Lua scripting off. Verified: the
 whole menu loads with live values on a RadioMaster AX12 (ELRS Lua r15)
 against a KakuteF4-Wing; writes, command popups, stick and switch
 learning, templates and the arm-switch safety rule pass 27 end-to-end
-checks in SITL (`Tools/gyro/sitl_crsf_menu_test.py`, using the CRSF
-radio emulator `Tools/gyro/crsf_menu_client.py`).
+checks in SITL (`Tools/stabrx/sitl_crsf_menu_test.py`, using the CRSF
+radio emulator `Tools/stabrx/crsf_menu_client.py`).
 
 Differences from the design below:
 
@@ -271,7 +274,7 @@ Differences from the design below:
   selection) while that switch is off: ArduPilot only tracks a
   switch's position while it has a function, so assigning it in the
   on position would arm the plane.
-- SITL must be built with `--extra-hwdef=Tools/gyro/sitl-gyro.hwdef`
+- SITL must be built with `--extra-hwdef=Tools/stabrx/sitl-stabrx.hwdef`
   (no OSD parameter screens). With them, reading an OSD parameter
   entry over CRSF crashes SITL in AP_OSD_ParamSetting::update (stock
   issue, not in gyro builds).
@@ -279,15 +282,15 @@ Differences from the design below:
   the entry count from its first device ping.
 - The ExpressLRS script (r15) keeps no folder history: Back from any
   folder, however deep, returns to the device's top level. Found with
-  `Tools/gyro/sitl_elrs_lua_test.py`, which runs the real script on the
-  PC against SITL (`Tools/gyro/edgetx_sim.py` stands in for EdgeTX).
+  `Tools/stabrx/sitl_elrs_lua_test.py`, which runs the real script on the
+  PC against SITL (`Tools/stabrx/edgetx_sim.py` stands in for EdgeTX).
   So there is no "Gyro Setup" folder: Status and the numbered folders
   are the device's top level (AP_CRSF_Telem now serves entries added
   to its root menu).
 
 Design:
 
-Decided: the transmitter menu moves from Lua to C++ in the gyro module,
+Decided: the transmitter menu moves from Lua to C++ in the StabRX module,
 using the same CRSF scripted-menu structures. Reasons: the Lua menu only
 fits on an F405 with bench-only memory settings, and the planned menu is
 roughly twice its size. With the menu native, F405 gyro builds can turn
@@ -384,7 +387,7 @@ when there is no estimate (no airspeed sensor, no GPS fix). That counts
 as underspeed: the integrator is locked and autotune skips the axis.
 The pitch controller assumes the middle of AIRSPEED_MIN/MAX instead.
 Roll and yaw rate now do the same. Verified with
-`Tools/gyro/sitl_autotune_test.py` (MANUAL takeoff, FBWA climb,
+`Tools/stabrx/sitl_autotune_test.py` (MANUAL takeoff, FBWA climb,
 AUTOTUNE on the mode switch, ARSPD_TYPE 0, no GPS): before the change
 roll never finished in 300 s and RLL_RATE_P stayed put while pitch
 tuned; after it both axes finish in under a minute.
@@ -401,9 +404,9 @@ no airspeed sensor, full roll stick held in FBWA:
 | Stock, 45 deg bank | 43 roll, +2 pitch | 66 roll, -29 pitch | ground in 16 s |
 | AHRS_RP_P 0.05, 25 deg | 25 roll, 0 pitch | 33 roll, -10 pitch | 40 m lost in 25 s |
 | With GPS, 45 deg | 45 roll | 44.6 roll | held |
-| GYRO_TURN_CORR 1, SCALING_SPEED 15 (20% low) | 45 roll, +2 pitch | 48 roll, -5 pitch | 30 m lost in 25 s |
-| GYRO_TURN_CORR 1, SCALING_SPEED 19 (matched) | 45 roll, +2 pitch | 46 roll, 0 pitch | held |
-| GYRO_TURN_CORR 1, SCALING_SPEED 30 (57% high) | 45 roll, +3 pitch | 42 roll, +10 pitch | climbs |
+| STABRX_TURN_CORR 1, SCALING_SPEED 15 (20% low) | 45 roll, +2 pitch | 48 roll, -5 pitch | 30 m lost in 25 s |
+| STABRX_TURN_CORR 1, SCALING_SPEED 19 (matched) | 45 roll, +2 pitch | 46 roll, 0 pitch | held |
+| STABRX_TURN_CORR 1, SCALING_SPEED 30 (57% high) | 45 roll, +3 pitch | 42 roll, +10 pitch | climbs |
 
 Design:
 
@@ -414,12 +417,12 @@ Design:
 - A change of the assumed speed rescales the previous velocity, so only
   the change of direction is corrected (the centripetal part). A
   throttle change is not read as an acceleration.
-- `PlaneGyro::update_assumed_airspeed()` supplies
+- `PlaneStabRX::update_assumed_airspeed()` supplies
   `SCALING_SPEED / speed_scaler` (the speed the throttle scaling stands
   for) while the model counts as airborne: from 1 s of armed throttle
   above 30% until it is disarmed and still for 3 s. A disarm in flight
   is a throttle cut, so it does not end the correction.
-- `GYRO_TURN_CORR` (0 in the source, 1 in the board defaults).
+- `STABRX_TURN_CORR` (0 in the source, 1 in the board defaults).
 - Stall prevention's 25 degree limit is skipped when there is no
   airspeed estimate (`Plane::apply_load_factor_roll_limits`).
 
@@ -437,7 +440,7 @@ range, autotune runner, log pull.
 Decided 2026-09-28: the custom board uses a supported STM32 flight
 controller MCU (F405 or H743 class) with an ESP-based ELRS receiver on
 the same PCB, the way commercial AIO boards do it. New hwdef once the
-MCU, IMU, ELRS chip and servo count are chosen; `gyro.inc` applies
+MCU, IMU, ELRS chip and servo count are chosen; `stabrx.inc` applies
 unchanged.
 
 Considered and not pursued:

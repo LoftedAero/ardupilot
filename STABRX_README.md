@@ -8,7 +8,7 @@ station for everyday use.
 
 This document describes how the firmware behaves as flashed with its
 default parameters. The design history and roadmap are in
-[GYRO_PLAN.md](GYRO_PLAN.md).
+[STABRX_PLAN.md](STABRX_PLAN.md).
 
 Contents
 
@@ -52,12 +52,12 @@ behavior simple:
 - MSP and DisplayPort
 - Lua scripting (the transmitter menu is built into the firmware)
 
-Added on top of ArduPlane, all in one module (`ArduPlane/gyro.cpp`):
+Added on top of ArduPlane, all in one module (`ArduPlane/stabrx.cpp`):
 
 - A master gain knob on a transmitter channel
 - Return to launch is refused, with a glide fallback, when no home
   position is known
-- A transmitter setup menu over CRSF (`ArduPlane/gyro_menu.cpp`)
+- A transmitter setup menu over CRSF (`ArduPlane/stabrx_menu.cpp`)
 
 ---
 
@@ -242,7 +242,7 @@ false level in a held turn, FBWA rolls further to hold the bank it
 reads, and the turn becomes a spiral dive (in the simulator a 45 degree
 turn reached 66 degrees of bank in 6 seconds and 29 degrees nose down
 in 10).
-`GYRO_TURN_CORR 1` (the default on the gyro boards) gives the estimate
+`STABRX_TURN_CORR 1` (the default on the gyro boards) gives the estimate
 an assumed airspeed for that correction: `SCALING_SPEED` at 45%
 throttle, about 0.6 times that at idle and 1.5 times at full throttle,
 the same model that scales the gains by throttle. Set `SCALING_SPEED`
@@ -311,9 +311,9 @@ setting on a gyro.
 
 | Knob | Scale |
 |---|---|
-| Fully low | GYRO_GAIN_MIN (default 0.0, feedforward only: no P or D correction, I held) |
+| Fully low | STABRX_GAIN_MIN (default 0.0, feedforward only: no P or D correction, I held) |
 | Centre | 1.0, the tuned gains |
-| Fully high | GYRO_GAIN_MAX (default 1.5) |
+| Fully high | STABRX_GAIN_MAX (default 1.5) |
 
 The knob scales only the correction terms: P and D directly, and the
 I term by how fast it builds up. What the I term has already built up
@@ -331,9 +331,9 @@ MANUAL is the true gyro-off mode.
 During an RC failsafe the scale keeps the value it had when the link
 was lost: a knob turned down because the plane oscillates at 1.0 stays
 turned down for the failsafe glide. The scale is held at 1.0 while
-autotune is running. Its value is recorded in the log as `GYRO.Gain`.
+autotune is running. Its value is recorded in the log as `STBX.Gain`.
 
-To fly with fixed gains, leave the knob centered or set GYRO_GAIN_CH
+To fly with fixed gains, leave the knob centered or set STABRX_GAIN_CH
 to 0.
 
 ---
@@ -368,7 +368,7 @@ setting in the menu (1 Sensors, GPS) says whether one is fitted; it
 is Off by default, and changing it restarts the flight controller.
 
 - **Off**: no GPS driver (`GPS1_TYPE 0`), even with a GPS plugged in.
-  The attitude estimate is DCM, with the GYRO_TURN_CORR turn
+  The attitude estimate is DCM, with the STABRX_TURN_CORR turn
   correction, and the gains scale with the throttle. The firmware arms
   without a GPS.
 - **On**: the stock ArduPlane setup: `GPS1_TYPE 1`, EKF3
@@ -604,7 +604,7 @@ Without an airspeed estimate (no airspeed sensor and no GPS fix) stock
 ArduPlane locked the roll integrator and skipped roll autotune; pitch
 was unaffected. The roll and yaw rate controllers now assume the middle
 of AIRSPEED_MIN and AIRSPEED_MAX in that case, as the pitch controller
-already did. `Tools/gyro/sitl_autotune_test.py` flies a no-GPS,
+already did. `Tools/stabrx/sitl_autotune_test.py` flies a no-GPS,
 no-airspeed autotune in SITL and checks both axes tune.
 
 The board defaults tune roll and pitch only (`AUTOTUNE_AXES 3`). The
@@ -620,7 +620,7 @@ Procedure:
    sharp full-stick roll and pitch inputs.
 3. Disable autotune or land and disarm. The new gains are saved.
 
-The knob then scales the tuned gains. GYRO_GAIN_MAX above 1.5 is rarely
+The knob then scales the tuned gains. STABRX_GAIN_MAX above 1.5 is rarely
 useful after a good autotune.
 
 Speed scaling. ArduPlane also scales the gains with speed, and autotune
@@ -644,7 +644,7 @@ Logs go to the board's dataflash chip (Kakute) or microSD card
 (Lucid), one log per arming. Nothing is logged while disarmed. Download logs over USB with Mission Planner or
 QGroundControl.
 
-Besides the standard ArduPlane messages, the `GYRO` message records at
+Besides the standard ArduPlane messages, the `STBX` message records at
 10 Hz:
 
 | Field | Meaning |
@@ -673,10 +673,15 @@ Parameters added by this build:
 
 | Parameter | Default | Meaning |
 |---|---|---|
-| GYRO_GAIN_CH | 8 | RC channel for the gain knob, 0 to disable |
-| GYRO_GAIN_MIN | 0.0 | Scale at knob minimum |
-| GYRO_GAIN_MAX | 1.5 | Scale at knob maximum |
-| GYRO_TURN_CORR | 1 | Assumed airspeed for the attitude estimate's turn correction when there is no GPS and no airspeed sensor (0 in the source, 1 in the board defaults) |
+| STABRX_GAIN_CH | 8 | RC channel for the gain knob, 0 to disable |
+| STABRX_GAIN_MIN | 0.0 | Scale at knob minimum |
+| STABRX_GAIN_MAX | 1.5 | Scale at knob maximum |
+| STABRX_TURN_CORR | 1 | Assumed airspeed for the attitude estimate's turn correction when there is no GPS and no airspeed sensor (0 in the source, 1 in the board defaults) |
+
+Builds up to StabRX-2026-11-16b named these parameters `GYRO_` (and the
+log message `GYRO`). The values are stored by group index, so a board
+updated from those builds keeps them under the new names; saved parameter
+files with `GYRO_` names need the prefix changed before loading.
 
 Standard ArduPlane parameters set by the defaults:
 
@@ -726,56 +731,56 @@ Source of the customization:
 
 | Location | What |
 |---|---|
-| `libraries/AP_HAL_ChibiOS/hwdef/include/gyro.inc` | Feature profile. Include it after any base board hwdef to make a gyro build of that board. |
+| `libraries/AP_HAL_ChibiOS/hwdef/include/stabrx.inc` | Feature profile. Include it after any base board hwdef to make a gyro build of that board. |
 | `libraries/AP_HAL_ChibiOS/hwdef/KakuteF4-Wing-gyro/` | Kakute variant: hwdef and defaults |
 | `libraries/AP_HAL_ChibiOS/hwdef/TBS_LUCID_H7_WING-gyro/` | Lucid H7 Wing variant, same layout |
 | `libraries/AP_HAL_ChibiOS/hwdef/LoftedAero-SRX-gyro/` | LoftedAero-SRX variant, same layout. The base board is `LoftedAero-SRX/` |
-| `ArduPlane/gyro.h`, `ArduPlane/gyro.cpp` | The gyro module: gain knob, the menu's level calibration, assumed airspeed, GYRO_ parameters |
-| `ArduPlane/gyro_menu.h`, `ArduPlane/gyro_menu.cpp` | The transmitter setup menu |
+| `ArduPlane/stabrx.h`, `ArduPlane/stabrx.cpp` | The StabRX module: gain knob, the menu's level calibration, assumed airspeed, STABRX_ parameters |
+| `ArduPlane/stabrx_menu.h`, `ArduPlane/stabrx_menu.cpp` | The transmitter setup menu |
 | `ArduPlane/mode_rtl.cpp`, `ArduPlane/events.cpp` | RTL refused without home; failsafe falls back to FBWA |
 | `ArduPlane/Attitude.cpp` | No 25 degree stall prevention bank limit when there is no airspeed estimate |
 | `ArduPlane/AP_Arming_Plane.cpp` | Arming refused while a menu command is open |
 | `libraries/AP_AHRS/AP_AHRS.h`, `AP_AHRS_DCM.*` | Assumed airspeed for DCM's centripetal correction without GPS |
 | `libraries/APM_Control/AP_FW_Controller.*`, `AP_YawController.*` | Gain scale hook in the rate controllers |
 | `libraries/AP_RCTelemetry/AP_CRSF_Telem.*` | CRSF menus without the OSD, numbered the way ExpressLRS expects, with top-level entries |
-| `Tools/gyro/` | SITL tests, CRSF radio emulator, SITL build defines |
+| `Tools/stabrx/` | SITL tests, CRSF radio emulator, SITL build defines |
 
 Porting to another board takes two files: a hwdef that includes the base
-board and `gyro.inc`, and a `defaults.parm`.
+board and `stabrx.inc`, and a `defaults.parm`.
 
 Simulator tests. Build SITL first with the gyro-like defines (no OSD
 parameter screens, CRSF menu engine on):
 
 ```
-./waf configure --board sitl --extra-hwdef=Tools/gyro/sitl-gyro.hwdef
+./waf configure --board sitl --extra-hwdef=Tools/stabrx/sitl-stabrx.hwdef
 ./waf plane
-python3 Tools/gyro/sitl_gyro_test.py        # arming, no trim capture, gain knob, failsafe, RTL guard, logging
-python3 Tools/gyro/sitl_menu_test.py        # menu builds; calibration requests complete
-python3 Tools/gyro/sitl_accel_cal_test.py   # the 6-position accel calibration over CRSF (SITL calibration model)
-python3 Tools/gyro/sitl_crsf_menu_test.py   # the menu over CRSF, driven like the ExpressLRS script
-ELRS_LUA=/path/to/elrsV3.lua python3 Tools/gyro/sitl_elrs_lua_test.py   # the real ExpressLRS script
-python3 Tools/gyro/sitl_crsf_telem_gap_test.py   # how long menu reads pause CRSF telemetry
-python3 Tools/gyro/sitl_gps_optional_test.py     # EKF3 with a GPS, DCM after losing it, back to EKF3
-python3 Tools/gyro/sitl_autotune_test.py    # autotune flight with no GPS or airspeed sensor
-python3 Tools/gyro/sitl_turn_test.py        # held FBWA turn with no GPS: bank limit and attitude estimate
+python3 Tools/stabrx/sitl_stabrx_test.py        # arming, no trim capture, gain knob, failsafe, RTL guard, logging
+python3 Tools/stabrx/sitl_menu_test.py        # menu builds; calibration requests complete
+python3 Tools/stabrx/sitl_accel_cal_test.py   # the 6-position accel calibration over CRSF (SITL calibration model)
+python3 Tools/stabrx/sitl_crsf_menu_test.py   # the menu over CRSF, driven like the ExpressLRS script
+ELRS_LUA=/path/to/elrsV3.lua python3 Tools/stabrx/sitl_elrs_lua_test.py   # the real ExpressLRS script
+python3 Tools/stabrx/sitl_crsf_telem_gap_test.py   # how long menu reads pause CRSF telemetry
+python3 Tools/stabrx/sitl_gps_optional_test.py     # EKF3 with a GPS, DCM after losing it, back to EKF3
+python3 Tools/stabrx/sitl_autotune_test.py    # autotune flight with no GPS or airspeed sensor
+python3 Tools/stabrx/sitl_turn_test.py        # held FBWA turn with no GPS: bank limit and attitude estimate
 ```
 
 All need pymavlink. `sitl_crsf_menu_test.py` uses
-`Tools/gyro/crsf_menu_client.py`, a small CRSF receiver and radio
+`Tools/stabrx/crsf_menu_client.py`, a small CRSF receiver and radio
 emulator that loads the menu exactly as the ExpressLRS script does.
 
 `sitl_elrs_lua_test.py` runs the ExpressLRS script itself on the PC
-(`Tools/gyro/edgetx_sim.py` provides the parts of the EdgeTX Lua API it
+(`Tools/stabrx/edgetx_sim.py` provides the parts of the EdgeTX Lua API it
 uses) and walks the menu with key presses: opening folders, editing a
 number and a selection, the calibration and stick-learning popups, and
 the no-GPS Failsafe page. Every screen is saved as text and PNG in
-`/tmp/gyro_sitl_elrs/screens`. It also needs lupa and Pillow
+`/tmp/stabrx_sitl_elrs/screens`. It also needs lupa and Pillow
 (`pip install lupa pillow`). The script is not in this repository:
 copy `SCRIPTS/TOOLS/elrsV3.lua` from the radio's SD card, or get it
 from the ExpressLRS repository.
 
 To try the menu by hand, run
-`ELRS_LUA=/path/to/elrsV3.lua python3 Tools/gyro/elrs_menu_playground.py`
+`ELRS_LUA=/path/to/elrsV3.lua python3 Tools/stabrx/elrs_menu_playground.py`
 and open http://localhost:8765 (from Windows too when running in
 WSL2). The page shows the radio screen with Up, Down, Enter and Back
 (arrow keys, Enter and Esc work too) and sliders for channels 1 to 8,
