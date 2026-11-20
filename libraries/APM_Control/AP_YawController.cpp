@@ -323,12 +323,7 @@ float AP_YawController::get_rate_out(float desired_rate, float scaler, bool disa
     //
     // note that we run AC_PID in radians so that the normal scaling
     // range for IMAX in AC_PID applies (usually an IMAX value less than 1.0)
-    //
-    // the master gain scale (transmitter gain knob) scales P and D and how
-    // fast I builds up, so changing it never steps the I output; it is held
-    // at 1.0 while autotune runs
-    const float gain = (autotune != nullptr && autotune->running) ? 1.0f : gain_scale;
-    rate_pid.update_all(radians(desired_rate) * scaler * scaler, rate_z * scaler * scaler, dt, limit_I, gain, gain);
+    rate_pid.update_all(radians(desired_rate) * scaler * scaler, rate_z * scaler * scaler, dt, limit_I);
 
     if (underspeed) {
         // when underspeed we lock the integrator

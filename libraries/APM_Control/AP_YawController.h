@@ -46,7 +46,7 @@ public:
     // set the PID notch sample rates
     void set_notch_sample_rate(float sample_rate) { rate_pid.set_notch_sample_rate(sample_rate); }
 
-    // master gain scale: scales P and D and the I build-up rate (not FF). Persists until changed.
+    // master gain scale: scales the yaw damper (YAW2SRV_DAMP). Persists until changed.
     void set_gain_scale(float scale) { gain_scale = scale; }
 
     // start/stop auto tuner
