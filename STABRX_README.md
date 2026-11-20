@@ -306,14 +306,14 @@ trims centered: it measures them again.
 
 ## 7. Gain knob
 
-Channel 8 scales the roll, pitch and yaw rate controllers, like the gain
-setting on a gyro.
+Channel 8 scales the roll and pitch rate controllers and the yaw damper,
+like the gain setting on a gyro.
 
 | Knob | Scale |
 |---|---|
 | Fully low | STABRX_GAIN_MIN (default 0.0, feedforward only: no P or D correction, I held) |
 | Centre | 1.0, the tuned gains |
-| Fully high | STABRX_GAIN_MAX (default 1.5) |
+| Fully high | STABRX_GAIN_MAX (default 3) |
 
 The knob scales only the correction terms: P and D directly, and the
 I term by how fast it builds up. What the I term has already built up
@@ -321,7 +321,10 @@ is never rescaled, so turning the knob up in flight adds no sudden
 correction. The feedforward term that moves the surface with the stick
 is not scaled, so stick authority in ACRO stays the same at any knob
 position. Knob centre is always exactly 1.0, whatever the min and max
-are set to.
+are set to: a band of 5% of the knob travel either side of centre gives
+1.0, so a knob that stops a little off centre still flies the tuned
+gains. Outside the band the scale goes in a straight line to the min at
+one end and the max at the other.
 
 At the bottom of the knob the plane flies on feedforward alone, which is
 not the same as gyro off: the sticks still command a rate, nothing
@@ -605,11 +608,36 @@ ArduPlane locked the roll integrator and skipped roll autotune; pitch
 was unaffected. The roll and yaw rate controllers now assume the middle
 of AIRSPEED_MIN and AIRSPEED_MAX in that case, as the pitch controller
 already did. `Tools/stabrx/sitl_autotune_test.py` flies a no-GPS,
-no-airspeed autotune in SITL and checks both axes tune.
+no-airspeed autotune in SITL and checks that all three axes tune.
 
-The board defaults tune roll and pitch only (`AUTOTUNE_AXES 3`). The
-rudder works through the yaw damper, which autotune does not tune; set
-its gain in 6 Tuning, Yaw gains.
+The board defaults tune roll, pitch and the yaw damper
+(`AUTOTUNE_AXES 7`). Stock autotune tunes yaw only for the yaw rate
+controller, which in ACRO holds a zero yaw rate with the rudder stick
+centred (a tail lock: in a RealFlight test it gave 17% rudder against
+every turn). Its P term has the same form, units and speed scaling as
+the yaw damper, so the StabRX module uses it to tune the damper:
+
+- `YAW_RATE_ENABLE 1` lets the yaw autotune start; with `ACRO_YAW_RATE 0`
+  the rudder is on the damper in every mode, so ACRO has no tail lock.
+- While autotune runs the module sets `ACRO_YAW_RATE` to 90 in memory
+  only, so the tune flies the rate controller with the coordinated turn
+  rate added, then sets it back to 0.
+- When autotune stops with the yaw axis finished, the tuned `YAW_RATE_P`
+  is saved as `YAW2SRV_DAMP` and "StabRX: yaw damper 0.xxx" is sent. If
+  yaw did not finish, the damper keeps its value.
+- A pilot who sets `ACRO_YAW_RATE` to fly the yaw rate controller in ACRO
+  is left alone: nothing is copied.
+- The coordinated turn rate added during the yaw tune is the body yaw
+  rate of a coordinated turn, g * sin(bank) * cos(pitch) / airspeed, from
+  the actual attitude, as the damper uses. Stock used
+  g * tan(demanded bank) / max(AIRSPEED_MIN, airspeed), which with no
+  airspeed estimate and a 65 degree bank limit asked for up to 134 deg/s
+  of yaw with the rudder centred: the rudder kicked with every roll
+  input of the roll tune (41% mean). Now it is about 25 deg/s.
+
+In the RealFlight test, stepping the damper by hand showed the same
+margin the yaw autotune keeps: a fast tail wag started at about twice
+the tuned P. A model with no rudder output gets no damper.
 
 Procedure:
 
@@ -617,11 +645,15 @@ Procedure:
    anyway, but a centered knob means the tuned gains are what you get
    afterwards.
 2. Fly at a safe altitude in FBWA, enable autotune, and make repeated
-   sharp full-stick roll and pitch inputs.
+   sharp full-stick roll and pitch inputs, then sharp rudder inputs
+   until "Yaw: Finished". During the tune the rudder stick commands a
+   yaw rate (up to 90 deg/s).
 3. Disable autotune or land and disarm. The new gains are saved.
 
-The knob then scales the tuned gains. STABRX_GAIN_MAX above 1.5 is rarely
-useful after a good autotune.
+The knob then scales the tuned gains. In calm air the feedforward does
+most of the work, so the knob mainly changes how firmly gusts are
+resisted; the default top of 3 makes that easy to feel. A fast
+oscillation near the top of the knob shows the limit for that model.
 
 Speed scaling. ArduPlane also scales the gains with speed, and autotune
 tunes against that scaling:
@@ -675,7 +707,7 @@ Parameters added by this build:
 |---|---|---|
 | STABRX_GAIN_CH | 8 | RC channel for the gain knob, 0 to disable |
 | STABRX_GAIN_MIN | 0.0 | Scale at knob minimum |
-| STABRX_GAIN_MAX | 1.5 | Scale at knob maximum |
+| STABRX_GAIN_MAX | 3 | Scale at knob maximum (1.5 in the source) |
 | STABRX_TURN_CORR | 1 | Assumed airspeed for the attitude estimate's turn correction when there is no GPS and no airspeed sensor (0 in the source, 1 in the board defaults) |
 
 Builds up to StabRX-2026-11-16b named these parameters `GYRO_` (and the
@@ -707,19 +739,24 @@ Standard ArduPlane parameters set by the defaults:
 | STICK_MIXING | 0 | No stick mixing in automatic modes |
 | FLIGHT_OPTIONS | 32 | Bit 5: ACRO uses the yaw damper and rudder mix on the rudder, as FBWA does (stock ACRO passes the rudder stick through). No effect on the damper while the Yaw damper gain is 0 |
 | KFF_RDDRMIX | 0.2 | Aileron to rudder mix in FBWA and ACRO (stock 0.5). It follows the aileron output, so the rudder also moves a little with the roll corrections |
-| YAW2SRV_DAMP | 0.1 | Yaw damper gain, the menu's Yaw damper in 6 Tuning, Yaw gains (stock 0). A gentle value: about 7% rudder at 30 deg/s of yaw at cruise, up to 2.8 times that at idle without a speed estimate. Not tuned by autotune; the gain knob scales it |
-| AUTOTUNE_AXES | 3 | Autotune tunes roll and pitch (stock 7 adds yaw, which needs the yaw rate controller; the rudder stays on the yaw damper) |
+| YAW2SRV_DAMP | 0.05 | Yaw damper gain, the menu's Yaw damper in 6 Tuning, Yaw gains (stock 0). A low start value; autotune sets it for the model (section 11). The gain knob scales it |
+| AUTOTUNE_AXES | 7 | Autotune tunes roll, pitch and yaw; the yaw result sets the yaw damper (section 11) |
+| YAW_RATE_ENABLE | 1 | Lets the yaw autotune start. With ACRO_YAW_RATE 0 the rate controller flies only during autotune |
+| ACRO_YAW_RATE | 0 | The stock value, set explicitly: the rudder stick moves the rudder in ACRO, with the damper (no tail lock) |
+| AUTOTUNE_LEVEL | 8 | Autotune sets RLL2SRV/PTCH2SRV_TCONST 0.2 s and RMAX 120 deg/s, the FBWA response (stock 6: 0.5 s, 75 deg/s, which felt sluggish in RealFlight). Menu 6 Tuning |
 | THR_FAILSAFE | 1 | RC failsafe enabled |
 | FS_SHORT_ACTN | 2 | Short failsafe: FBWA at zero throttle |
 | RC_FS_TIMEOUT | 1 | Seconds without RC before the short failsafe |
 | FS_LONG_ACTN | 1 | Long failsafe: RTL (falls back to FBWA without home) |
 | FS_LONG_TIMEOUT | 5 | Seconds before the long failsafe |
 | FS_GCS_ENABL | 0 | No ground station failsafe |
-| PTCH_LIM_MAX_DEG | 35 | FBWA pitch up limit (stock 20) |
-| PTCH_LIM_MIN_DEG | -25 | FBWA pitch down limit (the stock value, set explicitly) |
-| ACRO_ROLL_RATE | 180 | deg/s at full roll stick |
-| ACRO_PITCH_RATE | 90 | deg/s at full pitch stick |
+| ROLL_LIMIT_DEG | 65 | FBWA bank limit (stock 45) |
+| PTCH_LIM_MAX_DEG | 45 | FBWA pitch up limit (stock 20) |
+| PTCH_LIM_MIN_DEG | -30 | FBWA pitch down limit (stock -25) |
+| ACRO_ROLL_RATE | 360 | deg/s at full roll stick (stock 180) |
+| ACRO_PITCH_RATE | 180 | deg/s at full pitch stick |
 | ACRO_LOCKING | 0 | No attitude locking in ACRO |
+| RLL2SRV_ACCEL, PTCH2SRV_ACCEL | 0 | No input shaping (stock 500 deg/s/s). With shaping on, ACRO is also capped at the autotune rate limit (RLL2SRV_RMAX, 120 deg/s at autotune level 8) and its rate changes are slowed; with 0 the full-stick rates above are the only ACRO limit. FBWA keeps the RMAX limit |
 | INS_GYR_CAL | 1 | Gyro calibration at boot; keep the model still |
 | LOG_DISARMED | 0 | Log only while armed |
 
@@ -738,10 +775,10 @@ Source of the customization:
 | `ArduPlane/stabrx.h`, `ArduPlane/stabrx.cpp` | The StabRX module: gain knob, the menu's level calibration, assumed airspeed, STABRX_ parameters |
 | `ArduPlane/stabrx_menu.h`, `ArduPlane/stabrx_menu.cpp` | The transmitter setup menu |
 | `ArduPlane/mode_rtl.cpp`, `ArduPlane/events.cpp` | RTL refused without home; failsafe falls back to FBWA |
-| `ArduPlane/Attitude.cpp` | No 25 degree stall prevention bank limit when there is no airspeed estimate |
+| `ArduPlane/Attitude.cpp` | No 25 degree stall prevention bank limit when there is no airspeed estimate; the yaw autotune's coordinated turn rate is the body yaw rate (section 11) |
 | `ArduPlane/AP_Arming_Plane.cpp` | Arming refused while a menu command is open |
 | `libraries/AP_AHRS/AP_AHRS.h`, `AP_AHRS_DCM.*` | Assumed airspeed for DCM's centripetal correction without GPS |
-| `libraries/APM_Control/AP_FW_Controller.*`, `AP_YawController.*` | Gain scale hook in the rate controllers |
+| `libraries/APM_Control/AP_FW_Controller.*`, `AP_YawController.*` | Gain scale hook in the roll and pitch rate controllers and the yaw damper |
 | `libraries/AP_RCTelemetry/AP_CRSF_Telem.*` | CRSF menus without the OSD, numbered the way ExpressLRS expects, with top-level entries |
 | `Tools/stabrx/` | SITL tests, CRSF radio emulator, SITL build defines |
 

@@ -386,7 +386,8 @@ Stock AP_RollController and the yaw rate controller assume 0 airspeed
 when there is no estimate (no airspeed sensor, no GPS fix). That counts
 as underspeed: the integrator is locked and autotune skips the axis.
 The pitch controller assumes the middle of AIRSPEED_MIN/MAX instead.
-Roll and yaw rate now do the same. Verified with
+Roll and yaw rate now do the same (the yaw autotune, which sets the
+yaw damper since 2026-11-19, needs it). Verified with
 `Tools/stabrx/sitl_autotune_test.py` (MANUAL takeoff, FBWA climb,
 AUTOTUNE on the mode switch, ARSPD_TYPE 0, no GPS): before the change
 roll never finished in 300 s and RLL_RATE_P stayed put while pitch
