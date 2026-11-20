@@ -536,8 +536,16 @@ int16_t Plane::calc_nav_yaw_coordinated()
         // user is doing an AUTOTUNE with yaw rate control
         const float rudd_expo = rudder_in_expo(true);
         const float yaw_rate = (rudd_expo/SERVO_MAX) * g.acro_yaw_rate;
-        // add in the coordinated turn yaw rate to make it easier to fly while tuning the yaw rate controller
-        const float coordination_yaw_rate = degrees(GRAVITY_MSS * tanf(cd_to_rad(nav_roll_cd))/MAX(aparm.airspeed_min,smoothed_airspeed));
+        // add in the coordinated turn yaw rate to make it easier to fly while tuning the yaw rate controller.
+        // The controller measures the body yaw rate, which in a coordinated turn is g*sin(bank)*cos(pitch)/V,
+        // as the yaw damper uses. Without an airspeed estimate assume the middle of AIRSPEED_MIN and
+        // AIRSPEED_MAX, as the rate controllers do
+        float aspeed;
+        if (!ahrs.airspeed_EAS(aspeed)) {
+            aspeed = 0.5f * (aparm.airspeed_min + aparm.airspeed_max);
+        }
+        const float coordination_yaw_rate = degrees(GRAVITY_MSS * sinf(ahrs.get_roll_rad()) * cosf(ahrs.get_pitch_rad()) /
+                                                    MAX(float(aparm.airspeed_min), aspeed));
         commanded_rudder = yawController.get_rate_out(yaw_rate+coordination_yaw_rate,  speed_scaler, false);
         using_rate_controller = true;
     } else {
