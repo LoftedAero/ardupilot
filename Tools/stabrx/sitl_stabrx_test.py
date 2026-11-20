@@ -17,7 +17,8 @@ Checks:
   F. nothing logged before arming, log starts on arming
   C. long RC failsafe falls back to FBWA when RTL is refused
   D. RTL accepted once GPS gives a home
-  E. STBX.Gain in the dataflash log follows the knob
+  E. STBX.Gain in the dataflash log follows the knob, exactly 1.0 within
+     5% of the knob travel from centre
 """
 import glob
 import os
@@ -208,7 +209,14 @@ try:
     pump(3)
     rc[7] = 1500
     pump(2)
+    # E3: 20 us off centre is inside the centre band
+    rc[7] = 1520
+    pump(2)
+    rc[7] = 1480
+    pump(2)
     # E2: turned down before the link is lost: the failsafe must keep this gain
+    # (1250 is half way to the low end; outside the centre band that is
+    # (0.5 - 0.05) / 0.95 of the way from 1.0 to 0, a scale of 0.53)
     rc[7] = 1250
     pump(2)
 
@@ -267,6 +275,7 @@ if not logs:
 else:
     from pymavlink import DFReader
     gains = []
+    raw_gains = []
     # between the failsafe messages: when the link returns the simulator's
     # own channel values are read for a moment before the test's are
     failsafe_gains = []
@@ -283,13 +292,16 @@ else:
                 in_failsafe = False
         elif msg.get_type() == "STBX":
             gains.append(round(msg.Gain, 2))
+            raw_gains.append(msg.Gain)
             if in_failsafe:
                 failsafe_gains.append(round(msg.Gain, 2))
     check("E: STBX messages logged", len(gains) > 0, f"n={len(gains)}")
     check("E: gain reached 1.5 at knob high", 1.5 in gains, f"max={max(gains) if gains else None}")
     check("E: gain reached 0.0 at knob low", 0.0 in gains, f"min={min(gains) if gains else None}")
     check("E: gain 1.0 at knob centre", 1.0 in gains)
-    check("E2: failsafe keeps the last knob gain", len(failsafe_gains) > 50 and set(failsafe_gains) == {0.5},
+    near_centre = sorted(set(round(g, 3) for g in raw_gains if 0.95 < g < 1.05 and g != 1.0))
+    check("E3: exactly 1.0 within the centre band", 1.0 in raw_gains and not near_centre, f"near={near_centre}")
+    check("E2: failsafe keeps the last knob gain", len(failsafe_gains) > 50 and set(failsafe_gains) == {0.53},
           f"n={len(failsafe_gains)} values={sorted(set(failsafe_gains))}")
 
 print()

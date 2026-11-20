@@ -2,14 +2,17 @@
 """
 AP_FLAKE8_CLEAN
 
-SITL check that autotune tunes both roll and pitch with no GPS and no
-airspeed sensor, the way a gyro build usually flies.
+SITL check that autotune tunes roll, pitch and the yaw damper with no GPS
+and no airspeed sensor, the way a gyro build usually flies.
 
 The plane is armed with the gyro arm switch (ch5) and takes off in
 MANUAL (mode switch low), climbs in FBWA (middle), then the mode switch
-high selects AUTOTUNE. Roll and then pitch get alternating full stick
+high selects AUTOTUNE. Roll, pitch and then yaw get alternating full stick
 inputs, as in ArduPilot's own AUTOTUNE autotest, until autotune reports
-"<axis>: Finished" for each.
+"<axis>: Finished" for each. The yaw autotune tunes the yaw rate
+controller (YAW_RATE_ENABLE 1); the StabRX module raises ACRO_YAW_RATE only
+while autotune runs and then copies the tuned YAW_RATE_P to the yaw damper
+(YAW2SRV_DAMP), so ACRO stays on the damper.
 
 The takeoff is in MANUAL because without a GPS the attitude estimate
 (DCM) cannot tell the takeoff run's acceleration from a pitch change:
@@ -19,6 +22,8 @@ Build first:  ./waf configure --board sitl --extra-hwdef=Tools/stabrx/sitl-stabr
 Run:          python3 Tools/stabrx/sitl_autotune_test.py
 Needs pymavlink. Scratch files go to $STABRX_TEST_DIR (default /tmp/stabrx_sitl_autotune).
 """
+import glob
+import math
 import os
 import socket
 import subprocess
@@ -59,6 +64,10 @@ FLTMODE5 8
 FLTMODE6 8
 STABRX_GAIN_CH 8
 STABRX_TURN_CORR 1
+AUTOTUNE_AXES 7
+YAW_RATE_ENABLE 1
+ACRO_YAW_RATE 0
+YAW2SRV_DAMP 0.05
 AHRS_EKF_TYPE 0
 SIM_GPS1_ENABLE 0
 GPS1_TYPE 0
@@ -145,7 +154,7 @@ try:
             time.sleep(0.05)
         return None
 
-    gains = ("RLL_RATE_P", "RLL_RATE_FF", "PTCH_RATE_P", "PTCH_RATE_FF")
+    gains = ("RLL_RATE_P", "RLL_RATE_FF", "PTCH_RATE_P", "PTCH_RATE_FF", "YAW_RATE_P")
     wait_sim(5)
     before = {g: get_param(g) for g in gains}
 
@@ -178,7 +187,8 @@ try:
     rc[5] = 2000
     wait_sim(2)
     check("AUTOTUNE selected", get("mode") == "AUTOTUNE", get("mode"))
-    for axis, ch in (("Roll", 0), ("Pitch", 1)):
+    check("ACRO_YAW_RATE raised while autotune runs", get_param("ACRO_YAW_RATE") == 90, get_param("ACRO_YAW_RATE"))
+    for axis, ch in (("Roll", 0), ("Pitch", 1), ("Yaw", 3)):
         value = 1000
         t0 = sim_s()
         finished = False
@@ -190,7 +200,7 @@ try:
             value = 2000 if value == 1000 else 1000
             rc[ch] = value
             wait_sim(1)
-        rc[0], rc[1] = 1500, 1500
+        rc[0], rc[1], rc[3] = 1500, 1500, 1500
         check("%s autotune finished" % axis, finished, "after %.0f s" % (sim_s() - t0))
         wait_sim(10)
 
@@ -200,10 +210,54 @@ try:
     for g in gains:
         changed = before[g] is not None and after[g] is not None and abs(after[g] - before[g]) > 1e-4
         check("%s changed" % g, changed, "%s -> %s" % (before[g], after[g]))
+    yaw_p = after["YAW_RATE_P"]
+    damp = get_param("YAW2SRV_DAMP")
+    check("yaw damper set to the tuned yaw rate P", damp is not None and yaw_p is not None and abs(damp - yaw_p) < 1e-5,
+          "YAW2SRV_DAMP %s" % damp)
+    with lock:
+        texts = list(state["texts"])
+    check("yaw damper message sent", any(t.startswith("StabRX: yaw damper") for t in texts))
+    check("ACRO_YAW_RATE back to 0 after autotune", get_param("ACRO_YAW_RATE") == 0, get_param("ACRO_YAW_RATE"))
     m.close()
 finally:
     proc.kill()
     proc.wait()
+
+# the yaw target during the roll tune, with the rudder stick centred, is
+# only the coordinated turn rate: g * sin(bank) * cos(pitch) / airspeed,
+# at most g / airspeed. With no airspeed estimate the airspeed is the
+# middle of AIRSPEED_MIN and AIRSPEED_MAX
+logs = sorted(glob.glob(os.path.join(HERE, "logs", "*.BIN")))
+if logs:
+    from pymavlink import DFReader
+    d = DFReader.DFReader_binary(logs[-1])
+    params = {}
+    roll_phase = False
+    rudder = 1500
+    targets = []
+    while True:
+        msg = d.recv_msg()
+        if msg is None:
+            break
+        t = msg.get_type()
+        if t == "PARM":
+            params[msg.Name] = msg.Value
+        elif t == "MSG":
+            if msg.Message.startswith("Started autotune"):
+                roll_phase = True
+            elif msg.Message.startswith("Roll: Finished"):
+                roll_phase = False
+        elif t == "RCIN":
+            rudder = msg.C4
+        elif t == "PIDY" and roll_phase and abs(rudder - 1500) < 40:
+            targets.append(abs(msg.Tar))
+    mid = 0.5 * (params.get("AIRSPEED_MIN", 0) + params.get("AIRSPEED_MAX", 0))
+    limit = math.degrees(9.80665 / max(mid, 1))
+    peak = max(targets) if targets else None
+    check("yaw target during the roll tune is the coordinated rate", peak is not None and peak <= limit + 2,
+          "max %s deg/s, limit %.0f" % (None if peak is None else round(peak), limit))
+else:
+    check("log written", False, "no .BIN in " + HERE)
 
 print()
 fails = [r for r in results if not r[1]]

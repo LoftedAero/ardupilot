@@ -112,7 +112,9 @@ def main():
                             stderr=subprocess.STDOUT)
     try:
         time.sleep(2)
-        m = mavutil.mavlink_connection("tcp:127.0.0.1:5760", source_system=254, autoreconnect=False)
+        # reconnect after the restart that the menu's GPS setting causes:
+        # SITL waits for this connection before it runs again
+        m = mavutil.mavlink_connection("tcp:127.0.0.1:5760", source_system=254, autoreconnect=True, retries=60)
         m.wait_heartbeat(timeout=60)
         armed = None
         # keep reading MAVLink: SITL's clock nearly stops when nobody reads
