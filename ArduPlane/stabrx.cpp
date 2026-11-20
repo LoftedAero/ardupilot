@@ -54,8 +54,51 @@ void PlaneStabRX::update()
     update_gain_scale();
     update_calibration();
     update_assumed_airspeed(now_ms);
+    update_yaw_damper_tune();
 
     write_log();
+}
+
+/*
+  tune the yaw damper with the stock yaw autotune. The yaw autotune tunes
+  the yaw rate controller, whose P term has the same form, units and
+  speed scaling as the damper (rudder per deg/s of yaw rate away from the
+  coordinated turn rate), so its tuned P becomes YAW2SRV_DAMP.
+  YAW_RATE_ENABLE lets the yaw autotune start. ACRO_YAW_RATE is raised in
+  memory only while autotune runs, so that the tune flies the rate
+  controller; with ACRO_YAW_RATE 0 the rudder is on the damper in every
+  mode, so ACRO has no tail lock. A pilot who sets ACRO_YAW_RATE to fly
+  the yaw rate controller in ACRO is left alone.
+ */
+void PlaneStabRX::update_yaw_damper_tune()
+{
+    const bool tuning_yaw = plane.autotuning &&
+        (plane.g2.axis_bitmask.get() & int8_t(Plane::AutoTuneAxis::YAW)) &&
+        plane.yawController.rate_control_enabled();
+    enum ap_var_type ptype;
+    AP_Float *rate_p = (AP_Float *)AP_Param::find("YAW_RATE_P", &ptype);
+    if (rate_p == nullptr || ptype != AP_PARAM_FLOAT) {
+        return;
+    }
+    if (tuning_yaw && !yaw_tune_active) {
+        if (plane.g.acro_yaw_rate.get() != 0) {
+            return;
+        }
+        yaw_tune_active = true;
+        yaw_p_before = rate_p->get();
+        plane.g.acro_yaw_rate.set(90);
+    } else if (!tuning_yaw && yaw_tune_active) {
+        yaw_tune_active = false;
+        plane.g.acro_yaw_rate.set(0);
+        // autotune keeps the new gains only when the axis finished, and
+        // otherwise puts the old ones back
+        const float p = rate_p->get();
+        AP_Float *damp = (AP_Float *)AP_Param::find("YAW2SRV_DAMP", &ptype);
+        if (damp != nullptr && ptype == AP_PARAM_FLOAT && !is_equal(p, yaw_p_before)) {
+            damp->set_and_save(p);
+            GCS_SEND_TEXT(MAV_SEVERITY_INFO, "StabRX: yaw damper %.3f", p);
+        }
+    }
 }
 
 /*

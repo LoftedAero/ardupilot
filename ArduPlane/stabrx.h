@@ -70,6 +70,10 @@ private:
     float gain_scale = 1.0f;
     LevelCalState level_cal_state;
 
+    // yaw damper tune: set while the stock yaw autotune runs
+    bool yaw_tune_active;
+    float yaw_p_before;
+
     // assumed airspeed: the model counts as airborne from a second of
     // armed throttle until it is disarmed and still
     bool airborne;
@@ -83,6 +87,7 @@ private:
     void update_gain_scale();
     void update_calibration();
     void update_assumed_airspeed(uint32_t now_ms);
+    void update_yaw_damper_tune();
     void write_log();
 };
 
