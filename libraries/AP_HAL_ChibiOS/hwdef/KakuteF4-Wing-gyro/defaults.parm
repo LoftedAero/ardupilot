@@ -82,7 +82,7 @@ RC7_OPTION 4
 # --- Gain knob on channel 8: master gain for the rate controllers ---
 STABRX_GAIN_CH 8
 STABRX_GAIN_MIN 0
-STABRX_GAIN_MAX 1.5
+STABRX_GAIN_MAX 3
 
 # --- Turns without a GPS: assumed airspeed for the attitude estimate's turn correction.
 # Set the model's cruise speed in the menu (6 Tuning, Speeds): it writes SCALING_SPEED and
@@ -98,11 +98,20 @@ STICK_MIXING 0
 # (FLIGHT_OPTIONS bit 5); a small aileron to rudder mix in FBWA and ACRO
 FLIGHT_OPTIONS 32
 KFF_RDDRMIX 0.2
-# a gentle yaw damper: about 7% rudder at 30 deg/s of yaw at cruise; no effect without a rudder
-YAW2SRV_DAMP 0.1
+# a low start value for the yaw damper (no effect without a rudder); autotune
+# sets it for the model
+YAW2SRV_DAMP 0.05
 
-# --- Autotune: roll and pitch; the rudder stays on the yaw damper ---
-AUTOTUNE_AXES 3
+# --- Autotune: roll, pitch and the yaw damper. The yaw autotune tunes the
+# yaw rate controller, enabled for that only: ACRO_YAW_RATE stays 0, so the
+# rudder is on the damper in every mode (no tail lock in ACRO), and the
+# StabRX module copies the tuned YAW_RATE_P to YAW2SRV_DAMP. Level 8 sets a
+# 0.2 s time constant and a 120 deg/s rate limit for FBWA (stock 6: 0.5 s,
+# 75 deg/s); ACRO is limited only by the ACRO rates ---
+AUTOTUNE_AXES 7
+AUTOTUNE_LEVEL 8
+YAW_RATE_ENABLE 1
+ACRO_YAW_RATE 0
 
 # --- Link loss: short = FBWA at zero throttle; long = RTL if home is set, else FBWA glide
 THR_FAILSAFE 1
@@ -112,14 +121,20 @@ FS_LONG_ACTN 1
 FS_LONG_TIMEOUT 5
 FS_GCS_ENABL 0
 
-# --- FBWA pitch limits (menu 6 Tuning); stock is 20 up, -25 down ---
-PTCH_LIM_MAX_DEG 35
-PTCH_LIM_MIN_DEG -25
+# --- FBWA bank and pitch limits (menu 6 Tuning); stock is 45 bank, 20 up,
+# -25 down ---
+ROLL_LIMIT_DEG 65
+PTCH_LIM_MAX_DEG 45
+PTCH_LIM_MIN_DEG -30
 
-# --- ACRO feel ---
-ACRO_ROLL_RATE 180
-ACRO_PITCH_RATE 90
+# --- ACRO feel: the full-stick rates are the only ACRO limit. ACCEL 0
+# turns off the input shaping that would also cap ACRO at the autotune
+# RMAX and slow its rate changes; FBWA keeps the RMAX limit ---
+ACRO_ROLL_RATE 360
+ACRO_PITCH_RATE 180
 ACRO_LOCKING 0
+RLL2SRV_ACCEL 0
+PTCH2SRV_ACCEL 0
 
 # --- Logging: while armed only ---
 LOG_DISARMED 0
